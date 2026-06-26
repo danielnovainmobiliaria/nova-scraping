@@ -155,11 +155,18 @@ Reglas de interpretación (mercado bogotano):
 - "MM" = millones (10MM = 10000000). El apóstrofo es separador ("1'900.000.000" = 1900000000).
 - Rangos de presupuesto ("800M-900M", "11M-14M"): usa el valor MÁXIMO como presupuesto_max
   y menciona el rango en "notas".
-- Si el presupuesto viene como PRECIO POR METRO ("18MM precio Mt2"), multiplícalo por el
-  área para estimar el presupuesto_max total y aclara en "notas" que fue un cálculo.
+- Si el presupuesto viene como PRECIO POR METRO ("15MM-18MM precio Mt2"), usa el valor
+  SUPERIOR del rango por m² (ej. 18MM) y multiplícalo por el área para estimar el
+  presupuesto_max total. Como el precio por m² es aproximado, conviene ser generoso
+  (puedes tomar el tope o un poco más). Aclara en "notas" que fue un cálculo y deja el
+  rango original.
 - Si la ZONA se describe por calles/carreras (un perímetro, ej. "entre calle 100 y 82" o
-  "Calle 72 - 100 - séptima - autopista"): deduce e incluye en "barrios" los barrios conocidos
-  de ese sector de Bogotá, y copia el perímetro textual en "notas".
+  "Calle 72 - 100 - séptima - autopista"): el barrio CASI SIEMPRE se menciona en las
+  publicaciones, así que deduce e incluye en "barrios" los nombres REALES de los barrios de
+  Bogotá que caen en ese sector (ej. Chicó, El Nogal, Quinta Camacho, La Cabrera, Rosales,
+  Chapinero Alto, El Retiro, Cedritos, Santa Bárbara, La Carolina). NO inventes nombres
+  genéricos (como "Barrio Antiguo") ni te quedes solo en la localidad si puedes nombrar
+  barrios específicos. Copia además el perímetro textual en "notas".
 - IGNORA datos administrativos que NO describen el inmueble: teléfono, status, fechas,
   horas, URLs, correos, nombre del asesor/referente. NO los pongas en "notas".
 - Si un dato no aparece, usa null (o lista vacía para barrios/extras). NO inventes.

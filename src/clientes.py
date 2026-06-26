@@ -140,6 +140,62 @@ def guardar_lista(clientes: list[dict[str, Any]]) -> None:
     )
 
 
+def _completitud(c: dict[str, Any]) -> int:
+    """Cuenta cuántos campos del cliente tienen información (para elegir el más completo)."""
+    n = 0
+    for v in c.values():
+        if isinstance(v, list):
+            n += len(v)
+        elif v not in (None, "", 0):
+            n += 1
+    return n
+
+
+def _fusionar_dos(base: dict[str, Any], otro: dict[str, Any]) -> dict[str, Any]:
+    """Fusiona 'otro' dentro de 'base' (base es el más completo y manda en empates)."""
+    out = dict(base)
+    for k, v in otro.items():
+        actual = out.get(k)
+        if isinstance(actual, list) or isinstance(v, list):
+            la = actual if isinstance(actual, list) else ([] if actual in (None, "") else [actual])
+            lb = v if isinstance(v, list) else ([] if v in (None, "") else [v])
+            out[k] = list(dict.fromkeys([*la, *lb]))   # une sin duplicar, conserva orden
+        elif k in ("notas", "notas_crm"):
+            partes = [str(x).strip() for x in (actual, v) if x and str(x).strip()]
+            out[k] = " | ".join(dict.fromkeys(partes))
+        elif actual in (None, "", 0) and v not in (None, "", 0):
+            out[k] = v                                  # base no tenía el dato → lo toma de otro
+    return out
+
+
+def fusionar_duplicados(lista: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Une clientes con el mismo nombre: toma el más completo y fusiona el resto.
+
+    Une listas (barrios, extras, inmuebles_enviados) sin duplicar y concatena las notas.
+    """
+    grupos: dict[str, list[dict[str, Any]]] = {}
+    orden: list[str] = []
+    for c in lista:
+        key = c.get("nombre", "").strip().lower()
+        if key not in grupos:
+            grupos[key] = []
+            orden.append(key)
+        grupos[key].append(c)
+
+    resultado: list[dict[str, Any]] = []
+    for key in orden:
+        grupo = grupos[key]
+        if len(grupo) == 1:
+            resultado.append(grupo[0])
+            continue
+        grupo = sorted(grupo, key=_completitud, reverse=True)  # el más completo primero
+        fusionado = dict(grupo[0])
+        for otro in grupo[1:]:
+            fusionado = _fusionar_dos(fusionado, otro)
+        resultado.append(fusionado)
+    return resultado
+
+
 def agregar_o_actualizar(cliente: dict[str, Any]) -> None:
     """Agrega un cliente nuevo o reemplaza uno existente con el mismo nombre."""
     lista = cargar_guardados()

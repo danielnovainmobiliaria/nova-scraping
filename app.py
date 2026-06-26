@@ -272,9 +272,12 @@ with tab_clientes:
                         from src import extractor
                         nuevos = extractor.interpretar_clientes(textos, log=log_ia)
                         existentes = mod_clientes.cargar_guardados()
-                        for c in nuevos:
-                            mod_clientes.agregar_o_actualizar(c)
-                        st.success(f"¡Se agregaron {len(nuevos)} cliente(s)! "
+                        # Une duplicados (mismo nombre) tomando el más completo, y
+                        # conserva el seguimiento CRM de los que ya existían.
+                        combinados = mod_clientes.fusionar_duplicados(existentes + nuevos)
+                        mod_clientes.guardar_lista(combinados)
+                        st.success(f"¡Listo! Se procesaron {len(nuevos)} fila(s) → "
+                                   f"{len(combinados)} cliente(s) en total (duplicados unidos). "
                                    "Revísalos en la tabla y dale Guardar si todo está bien.")
                         st.rerun()
                     except Exception as e:  # noqa: BLE001
