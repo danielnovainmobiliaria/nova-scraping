@@ -73,14 +73,65 @@ def cargar_clientes(ruta: str | Path) -> list[dict[str, Any]]:
 
 # ── Almacén de clientes del formulario (data/clientes.json) ───
 
+# Campos del CRM (seguimiento) con sus valores por defecto.
+CRM_CAMPOS = {"estado": "activo", "visitas": 0, "inmuebles_enviados": [], "notas_crm": ""}
+
+
+def _con_crm(cliente: dict[str, Any]) -> dict[str, Any]:
+    """Asegura que el cliente tenga los campos de seguimiento (CRM)."""
+    for campo, defecto in CRM_CAMPOS.items():
+        if campo not in cliente:
+            cliente[campo] = [] if isinstance(defecto, list) else defecto
+    return cliente
+
+
 def cargar_guardados() -> list[dict[str, Any]]:
-    """Lee los clientes que agregaste desde el formulario de la app."""
+    """Lee los clientes guardados, garantizando los campos del CRM."""
     if not STORE_FILE.exists():
         return []
     try:
-        return json.loads(STORE_FILE.read_text(encoding="utf-8"))
+        lista = json.loads(STORE_FILE.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return []
+    return [_con_crm(c) for c in lista]
+
+
+def fusionar_crm(nuevos: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Conserva los datos de CRM (estado, visitas, enviados) al reescribir clientes.
+
+    Cuando se guardan los REQUERIMIENTOS de un cliente, no queremos borrar su
+    seguimiento. Esta función copia los campos CRM del cliente previo (por nombre).
+    """
+    previos = {c.get("nombre", "").lower(): c for c in cargar_guardados()}
+    for c in nuevos:
+        anterior = previos.get(c.get("nombre", "").lower())
+        for campo, defecto in CRM_CAMPOS.items():
+            if anterior and campo in anterior:
+                c[campo] = anterior[campo]
+            elif campo not in c:
+                c[campo] = [] if isinstance(defecto, list) else defecto
+    return nuevos
+
+
+def actualizar_crm(nombre: str, cambios: dict[str, Any]) -> None:
+    """Actualiza los campos de seguimiento (estado, visitas, etc.) de un cliente."""
+    lista = cargar_guardados()
+    for c in lista:
+        if c.get("nombre", "").lower() == nombre.lower():
+            c.update(cambios)
+    guardar_lista(lista)
+
+
+def marcar_inmueble_enviado(nombre: str, inmueble: str) -> None:
+    """Agrega un inmueble a la lista de 'enviados' de un cliente (sin duplicar)."""
+    lista = cargar_guardados()
+    for c in lista:
+        if c.get("nombre", "").lower() == nombre.lower():
+            enviados = c.get("inmuebles_enviados") or []
+            if inmueble not in enviados:
+                enviados.append(inmueble)
+            c["inmuebles_enviados"] = enviados
+    guardar_lista(lista)
 
 
 def guardar_lista(clientes: list[dict[str, Any]]) -> None:

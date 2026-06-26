@@ -63,9 +63,12 @@ with st.sidebar.expander(f"🔑 Mis llaves — {estado}", expanded=not tiene_lla
         st.rerun()
 
 # ── Pestañas ──────────────────────────────────────────────────
-tab_fuentes, tab_clientes, tab_resultados = st.tabs(
-    ["1️⃣ Fuentes (Instagram)", "2️⃣ Clientes", "3️⃣ Coincidencias"]
+tab_fuentes, tab_clientes, tab_resultados, tab_crm = st.tabs(
+    ["1️⃣ Fuentes (Instagram)", "2️⃣ Clientes", "3️⃣ Coincidencias", "4️⃣ CRM"]
 )
+
+# Etiquetas visuales de los estados del negocio.
+ESTADOS_CRM = {"activo": "🟡 Activo", "ganado": "🟢 Ganado", "perdido": "🔴 Perdido"}
 
 # ===== 1. FUENTES ============================================
 with tab_fuentes:
@@ -296,7 +299,7 @@ with tab_clientes:
 
         c1, c2, c3 = st.columns(3)
         if c1.button("💾 Guardar cambios", type="primary", use_container_width=True):
-            mod_clientes.guardar_lista(df_a_clientes(editado))
+            mod_clientes.guardar_lista(mod_clientes.fusionar_crm(df_a_clientes(editado)))
             st.success("¡Clientes guardados!")
             st.rerun()
         c2.download_button(
@@ -392,6 +395,17 @@ with tab_resultados:
                             st.code(mensaje, language=None)
                     with c2:
                         st.metric("Coincidencia", f"{m['score']}%")
+                        if not es_demo:
+                            inmueble = " · ".join(x for x in [
+                                p.get("resumen") or (p.get("caption", "")[:50]),
+                                p.get("barrio", ""),
+                                f"${p['precio']:,.0f}" if p.get("precio") else "",
+                                p.get("url", ""),
+                            ] if x)
+                            if st.button("📤 Marcar enviado", key=f"env_{nombre}_{p.get('id','x')}",
+                                         help=f"Registrar en el CRM de {nombre}"):
+                                mod_clientes.marcar_inmueble_enviado(nombre, inmueble)
+                                st.toast(f"📤 Guardado en el CRM de {nombre}")
                     st.divider()
 
         # Descarga de todos los matches en un CSV.
@@ -410,3 +424,80 @@ with tab_resultados:
             csv = pd.DataFrame(filas).to_csv(index=False).encode("utf-8")
             st.download_button("⬇️ Descargar coincidencias (CSV)", csv,
                                "coincidencias.csv", "text/csv")
+
+# ===== 4. CRM (seguimiento) ==================================
+with tab_crm:
+    st.subheader("CRM — Seguimiento de clientes")
+    crm_clientes = [
+        {**c, "estado": c.get("estado", "activo"), "visitas": c.get("visitas", 0),
+         "inmuebles_enviados": c.get("inmuebles_enviados", []),
+         "notas_crm": c.get("notas_crm", "")}
+        for c in st.session_state.get("clientes", [])
+    ]
+
+    if not crm_clientes:
+        st.warning("Primero carga tus clientes en la pestaña **2️⃣ Clientes**.")
+    else:
+        # ── Resumen (tablero) ────────────────────────────────
+        n_activos = sum(1 for c in crm_clientes if c["estado"] == "activo")
+        n_ganados = sum(1 for c in crm_clientes if c["estado"] == "ganado")
+        n_perdidos = sum(1 for c in crm_clientes if c["estado"] == "perdido")
+        visitas_tot = sum(int(c.get("visitas") or 0) for c in crm_clientes)
+        enviados_tot = sum(len(c.get("inmuebles_enviados") or []) for c in crm_clientes)
+
+        m = st.columns(5)
+        m[0].metric("👥 Clientes", len(crm_clientes))
+        m[1].metric("🟡 Activos", n_activos)
+        m[2].metric("🟢 Ganados", n_ganados)
+        m[3].metric("🔴 Perdidos", n_perdidos)
+        m[4].metric("👣 Visitas", visitas_tot)
+        st.caption(f"📤 {enviados_tot} inmueble(s) enviados en total. "
+                   "Marca inmuebles desde la pestaña **3️⃣ Coincidencias**.")
+
+        if es_demo:
+            st.info("Modo Demo: el seguimiento no se guarda. Cambia a modo Real para usarlo.")
+
+        st.divider()
+        filtro = st.radio("Ver", ["Todos", "🟡 Activos", "🟢 Ganados", "🔴 Perdidos"],
+                          horizontal=True)
+        mapa_filtro = {"🟡 Activos": "activo", "🟢 Ganados": "ganado", "🔴 Perdidos": "perdido"}
+
+        for c in crm_clientes:
+            if filtro != "Todos" and c["estado"] != mapa_filtro.get(filtro):
+                continue
+            nombre = c["nombre"]
+            enviados = c.get("inmuebles_enviados") or []
+            cab = (f"{ESTADOS_CRM.get(c['estado'], c['estado'])}  ·  **{nombre}**  ·  "
+                   f"👣 {c.get('visitas', 0)} visita(s)  ·  📤 {len(enviados)} enviado(s)")
+            with st.container(border=True):
+                st.markdown(cab)
+                if es_demo:
+                    if enviados:
+                        st.caption("Enviados: " + "; ".join(enviados[:3]))
+                    continue
+                with st.form(key=f"crm_form_{nombre}"):
+                    col1, col2 = st.columns([1, 1])
+                    estado = col1.selectbox(
+                        "Estado del negocio", ["activo", "ganado", "perdido"],
+                        index=["activo", "ganado", "perdido"].index(c["estado"]),
+                        format_func=lambda e: ESTADOS_CRM[e], key=f"est_{nombre}")
+                    visitas = col2.number_input("Visitas realizadas", min_value=0,
+                                                value=int(c.get("visitas") or 0),
+                                                step=1, key=f"vis_{nombre}")
+                    enviados_txt = st.text_area(
+                        "Inmuebles enviados (uno por línea)",
+                        value="\n".join(enviados), height=100, key=f"env_txt_{nombre}",
+                        help="Se llena solo cuando marcas inmuebles en Coincidencias, "
+                             "pero también puedes editarlo a mano.")
+                    notas_crm = st.text_area("Notas de seguimiento",
+                                             value=c.get("notas_crm", ""),
+                                             height=70, key=f"ncrm_{nombre}")
+                    if st.form_submit_button("💾 Guardar seguimiento", type="primary"):
+                        mod_clientes.actualizar_crm(nombre, {
+                            "estado": estado,
+                            "visitas": int(visitas),
+                            "inmuebles_enviados": [l.strip() for l in enviados_txt.splitlines() if l.strip()],
+                            "notas_crm": notas_crm.strip(),
+                        })
+                        st.success(f"Seguimiento de {nombre} guardado.")
+                        st.rerun()
