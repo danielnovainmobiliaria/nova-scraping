@@ -148,6 +148,20 @@ Reglas de interpretación (mercado bogotano):
 - "mts2"/"m2"/"mtrs"/"metros" = área. "mín 60 m2" -> area_min 60.
   "entre 60 y 90 m2" -> area_min 60, area_max 90. "máx 120" -> area_max 120.
 - "cuarto de servicio"/"alcoba de servicio" -> "cuarto_servicio".
+- Operación: si el cliente quiere COMPRAR ("compra", "comprar") -> operacion="venta"
+  (busca inmuebles EN venta). Si quiere ARRENDAR/alquilar -> "arriendo". Si no lo dice
+  pero el presupuesto es de cientos o miles de millones, asume "venta"; si es de pocos
+  millones (mensuales), asume "arriendo".
+- "MM" = millones (10MM = 10000000). El apóstrofo es separador ("1'900.000.000" = 1900000000).
+- Rangos de presupuesto ("800M-900M", "11M-14M"): usa el valor MÁXIMO como presupuesto_max
+  y menciona el rango en "notas".
+- Si el presupuesto viene como PRECIO POR METRO ("18MM precio Mt2"), multiplícalo por el
+  área para estimar el presupuesto_max total y aclara en "notas" que fue un cálculo.
+- Si la ZONA se describe por calles/carreras (un perímetro, ej. "entre calle 100 y 82" o
+  "Calle 72 - 100 - séptima - autopista"): deduce e incluye en "barrios" los barrios conocidos
+  de ese sector de Bogotá, y copia el perímetro textual en "notas".
+- IGNORA datos administrativos que NO describen el inmueble: teléfono, status, fechas,
+  horas, URLs, correos, nombre del asesor/referente. NO los pongas en "notas".
 - Si un dato no aparece, usa null (o lista vacía para barrios/extras). NO inventes.
 - Si no hay nombre, deja "nombre" en null.
 """
