@@ -74,7 +74,12 @@ def cargar_clientes(ruta: str | Path) -> list[dict[str, Any]]:
 # ── Almacén de clientes del formulario (data/clientes.json) ───
 
 # Campos del CRM (seguimiento) con sus valores por defecto.
-CRM_CAMPOS = {"estado": "activo", "visitas": 0, "inmuebles_enviados": [], "notas_crm": ""}
+# valor_cierre = canon mensual (arriendo) o precio de venta final (venta).
+# comision = comisión final (ajustable, porque todo es negociable).
+CRM_CAMPOS = {
+    "estado": "activo", "visitas": 0, "inmuebles_enviados": [], "notas_crm": "",
+    "valor_cierre": 0, "comision": 0,
+}
 
 
 def _con_crm(cliente: dict[str, Any]) -> dict[str, Any]:

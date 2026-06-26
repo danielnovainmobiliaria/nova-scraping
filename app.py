@@ -70,6 +70,23 @@ tab_fuentes, tab_clientes, tab_resultados, tab_crm = st.tabs(
 # Etiquetas visuales de los estados del negocio.
 ESTADOS_CRM = {"activo": "🟡 Activo", "ganado": "🟢 Ganado", "perdido": "🔴 Perdido"}
 
+# Comisión de venta: 3% del valor total (ajustable a mano por negociación).
+COMISION_VENTA_PCT = 0.03
+
+
+def comision_sugerida(operacion: str, valor: float) -> int:
+    """Comisión sugerida según el tipo de negocio.
+
+    - Arriendo: el primer canon (sin administración) = el valor del canon.
+    - Venta: 3% del valor total.
+    """
+    valor = float(valor or 0)
+    if valor <= 0:
+        return 0
+    if (operacion or "").lower() == "arriendo":
+        return round(valor)
+    return round(valor * COMISION_VENTA_PCT)
+
 # ===== 1. FUENTES ============================================
 with tab_fuentes:
     st.subheader("Cuentas de Instagram a monitorear")
@@ -448,14 +465,22 @@ with tab_crm:
         visitas_tot = sum(int(c.get("visitas") or 0) for c in crm_clientes)
         enviados_tot = sum(len(c.get("inmuebles_enviados") or []) for c in crm_clientes)
 
+        com_ganadas = sum(float(c.get("comision") or 0)
+                          for c in crm_clientes if c["estado"] == "ganado")
+        com_en_juego = sum(float(c.get("comision") or 0)
+                           for c in crm_clientes if c["estado"] == "activo")
+
         m = st.columns(5)
         m[0].metric("👥 Clientes", len(crm_clientes))
         m[1].metric("🟡 Activos", n_activos)
         m[2].metric("🟢 Ganados", n_ganados)
         m[3].metric("🔴 Perdidos", n_perdidos)
         m[4].metric("👣 Visitas", visitas_tot)
-        st.caption(f"📤 {enviados_tot} inmueble(s) enviados en total. "
-                   "Marca inmuebles desde la pestaña **3️⃣ Coincidencias**.")
+
+        f1, f2, f3 = st.columns(3)
+        f1.metric("💰 Comisiones ganadas", f"${com_ganadas:,.0f}")
+        f2.metric("⏳ Comisiones en juego (activos)", f"${com_en_juego:,.0f}")
+        f3.metric("📤 Inmuebles enviados", enviados_tot)
 
         if es_demo:
             st.info("Modo Demo: el seguimiento no se guarda. Cambia a modo Real para usarlo.")
@@ -470,14 +495,20 @@ with tab_crm:
                 continue
             nombre = c["nombre"]
             enviados = c.get("inmuebles_enviados") or []
+            com_actual = float(c.get("comision") or 0)
             cab = (f"{ESTADOS_CRM.get(c['estado'], c['estado'])}  ·  **{nombre}**  ·  "
                    f"👣 {c.get('visitas', 0)} visita(s)  ·  📤 {len(enviados)} enviado(s)")
+            if com_actual > 0:
+                cab += f"  ·  💰 ${com_actual:,.0f}"
             with st.container(border=True):
                 st.markdown(cab)
                 if es_demo:
                     if enviados:
                         st.caption("Enviados: " + "; ".join(enviados[:3]))
                     continue
+
+                op = (c.get("operacion") or "venta").lower()
+                es_arriendo = op == "arriendo"
                 with st.form(key=f"crm_form_{nombre}"):
                     col1, col2 = st.columns([1, 1])
                     estado = col1.selectbox(
@@ -487,6 +518,28 @@ with tab_crm:
                     visitas = col2.number_input("Visitas realizadas", min_value=0,
                                                 value=int(c.get("visitas") or 0),
                                                 step=1, key=f"vis_{nombre}")
+
+                    # ── Financiero (valor de cierre y comisión) ──
+                    colv, colc = st.columns([1, 1])
+                    valor_cierre = colv.number_input(
+                        "Canon mensual acordado ($)" if es_arriendo
+                        else "Precio de venta final ($)",
+                        min_value=0, value=int(c.get("valor_cierre") or 0),
+                        step=100_000 if es_arriendo else 10_000_000,
+                        format="%d", key=f"val_{nombre}",
+                        help="Ajústalo al valor final negociado.")
+                    comision = colc.number_input(
+                        "Comisión ($)", min_value=0, value=int(c.get("comision") or 0),
+                        step=100_000, format="%d", key=f"com_{nombre}",
+                        help=("Comisión = primer canon, sin administración."
+                              if es_arriendo else
+                              f"Comisión = {COMISION_VENTA_PCT * 100:.0f}% del valor. "
+                              "Todo es negociable: edítala si hace falta."))
+                    sug = comision_sugerida(op, c.get("valor_cierre") or 0)
+                    nota_calc = ("💡 Comisión = primer canon." if es_arriendo
+                                 else f"💡 Comisión sugerida ({COMISION_VENTA_PCT * 100:.0f}%): ${sug:,.0f}.")
+                    st.caption(nota_calc + " Si dejas la comisión en 0, se calcula sola al guardar.")
+
                     enviados_txt = st.text_area(
                         "Inmuebles enviados (uno por línea)",
                         value="\n".join(enviados), height=100, key=f"env_txt_{nombre}",
@@ -496,9 +549,13 @@ with tab_crm:
                                              value=c.get("notas_crm", ""),
                                              height=70, key=f"ncrm_{nombre}")
                     if st.form_submit_button("💾 Guardar seguimiento", type="primary"):
+                        com_final = int(comision) if int(comision) > 0 \
+                            else comision_sugerida(op, valor_cierre)
                         mod_clientes.actualizar_crm(nombre, {
                             "estado": estado,
                             "visitas": int(visitas),
+                            "valor_cierre": int(valor_cierre),
+                            "comision": com_final,
                             "inmuebles_enviados": [l.strip() for l in enviados_txt.splitlines() if l.strip()],
                             "notas_crm": notas_crm.strip(),
                         })
