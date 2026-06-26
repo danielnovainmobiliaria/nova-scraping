@@ -2,6 +2,7 @@
 # Llaves secretas (Apify, Claude):
 .env
 .streamlit/secrets.toml
+MIS_LLAVES_PARA_STREAMLIT.txt
 
 # Datos privados de clientes y caché:
 data/
