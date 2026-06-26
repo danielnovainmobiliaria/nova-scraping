@@ -1,0 +1,103 @@
+"""Lectura de la lista de clientes desde Excel.
+
+Convierte cada fila de la hoja de cálculo en un diccionario con los
+requerimientos del cliente, listo para el motor de cruce.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+from . import config
+
+# Archivo donde se guardan los clientes que agregas desde el formulario de la app.
+STORE_FILE = config.DATA_DIR / "clientes.json"
+
+# Columnas esperadas en el Excel (ver plantilla_clientes.xlsx).
+COLUMNAS = [
+    "nombre", "operacion", "barrios", "zona", "area_min", "area_max",
+    "presupuesto_max", "habitaciones_min", "banos_min", "extras",
+    "perimetro", "notas",
+]
+
+
+def _lista(valor: Any) -> list[str]:
+    """Convierte 'estudio, terraza' → ['estudio', 'terraza']."""
+    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+        return []
+    return [x.strip() for x in str(valor).replace(";", ",").split(",") if x.strip()]
+
+
+def _numero(valor: Any) -> float | None:
+    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+        return None
+    try:
+        # Acepta "1.500.000", "1500000" o "120 m2".
+        limpio = "".join(c for c in str(valor) if c.isdigit())
+        return float(limpio) if limpio else None
+    except ValueError:
+        return None
+
+
+def cargar_clientes(ruta: str | Path) -> list[dict[str, Any]]:
+    """Lee el Excel de clientes y devuelve la lista de requerimientos."""
+    df = pd.read_excel(ruta)
+    df.columns = [str(c).strip().lower() for c in df.columns]
+
+    clientes: list[dict[str, Any]] = []
+    for _, fila in df.iterrows():
+        nombre = str(fila.get("nombre", "")).strip()
+        if not nombre or nombre.lower() == "nan":
+            continue
+        clientes.append(
+            {
+                "nombre": nombre,
+                "operacion": str(fila.get("operacion", "")).strip().lower(),
+                "barrios": _lista(fila.get("barrios")),
+                "zona": str(fila.get("zona", "")).strip(),
+                "area_min": _numero(fila.get("area_min")),
+                "area_max": _numero(fila.get("area_max")),
+                "presupuesto_max": _numero(fila.get("presupuesto_max")),
+                "habitaciones_min": _numero(fila.get("habitaciones_min")),
+                "banos_min": _numero(fila.get("banos_min")),
+                "extras": [e.lower() for e in _lista(fila.get("extras"))],
+                "perimetro": str(fila.get("perimetro", "")).strip(),
+                "notas": str(fila.get("notas", "")).strip(),
+            }
+        )
+    return clientes
+
+
+# ── Almacén de clientes del formulario (data/clientes.json) ───
+
+def cargar_guardados() -> list[dict[str, Any]]:
+    """Lee los clientes que agregaste desde el formulario de la app."""
+    if not STORE_FILE.exists():
+        return []
+    try:
+        return json.loads(STORE_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def guardar_lista(clientes: list[dict[str, Any]]) -> None:
+    STORE_FILE.write_text(
+        json.dumps(clientes, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def agregar_o_actualizar(cliente: dict[str, Any]) -> None:
+    """Agrega un cliente nuevo o reemplaza uno existente con el mismo nombre."""
+    lista = cargar_guardados()
+    lista = [c for c in lista if c.get("nombre", "").lower() != cliente["nombre"].lower()]
+    lista.append(cliente)
+    guardar_lista(lista)
+
+
+def eliminar(nombre: str) -> None:
+    lista = [c for c in cargar_guardados()
+             if c.get("nombre", "").lower() != nombre.lower()]
+    guardar_lista(lista)

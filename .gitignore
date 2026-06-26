@@ -1,0 +1,13 @@
+# ── NUNCA subir a internet ────────────────────────────────────
+# Llaves secretas (Apify, Claude):
+.env
+.streamlit/secrets.toml
+
+# Datos privados de clientes y caché:
+data/
+
+# Entorno y temporales de Python:
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
