@@ -192,6 +192,34 @@ def excel_bytes(df) -> bytes:
     return buffer.getvalue()
 
 
+def leer_tabla(archivo):
+    """Lee un CSV o Excel subido y devuelve un DataFrame (probando codificaciones)."""
+    nombre = archivo.name.lower()
+    if nombre.endswith(".csv"):
+        for enc in ("utf-8", "latin-1"):
+            try:
+                archivo.seek(0)
+                return pd.read_csv(archivo, encoding=enc, sep=None, engine="python")
+            except Exception:  # noqa: BLE001
+                continue
+        archivo.seek(0)
+        return pd.read_csv(archivo)
+    return pd.read_excel(archivo)
+
+
+def fila_a_texto(fila, columnas) -> str:
+    """Convierte una fila ('columna: valor' por cada celda con dato) en un texto."""
+    partes = []
+    for col in columnas:
+        valor = fila.get(col)
+        if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+            continue
+        texto = str(valor).strip()
+        if texto and texto.lower() != "nan":
+            partes.append(f"{col}: {texto}")
+    return " | ".join(partes)
+
+
 with tab_clientes:
     st.subheader("Tus clientes y sus requerimientos")
 
@@ -213,6 +241,41 @@ with tab_clientes:
                 "- **habitaciones_min / banos_min**: mínimo deseado. Vacío = no filtra.\n"
                 f"- **extras**: separados por coma. Válidos: {', '.join(EXTRAS_OPCIONES)}."
             )
+
+        # ── Importar con IA desde un archivo "como sea" ──────
+        with st.expander("🤖 Importar clientes desde un archivo (con IA)"):
+            st.caption("Sube tu lista tal como la tengas (CSV o Excel), aunque esté en "
+                       "texto libre y con abreviaciones (ej. *“arriendo 12M, 2 alcobas, "
+                       "Chapinero, mín 60 mts”*). La IA lee cada fila, la interpreta "
+                       "(12M → $12.000.000) y la acomoda al formato. Revisa el resultado "
+                       "en la tabla de abajo antes de guardar.")
+            archivo_ia = st.file_uploader("Archivo de clientes (.csv o .xlsx)",
+                                          type=["csv", "xlsx"], key="ia_uploader")
+            if archivo_ia is not None and st.button("🤖 Interpretar y agregar con IA"):
+                if not config.ANTHROPIC_API_KEY:
+                    st.error("Falta la llave de Claude. Revisa «🔑 Mis llaves» en la barra lateral.")
+                else:
+                    try:
+                        df_in = leer_tabla(archivo_ia)
+                        cols = list(df_in.columns)
+                        textos = [fila_a_texto(fila, cols) for _, fila in df_in.iterrows()]
+                        registro = st.empty()
+                        lineas: list[str] = []
+
+                        def log_ia(msg: str) -> None:
+                            lineas.append(msg)
+                            registro.code("\n".join(lineas[-10:]))
+
+                        from src import extractor
+                        nuevos = extractor.interpretar_clientes(textos, log=log_ia)
+                        existentes = mod_clientes.cargar_guardados()
+                        for c in nuevos:
+                            mod_clientes.agregar_o_actualizar(c)
+                        st.success(f"¡Se agregaron {len(nuevos)} cliente(s)! "
+                                   "Revísalos en la tabla y dale Guardar si todo está bien.")
+                        st.rerun()
+                    except Exception as e:  # noqa: BLE001
+                        st.error(f"No se pudo procesar el archivo: {e}")
 
         df_actual = clientes_a_df(mod_clientes.cargar_guardados())
         editado = st.data_editor(

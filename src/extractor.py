@@ -114,3 +114,87 @@ def extraer_pendientes(log=print) -> int:
             log(f"  ⚠️ No se pudo leer un post de @{fila['cuenta']}: {e}")
     log(f"Listo. Se leyeron {procesados} captions.")
     return procesados
+
+
+# ── Interpretación de clientes desde texto libre ─────────────
+
+SYSTEM_CLIENTES = f"""Eres un asistente experto en el mercado inmobiliario de Bogotá, Colombia.
+Recibes la descripción en TEXTO LIBRE del requerimiento de UN cliente (puede traer
+abreviaturas, jerga y datos desordenados) y la conviertes en JSON estricto.
+
+Devuelve ÚNICAMENTE un objeto JSON válido (sin texto extra, sin ```), con estas claves:
+
+{{
+  "nombre": string|null,            // nombre del cliente si aparece
+  "operacion": "arriendo"|"venta"|null,
+  "barrios": [string],              // barrios de interés mencionados
+  "zona": string|null,              // localidad o sector (ej. Chapinero, Norte)
+  "presupuesto_max": number|null,   // en pesos COP, número entero sin puntos
+  "area_min": number|null,          // metros cuadrados
+  "area_max": number|null,          // metros cuadrados
+  "habitaciones_min": number|null,
+  "banos_min": number|null,
+  "extras": [string],               // SOLO valores de: {EXTRAS_VALIDOS}
+  "notas": string|null              // cualquier detalle adicional relevante
+}}
+
+Reglas de interpretación (mercado bogotano):
+- Precios abreviados: "12M", "12 mill", "12 millones" = 12000000.
+  "$450M" o "450 millones" (venta) = 450000000.
+  "1.900", "1900 millones", "$1.900M" (venta) = 1900000000.
+  En ARRIENDO, montos de 1 a 40 suelen ser millones ("arriendo 12M" = 12000000).
+  Usa tu criterio del mercado para distinguir arriendo vs venta.
+- "2 alcobas"/"2 habs"/"2 hab"/"2 dormitorios" = habitaciones_min 2.
+- "mts2"/"m2"/"mtrs"/"metros" = área. "mín 60 m2" -> area_min 60.
+  "entre 60 y 90 m2" -> area_min 60, area_max 90. "máx 120" -> area_max 120.
+- "cuarto de servicio"/"alcoba de servicio" -> "cuarto_servicio".
+- Si un dato no aparece, usa null (o lista vacía para barrios/extras). NO inventes.
+- Si no hay nombre, deja "nombre" en null.
+"""
+
+
+def interpretar_clientes(textos: list[str], log=print) -> list[dict[str, Any]]:
+    """Convierte descripciones en texto libre a clientes con formato estructurado.
+
+    Cada elemento de 'textos' es la descripción de un cliente (una fila del archivo).
+    Devuelve la lista de clientes en el formato que usa la app.
+    Requiere ANTHROPIC_API_KEY.
+    """
+    if not config.ANTHROPIC_API_KEY:
+        raise RuntimeError(
+            "Falta la llave de Claude (ANTHROPIC_API_KEY) para interpretar con IA."
+        )
+
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    resultado: list[dict[str, Any]] = []
+    total = len([t for t in textos if t and t.strip()])
+    for i, texto in enumerate(textos):
+        if not texto or not texto.strip():
+            continue
+        try:
+            msg = client.messages.create(
+                model=config.ANTHROPIC_MODEL,
+                max_tokens=600,
+                system=SYSTEM_CLIENTES,
+                messages=[{"role": "user", "content": texto.strip()[:3000]}],
+            )
+            t = msg.content[0].text.strip()
+            if t.startswith("```"):
+                t = t.strip("`")
+                t = t[t.find("{") : t.rfind("}") + 1]
+            datos = json.loads(t)
+        except Exception as e:  # noqa: BLE001 - una fila mala no debe tumbar todo
+            log(f"  ⚠️ No se pudo interpretar una fila: {e}")
+            continue
+
+        # Normalización al formato de la app.
+        datos["extras"] = [e for e in datos.get("extras", []) if e in EXTRAS_VALIDOS]
+        datos["barrios"] = datos.get("barrios") or []
+        datos["perimetro"] = ""
+        if not datos.get("nombre"):
+            datos["nombre"] = f"Cliente {len(resultado) + 1}"
+        resultado.append(datos)
+        log(f"Interpretado: {datos['nombre']} ({len(resultado)}/{total})")
+
+    log(f"Listo. Se interpretaron {len(resultado)} cliente(s).")
+    return resultado
