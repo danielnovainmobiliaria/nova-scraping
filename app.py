@@ -433,8 +433,7 @@ with tab_resultados:
                             st.markdown("✅ " + " · ".join(m["razones_ok"]))
                         if m["razones_no"]:
                             st.markdown("⚠️ " + " · ".join(m["razones_no"]))
-                        if p.get("url"):
-                            st.markdown(f"[Ver publicación]({p['url']}) · @{p.get('cuenta','')} · {p.get('fecha','')}")
+                        st.caption(f"@{p.get('cuenta', '')} · publicado {p.get('fecha', '')}")
                         # Mensaje listo para compartir por WhatsApp.
                         extras_txt = ", ".join(bonito(e) for e in p.get("extras", []))
                         mensaje = (
@@ -450,6 +449,9 @@ with tab_resultados:
                             st.code(mensaje, language=None)
                     with c2:
                         st.metric("Coincidencia", f"{m['score']}%")
+                        if p.get("url"):
+                            st.link_button("🔗 Ver inmueble", p["url"],
+                                           use_container_width=True)
                         if not es_demo:
                             inmueble = " · ".join(x for x in [
                                 p.get("resumen") or (p.get("caption", "")[:50]),
@@ -458,7 +460,8 @@ with tab_resultados:
                                 p.get("url", ""),
                             ] if x)
                             if st.button("📤 Marcar enviado", key=f"env_{nombre}_{p.get('id','x')}",
-                                         help=f"Registrar en el CRM de {nombre}"):
+                                         help=f"Registrar en el CRM de {nombre}",
+                                         use_container_width=True):
                                 mod_clientes.marcar_inmueble_enviado(nombre, inmueble)
                                 st.toast(f"📤 Guardado en el CRM de {nombre}")
                     st.divider()
