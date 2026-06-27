@@ -69,6 +69,10 @@ with st.sidebar.expander(f"🔑 Mis llaves — {estado}", expanded=not tiene_lla
         st.success("¡Guardadas! Ya puedes usar el modo Real.")
         st.rerun()
 
+st.sidebar.caption(
+    "💾 Memoria: " + ("☁️ en la nube (permanente)" if config.DATABASE_URL
+                      else "📍 local (se borra al reiniciar)"))
+
 # ── Botón principal: correr el scraping (siempre visible en modo Real) ──
 if not es_demo:
     st.sidebar.divider()
