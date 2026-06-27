@@ -53,6 +53,60 @@ def slug_archivo(texto: str) -> str:
     return base[:40].strip("_") or "inmueble"
 
 
+def proceso_de(p: dict, estado: str, observaciones: str = "") -> dict:
+    """Crea la ficha de seguimiento de un inmueble que se mueve para un cliente."""
+    return {
+        "post_id": p.get("id"),
+        "resumen": p.get("resumen") or (p.get("caption", "")[:60]),
+        "barrio": p.get("barrio", ""),
+        "precio": p.get("precio"),
+        "url": p.get("url", ""),
+        "estado": estado,
+        "observaciones": observaciones,
+        "fecha": datetime.now(timezone.utc).date().isoformat(),
+    }
+
+
+# Etiquetas visuales de los estados del embudo de seguimiento.
+ESTADO_PROCESO_EMOJI = {
+    "enviado": "📤 Enviado", "agendado": "📅 Agendado", "visitado": "👀 Visitado",
+    "descartado": "❌ Descartado", "cerrado": "🟢 Cerrado",
+}
+
+
+def render_procesos(c: dict) -> None:
+    """Muestra y permite editar el embudo de inmuebles en seguimiento de un cliente."""
+    procs = c.get("procesos") or []
+    nombre = c["nombre"]
+    st.markdown(f"**📋 Inmuebles en proceso ({len(procs)})**")
+    if not procs:
+        st.caption("Marca inmuebles desde la pestaña Coincidencias para que entren aquí.")
+        return
+    opciones = mod_clientes.ESTADOS_PROCESO
+    for pr in procs:
+        pid = pr.get("post_id", "")
+        precio = f"${pr['precio']:,.0f}" if pr.get("precio") else ""
+        with st.container(border=True):
+            st.caption(" · ".join(x for x in [pr.get("resumen", ""), pr.get("barrio", ""), precio] if x))
+            cc = st.columns([2, 4, 1, 1])
+            estado = cc[0].selectbox(
+                "Estado", opciones,
+                index=opciones.index(pr["estado"]) if pr.get("estado") in opciones else 0,
+                format_func=lambda e: ESTADO_PROCESO_EMOJI.get(e, e), key=f"pest_{nombre}_{pid}")
+            obs = cc[1].text_input(
+                "Observaciones (qué dijo el cliente)", value=pr.get("observaciones", ""),
+                key=f"pobs_{nombre}_{pid}",
+                help="Si descarta algo, anota por qué. La herramienta lo tendrá en cuenta.")
+            if cc[2].button("💾", key=f"psave_{nombre}_{pid}", help="Guardar cambios"):
+                mod_clientes.actualizar_proceso(nombre, pid, {"estado": estado, "observaciones": obs})
+                st.toast("Guardado")
+                st.rerun()
+            if cc[3].button("↩️", key=f"prem_{nombre}_{pid}",
+                            help="Sacar del proceso (vuelve a aparecer en coincidencias)"):
+                mod_clientes.quitar_proceso(nombre, pid)
+                st.rerun()
+
+
 def render_descargas(p: dict, prefijo: str) -> None:
     """Botones para descargar los archivos del inmueble (sin link, sin fuente).
 
@@ -463,11 +517,9 @@ with tab_resultados:
             piso_precio=piso_precio / 100,
         )
 
-        # Ocultar inmuebles ya marcados (enviados o descartados) por cada cliente.
-        ocultos = {
-            c["nombre"]: set(c.get("ids_enviados") or []) | set(c.get("ids_descartados") or [])
-            for c in clientes
-        }
+        # Ocultar inmuebles que ya están en el embudo de seguimiento del cliente.
+        ocultos = {c["nombre"]: mod_clientes.ids_en_proceso(c) for c in clientes}
+        aprendizajes = {c["nombre"]: mod_clientes.aprendizajes_cliente(c) for c in clientes}
         for nombre in list(resultados):
             resultados[nombre] = [
                 m for m in resultados[nombre]
@@ -481,6 +533,10 @@ with tab_resultados:
         for nombre, matches in resultados.items():
             with st.expander(f"👤 {nombre} — {len(matches)} coincidencia(s)",
                              expanded=bool(matches)):
+                aprend = aprendizajes.get(nombre, [])
+                if aprend:
+                    st.warning("🧠 Lo que NO le gustó a este cliente (tenlo en cuenta): "
+                               + " · ".join(aprend))
                 if not matches:
                     st.write("Sin coincidencias por ahora.")
                     continue
@@ -534,23 +590,23 @@ with tab_resultados:
                                            use_container_width=True,
                                            help="Para que TÚ verifiques el inmueble. No lo compartas: revela la fuente.")
                         if not es_demo:
-                            inmueble = " · ".join(x for x in [
-                                p.get("resumen") or (p.get("caption", "")[:50]),
-                                p.get("barrio", ""),
-                                f"${p['precio']:,.0f}" if p.get("precio") else "",
-                            ] if x)
                             if st.button("📤 Marcar enviado", key=f"env_{nombre}_{p.get('id','x')}",
-                                         help=f"Lo registra en el CRM de {nombre} y lo quita de esta lista",
+                                         help=f"Pasa al seguimiento de {nombre} (lo ves en el CRM)",
                                          use_container_width=True):
-                                mod_clientes.marcar_inmueble_enviado(nombre, inmueble, p.get("id", ""))
-                                st.toast(f"📤 Enviado a {nombre}")
+                                mod_clientes.agregar_proceso(nombre, proceso_de(p, "enviado"))
+                                st.toast(f"📤 En seguimiento de {nombre}")
                                 st.rerun()
-                            if st.button("🚫 Descartar", key=f"desc_{nombre}_{p.get('id','x')}",
-                                         help="No le sirve a este cliente: quítalo de la lista (no se borra de la base)",
-                                         use_container_width=True):
-                                mod_clientes.descartar_inmueble(nombre, p.get("id", ""))
-                                st.toast(f"🚫 Descartado para {nombre}")
-                                st.rerun()
+                            with st.popover("🚫 Descartar", use_container_width=True):
+                                obs = st.text_input(
+                                    "¿Por qué no le sirvió? (opcional)",
+                                    key=f"obsdesc_{nombre}_{p.get('id','x')}",
+                                    placeholder="ej: muy oscuro, sin parqueadero, piso bajo…")
+                                if st.button("Confirmar descarte",
+                                             key=f"cdesc_{nombre}_{p.get('id','x')}"):
+                                    mod_clientes.agregar_proceso(
+                                        nombre, proceso_de(p, "descartado", obs))
+                                    st.toast(f"🚫 Descartado para {nombre}")
+                                    st.rerun()
                     st.divider()
 
         # Descarga de todos los matches en un CSV.
@@ -686,3 +742,7 @@ with tab_crm:
                         })
                         st.success(f"Seguimiento de {nombre} guardado.")
                         st.rerun()
+
+                # Embudo de inmuebles en proceso (fuera del formulario: tiene botones).
+                st.divider()
+                render_procesos(c)

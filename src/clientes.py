@@ -78,9 +78,14 @@ def cargar_clientes(ruta: str | Path) -> list[dict[str, Any]]:
 CRM_CAMPOS = {
     "estado": "activo", "visitas": 0, "inmuebles_enviados": [], "notas_crm": "",
     "valor_cierre": 0, "comision": 0,
-    # ids de inmuebles ya enviados o descartados (para ocultarlos de las coincidencias).
+    # ids de inmuebles ya enviados o descartados (compatibilidad / set para ocultar).
     "ids_enviados": [], "ids_descartados": [],
+    # Embudo de seguimiento: cada inmueble que se mueve entra aquí con su estado y notas.
+    "procesos": [],
 }
+
+# Estados del embudo de seguimiento de cada inmueble enviado a un cliente.
+ESTADOS_PROCESO = ["enviado", "agendado", "visitado", "descartado", "cerrado"]
 
 
 def _con_crm(cliente: dict[str, Any]) -> dict[str, Any]:
@@ -148,6 +153,60 @@ def descartar_inmueble(nombre: str, post_id: str) -> None:
                 ids.append(post_id)
             c["ids_descartados"] = ids
     guardar_lista(lista)
+
+
+# ── Embudo de seguimiento (procesos) ─────────────────────────
+
+def ids_en_proceso(cliente: dict[str, Any]) -> set[str]:
+    """Todos los ids de inmuebles que ya están 'movidos' para un cliente (se ocultan)."""
+    ids = {pr.get("post_id") for pr in (cliente.get("procesos") or [])}
+    ids |= set(cliente.get("ids_enviados") or [])
+    ids |= set(cliente.get("ids_descartados") or [])
+    return {i for i in ids if i}
+
+
+def agregar_proceso(nombre: str, proceso: dict[str, Any]) -> None:
+    """Mete un inmueble al embudo de seguimiento de un cliente (si no estaba)."""
+    lista = cargar_guardados()
+    for c in lista:
+        if c.get("nombre", "").lower() == nombre.lower():
+            procs = c.get("procesos") or []
+            if not any(pr.get("post_id") == proceso.get("post_id") for pr in procs):
+                procs.append(proceso)
+            c["procesos"] = procs
+    guardar_lista(lista)
+
+
+def actualizar_proceso(nombre: str, post_id: str, cambios: dict[str, Any]) -> None:
+    """Cambia el estado u observaciones de un inmueble en seguimiento."""
+    lista = cargar_guardados()
+    for c in lista:
+        if c.get("nombre", "").lower() == nombre.lower():
+            for pr in (c.get("procesos") or []):
+                if pr.get("post_id") == post_id:
+                    pr.update(cambios)
+    guardar_lista(lista)
+
+
+def quitar_proceso(nombre: str, post_id: str) -> None:
+    """Saca un inmueble del seguimiento (vuelve a aparecer en coincidencias)."""
+    lista = cargar_guardados()
+    for c in lista:
+        if c.get("nombre", "").lower() == nombre.lower():
+            c["procesos"] = [pr for pr in (c.get("procesos") or [])
+                             if pr.get("post_id") != post_id]
+            c["ids_enviados"] = [i for i in (c.get("ids_enviados") or []) if i != post_id]
+            c["ids_descartados"] = [i for i in (c.get("ids_descartados") or []) if i != post_id]
+    guardar_lista(lista)
+
+
+def aprendizajes_cliente(cliente: dict[str, Any]) -> list[str]:
+    """Observaciones de los inmuebles DESCARTADOS (lo que NO le gustó al cliente)."""
+    notas = []
+    for pr in (cliente.get("procesos") or []):
+        if pr.get("estado") == "descartado" and pr.get("observaciones"):
+            notas.append(pr["observaciones"].strip())
+    return notas
 
 
 def guardar_lista(clientes: list[dict[str, Any]]) -> None:
