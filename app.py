@@ -37,6 +37,28 @@ def fecha_corte_iso() -> str:
     return (datetime.now(timezone.utc) - timedelta(days=config.DIAS_RECIENTES)).date().isoformat()
 
 
+def dias_publicado(fecha_iso: str):
+    """Días transcurridos desde la fecha de publicación (o None si no se sabe)."""
+    if not fecha_iso:
+        return None
+    try:
+        f = datetime.fromisoformat(str(fecha_iso)[:10]).date()
+    except ValueError:
+        return None
+    return (datetime.now(timezone.utc).date() - f).days
+
+
+def badge_frescura(fecha_iso: str) -> str:
+    """Etiqueta con semáforo: 🟢 reciente, 🟡 unas semanas, 🔴 más viejo."""
+    d = dias_publicado(fecha_iso)
+    if d is None:
+        return ""
+    emoji = "🟢" if d <= 7 else ("🟡" if d <= 21 else "🔴")
+    if d <= 0:
+        return f"{emoji} Publicado hoy"
+    return f"{emoji} Publicado hace {d} día{'s' if d != 1 else ''}"
+
+
 def descargar_bytes(url: str):
     """Descarga un archivo (foto/video) y devuelve sus bytes, o None si falla."""
     try:
@@ -529,6 +551,8 @@ with tab_resultados:
         total = sum(len(v) for v in resultados.values())
         st.caption(f"{len(posts)} publicaciones analizadas · {total} coincidencias pendientes "
                    "(los que marcas como enviados o descartados desaparecen).")
+        st.caption("Frescura del aviso: 🟢 reciente (≤7 días, más fácil de conseguir) · "
+                   "🟡 unas semanas · 🔴 más viejo (puede estar ya tomado).")
 
         for nombre, matches in resultados.items():
             with st.expander(f"👤 {nombre} — {len(matches)} coincidencia(s)",
@@ -553,6 +577,9 @@ with tab_resultados:
                         if p.get("habitaciones") is not None: info.append(f"{p['habitaciones']:g} hab")
                         if p.get("banos") is not None: info.append(f"{p['banos']:g} baños")
                         st.caption(" · ".join(info))
+                        frescura = badge_frescura(p.get("fecha"))
+                        if frescura:
+                            st.markdown(f"**{frescura}**")
                         if m["razones_ok"]:
                             st.markdown("✅ " + " · ".join(m["razones_ok"]))
                         if m["razones_no"]:
