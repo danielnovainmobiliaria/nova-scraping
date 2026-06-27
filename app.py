@@ -36,6 +36,13 @@ def fecha_corte_iso() -> str:
     return (datetime.now(timezone.utc) - timedelta(days=config.DIAS_RECIENTES)).date().isoformat()
 
 
+def actualizar_publicaciones(log) -> None:
+    """Trae los posts de Instagram y los lee con IA (usado por los botones)."""
+    from src import extractor, scraper
+    scraper.scrapear_cuentas(config.leer_cuentas(), log=log)
+    extractor.extraer_pendientes(log=log)
+
+
 # ── Barra lateral ─────────────────────────────────────────────
 st.sidebar.title("🏙️ Nova Scraping")
 modo = st.sidebar.radio(
@@ -61,6 +68,34 @@ with st.sidebar.expander(f"🔑 Mis llaves — {estado}", expanded=not tiene_lla
         config.guardar_llaves(apify_in, claude_in)
         st.success("¡Guardadas! Ya puedes usar el modo Real.")
         st.rerun()
+
+# ── Botón principal: correr el scraping (siempre visible en modo Real) ──
+if not es_demo:
+    st.sidebar.divider()
+    st.sidebar.markdown("**▶️ Buscar inmuebles**")
+    correr = st.sidebar.button("🔄 Traer y leer publicaciones",
+                               type="primary", use_container_width=True)
+    st.sidebar.caption(f"📦 {db.contar_posts()} inmuebles en memoria")
+else:
+    correr = False
+
+# ── Acción del botón: traer + leer publicaciones ──────────────
+if correr:
+    with st.status("Trayendo y leyendo publicaciones de Instagram… "
+                   "(puede tardar 3-5 min, no cierres la pestaña)", expanded=True) as estado_scrape:
+        _lineas: list[str] = []
+
+        def _log(m: str) -> None:
+            _lineas.append(m)
+            estado_scrape.write(m)
+
+        try:
+            actualizar_publicaciones(_log)
+            estado_scrape.update(
+                label=f"✅ ¡Listo! {db.contar_posts()} inmuebles en memoria. "
+                      "Abre la pestaña 3️⃣ Coincidencias.", state="complete")
+        except Exception as e:  # noqa: BLE001
+            estado_scrape.update(label=f"⚠️ Ocurrió un problema: {e}", state="error")
 
 # ── Pestañas ──────────────────────────────────────────────────
 tab_fuentes, tab_clientes, tab_resultados, tab_crm = st.tabs(
