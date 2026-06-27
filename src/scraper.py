@@ -41,12 +41,14 @@ def scrapear_cuentas(cuentas: list[str], log=print) -> int:
 
     cliente = ApifyClient(config.APIFY_TOKEN)
 
+    # Instagram exige proxies residenciales y enlaces de perfil (directUrls),
+    # de lo contrario bloquea la lectura ("Empty or private data").
     run_input: dict[str, Any] = {
-        "username": cuentas,                       # lista de usuarios
+        "directUrls": [f"https://www.instagram.com/{u}/" for u in cuentas],
         "resultsType": "posts",
         "resultsLimit": config.MAX_POSTS_POR_CUENTA,
         "onlyPostsNewerThan": _fecha_corte_iso(),  # ventana de 30 días
-        "addParentData": False,
+        "proxy": {"useApifyProxy": True, "apifyProxyGroups": ["RESIDENTIAL"]},
     }
 
     log(f"Pidiendo a Apify los posts de {len(cuentas)} cuenta(s)…")
@@ -55,8 +57,12 @@ def scrapear_cuentas(cuentas: list[str], log=print) -> int:
         raise RuntimeError("Apify no devolvió resultados. Revisa tu plan o las cuentas.")
 
     nuevos = 0
+    restringidas = 0
     dataset = cliente.dataset(run.default_dataset_id).iterate_items()
     for item in dataset:
+        if item.get("error"):  # perfil restringido/privado: Instagram lo bloquea
+            restringidas += 1
+            continue
         post = _normalizar(item)
         if post is None:
             continue
@@ -65,6 +71,8 @@ def scrapear_cuentas(cuentas: list[str], log=print) -> int:
         if db.contar_posts() > antes:
             nuevos += 1
 
+    if restringidas:
+        log(f"⚠️ {restringidas} cuenta(s) no se pudieron leer (perfil restringido o privado).")
     log(f"Listo. Se guardaron {nuevos} publicaciones nuevas.")
     return nuevos
 
