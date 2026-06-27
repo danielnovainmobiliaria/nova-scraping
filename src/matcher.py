@@ -151,6 +151,31 @@ def _factor_area(area: float, a_min: float | None, a_max: float | None, flex: fl
     return 0.0, f"{area:g} m² fuera del rango", False
 
 
+def _ajuste_preferencias(cliente: dict[str, Any], post: dict[str, Any]
+                         ) -> tuple[int, list[str]]:
+    """Penaliza inmuebles parecidos a lo que el cliente ya descartó.
+
+    Usa lo aprendido en cliente['preferencias_evitar'] (palabras + extras).
+    """
+    prefs = cliente.get("preferencias_evitar") or {}
+    palabras = prefs.get("palabras") or []
+    req_extras = prefs.get("extras") or []
+    texto = _norm(post.get("caption", "")) + " " + _norm(post.get("resumen", ""))
+    razones: list[str] = []
+    pen = 0
+    for w in palabras:
+        nw = _norm(w)
+        if nw and nw in texto:
+            pen += 15
+            razones.append(f"a este cliente no le gustó algo así: «{w}»")
+    extras_post = set(post.get("extras") or [])
+    for ex in req_extras:
+        if ex not in extras_post:
+            pen += 8
+            razones.append(f"no menciona {ex} (lo pidió tras descartar otro)")
+    return min(pen, 45), razones
+
+
 def evaluar(cliente: dict[str, Any], post: dict[str, Any],
             flex_precio: float = FLEX_PRECIO,
             flex_area: float = FLEX_AREA,
@@ -258,6 +283,13 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
         puntaje += 15
 
     score = round(100 * puntaje / peso_total) if peso_total else 0
+
+    # Aprendizaje: baja el puntaje si se parece a lo que el cliente ya descartó.
+    pen, razones_pref = _ajuste_preferencias(cliente, post)
+    if pen:
+        score = max(0, score - pen)
+        razones_no.extend(f"🧠 {r}" for r in razones_pref)
+
     return {
         "score": score,
         "post": post,

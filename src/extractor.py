@@ -219,3 +219,49 @@ def interpretar_clientes(textos: list[str], log=print) -> list[dict[str, Any]]:
 
     log(f"Listo. Se interpretaron {len(resultado)} cliente(s).")
     return resultado
+
+
+# ── Aprender qué evita un cliente (de los inmuebles descartados) ─────
+
+SYSTEM_PREFERENCIAS = f"""Eres un asistente inmobiliario en Bogotá. Te doy las observaciones de
+por qué un cliente RECHAZÓ varios inmuebles. Tu tarea es deducir qué EVITAR en sus próximas
+búsquedas.
+
+Devuelve ÚNICAMENTE un objeto JSON válido (sin texto extra), con estas claves:
+{{
+  "palabras": [string],   // palabras o frases CORTAS en minúsculas que, si aparecen en la
+                          // descripción de un inmueble, indican que probablemente NO le
+                          // gustará (ej. "para remodelar", "primer piso", "interior",
+                          // "oscuro", "ruidoso", "sin ascensor"). Máximo 8.
+  "extras": [string]      // características que AHORA debería tener sí o sí, deducidas de lo
+                          // que rechazó. SOLO de esta lista: {EXTRAS_VALIDOS}.
+                          // Ej: rechazó "sin parqueadero" -> ["parqueadero"]; rechazó
+                          // "viejo/para remodelar" -> ["remodelado"].
+}}
+Reglas: incluye solo lo que se deduzca claramente. Si no hay nada claro, usa listas vacías.
+"""
+
+
+def aprender_preferencias(observaciones: list[str]) -> dict[str, Any]:
+    """De las observaciones de inmuebles descartados, deduce qué evitar."""
+    if not config.ANTHROPIC_API_KEY or not observaciones:
+        return {"palabras": [], "extras": []}
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    texto = "Observaciones de inmuebles que el cliente rechazó:\n- " + "\n- ".join(observaciones)
+    try:
+        msg = client.messages.create(
+            model=config.ANTHROPIC_MODEL, max_tokens=400,
+            system=SYSTEM_PREFERENCIAS,
+            messages=[{"role": "user", "content": texto[:3000]}],
+        )
+        t = msg.content[0].text.strip()
+        if t.startswith("```"):
+            t = t.strip("`")
+            t = t[t.find("{") : t.rfind("}") + 1]
+        datos = json.loads(t)
+    except Exception:  # noqa: BLE001
+        return {"palabras": [], "extras": []}
+    return {
+        "palabras": [str(p).lower().strip() for p in datos.get("palabras", []) if str(p).strip()][:8],
+        "extras": [e for e in datos.get("extras", []) if e in EXTRAS_VALIDOS],
+    }

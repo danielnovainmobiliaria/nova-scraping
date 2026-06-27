@@ -89,6 +89,22 @@ def proceso_de(p: dict, estado: str, observaciones: str = "") -> dict:
     }
 
 
+def recalcular_preferencias(nombre: str) -> None:
+    """Aprende qué evita el cliente a partir de sus inmuebles descartados."""
+    if not config.ANTHROPIC_API_KEY:
+        return
+    cli = next((c for c in mod_clientes.cargar_guardados()
+                if c["nombre"].lower() == nombre.lower()), None)
+    if not cli:
+        return
+    try:
+        from src import extractor
+        prefs = extractor.aprender_preferencias(mod_clientes.aprendizajes_cliente(cli))
+        mod_clientes.set_preferencias_evitar(nombre, prefs)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 # Etiquetas visuales de los estados del embudo de seguimiento.
 ESTADO_PROCESO_EMOJI = {
     "enviado": "📤 Enviado", "agendado": "📅 Agendado", "visitado": "👀 Visitado",
@@ -121,6 +137,7 @@ def render_procesos(c: dict) -> None:
                 help="Si descarta algo, anota por qué. La herramienta lo tendrá en cuenta.")
             if cc[2].button("💾", key=f"psave_{nombre}_{pid}", help="Guardar cambios"):
                 mod_clientes.actualizar_proceso(nombre, pid, {"estado": estado, "observaciones": obs})
+                recalcular_preferencias(nombre)
                 st.toast("Guardado")
                 st.rerun()
             if cc[3].button("↩️", key=f"prem_{nombre}_{pid}",
@@ -632,6 +649,8 @@ with tab_resultados:
                                              key=f"cdesc_{nombre}_{p.get('id','x')}"):
                                     mod_clientes.agregar_proceso(
                                         nombre, proceso_de(p, "descartado", obs))
+                                    if obs.strip():
+                                        recalcular_preferencias(nombre)
                                     st.toast(f"🚫 Descartado para {nombre}")
                                     st.rerun()
                     st.divider()

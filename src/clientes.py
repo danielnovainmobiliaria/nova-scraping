@@ -82,6 +82,9 @@ CRM_CAMPOS = {
     "ids_enviados": [], "ids_descartados": [],
     # Embudo de seguimiento: cada inmueble que se mueve entra aquí con su estado y notas.
     "procesos": [],
+    # Lo que la IA aprendió que el cliente EVITA (de los descartados):
+    # {"palabras": [...], "extras": [...]}
+    "preferencias_evitar": {},
 }
 
 # Estados del embudo de seguimiento de cada inmueble enviado a un cliente.
@@ -92,8 +95,18 @@ def _con_crm(cliente: dict[str, Any]) -> dict[str, Any]:
     """Asegura que el cliente tenga los campos de seguimiento (CRM)."""
     for campo, defecto in CRM_CAMPOS.items():
         if campo not in cliente:
-            cliente[campo] = [] if isinstance(defecto, list) else defecto
+            if isinstance(defecto, list):
+                cliente[campo] = []
+            elif isinstance(defecto, dict):
+                cliente[campo] = {}
+            else:
+                cliente[campo] = defecto
     return cliente
+
+
+def set_preferencias_evitar(nombre: str, prefs: dict[str, Any]) -> None:
+    """Guarda lo que la IA aprendió que el cliente evita."""
+    actualizar_crm(nombre, {"preferencias_evitar": prefs})
 
 
 def cargar_guardados() -> list[dict[str, Any]]:
