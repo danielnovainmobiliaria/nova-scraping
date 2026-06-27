@@ -394,17 +394,22 @@ with tab_resultados:
     else:
         st.caption("Ajusta qué tan flexible quieres ser. La búsqueda muestra "
                    "opciones **similares**, no solo idénticas.")
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         score_min = c1.slider("Coincidencia mínima (%)", 0, 100, 50, 5,
                               help="Sube el valor para ver solo los matches más fuertes.")
-        flex_precio = c2.slider("Flexibilidad en presupuesto (%)", 0, 40, 15, 5,
-                                help="Cuánto por encima del presupuesto se permite. "
+        flex_precio = c2.slider("Presupuesto: tope arriba (%)", 0, 40, 15, 5,
+                                help="Cuánto POR ENCIMA del presupuesto se permite. "
                                      "Ej: 15% deja ver opciones hasta 15% más caras.")
-        flex_area = c3.slider("Flexibilidad en metraje (%)", 0, 40, 15, 5,
+        piso_precio = c3.slider("Presupuesto: precio mínimo (%)", 0, 100, 70, 5,
+                                help="Oculta inmuebles DEMASIADO BARATOS (otro segmento). "
+                                     "Ej: 70% oculta lo que cueste menos del 70% del presupuesto "
+                                     "del cliente. Bájalo si quieres ver opciones más económicas.")
+        flex_area = c4.slider("Flexibilidad en metraje (%)", 0, 40, 15, 5,
                               help="Cuánto por fuera del rango de m² se permite.")
         resultados = matcher.cruzar(
             clientes, posts, score_minimo=score_min,
             flex_precio=flex_precio / 100, flex_area=flex_area / 100,
+            piso_precio=piso_precio / 100,
         )
 
         total = sum(len(v) for v in resultados.values())

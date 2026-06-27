@@ -5,7 +5,8 @@
       "Bash(git commit -q -m 'Scraping incremental \\(ahorro de créditos\\) + confirmado cruce de clientes nuevos *)",
       "Bash(git fetch *)",
       "Bash(git pull *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(git commit -q -m 'Presupuesto como rango: piso de precio mínimo \\(oculta inmuebles de otro segmento\\) *)"
     ]
   }
 }

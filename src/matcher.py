@@ -21,6 +21,11 @@ from rapidfuzz import fuzz
 FLEX_PRECIO = 0.15
 FLEX_AREA = 0.15
 
+# Piso de presupuesto: por debajo de este % del presupuesto, el inmueble se
+# considera de otro segmento y NO se muestra (0.70 = 70%). Evita mostrar, por
+# ejemplo, un apto de $6.5M a un cliente con presupuesto de $12M.
+PISO_PRECIO = 0.70
+
 # Mapa básico barrio → zona/localidad de Bogotá. Sirve para emparejar aunque
 # el cliente pida una "zona" y el post mencione un barrio (o viceversa).
 # Puedes ampliarlo con el tiempo.
@@ -105,26 +110,25 @@ def _match_ubicacion(cliente: dict[str, Any], post: dict[str, Any]) -> tuple[flo
     return 0.0, "ubicación no coincide"
 
 
-def _factor_precio(precio: float, presupuesto: float, flex: float
+def _factor_precio(precio: float, presupuesto: float, flex: float, piso: float
                    ) -> tuple[float, str, bool]:
-    """Compara precio vs presupuesto de forma flexible.
+    """Compara precio vs presupuesto tratándolo como un RANGO.
 
-    Devuelve (factor 0..1, explicación, es_a_favor).
-    Las opciones más baratas pasan; las un poco más caras pasan con menos puntaje;
-    las muy por encima de la flexibilidad se descartan (factor negativo => None).
+    Devuelve (factor 0..1, explicación, es_a_favor); factor negativo => descartar.
+    - Por encima del presupuesto: pasa con menos puntaje hasta el límite de flex.
+    - Demasiado por encima (> flex): se descarta.
+    - Demasiado por debajo (< piso del presupuesto): otro segmento → se descarta.
     """
     rel = precio / presupuesto  # 1.0 = justo en el presupuesto
-    if rel <= 1.0:
-        # Dentro del presupuesto. Si es MUCHO más barato, lo marcamos por si
-        # fuera de otro segmento, pero igual sirve.
-        if rel < 0.5:
-            return 0.85, f"${precio:,.0f}: muy por debajo del presupuesto (revisa que encaje)", False
-        return 1.0, f"${precio:,.0f} dentro del presupuesto", True
-    if rel <= 1.0 + flex:
+    if rel > 1.0 + flex:
+        return -1.0, "demasiado por encima del presupuesto", False
+    if rel < piso:
+        return -1.0, f"${precio:,.0f}: muy por debajo del presupuesto (otro segmento)", False
+    if rel > 1.0:
         sobre = rel - 1.0
-        factor = 1.0 - 0.7 * (sobre / flex)  # baja de 1.0 a 0.3 en la banda
+        factor = 1.0 - 0.7 * (sobre / flex) if flex > 0 else 0.3
         return factor, f"${precio:,.0f}: {sobre * 100:.0f}% por encima del presupuesto", False
-    return -1.0, "demasiado por encima del presupuesto", False
+    return 1.0, f"${precio:,.0f} acorde al presupuesto", True
 
 
 def _factor_area(area: float, a_min: float | None, a_max: float | None, flex: float
@@ -149,7 +153,8 @@ def _factor_area(area: float, a_min: float | None, a_max: float | None, flex: fl
 
 def evaluar(cliente: dict[str, Any], post: dict[str, Any],
             flex_precio: float = FLEX_PRECIO,
-            flex_area: float = FLEX_AREA) -> dict[str, Any] | None:
+            flex_area: float = FLEX_AREA,
+            piso_precio: float = PISO_PRECIO) -> dict[str, Any] | None:
     """Evalúa qué tan SIMILAR es un post a lo que pide un cliente.
 
     Devuelve None solo cuando hay un choque de fondo (operación distinta,
@@ -171,9 +176,9 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
     precio = post.get("precio")
     peso_total += 30
     if presupuesto and precio:
-        factor, razon, ok = _factor_precio(precio, presupuesto, flex_precio)
+        factor, razon, ok = _factor_precio(precio, presupuesto, flex_precio, piso_precio)
         if factor < 0:
-            return None  # demasiado caro, ni con flexibilidad
+            return None  # fuera del rango (muy caro o muy barato)
         puntaje += 30 * factor
         (razones_ok if ok else razones_no).append(razon)
     elif presupuesto and not precio:
@@ -264,11 +269,12 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
 def cruzar(clientes: list[dict[str, Any]], posts: list[dict[str, Any]],
            score_minimo: int = 50,
            flex_precio: float = FLEX_PRECIO,
-           flex_area: float = FLEX_AREA) -> dict[str, list[dict[str, Any]]]:
+           flex_area: float = FLEX_AREA,
+           piso_precio: float = PISO_PRECIO) -> dict[str, list[dict[str, Any]]]:
     """Cruza todos los clientes contra todos los posts.
 
     Devuelve un diccionario {nombre_cliente: [matches ordenados por score]}.
-    flex_precio y flex_area controlan qué tan flexible es la comparación.
+    flex_precio/flex_area/piso_precio controlan qué tan flexible es la comparación.
     """
     resultado: dict[str, list[dict[str, Any]]] = {}
     for cliente in clientes:
@@ -276,7 +282,7 @@ def cruzar(clientes: list[dict[str, Any]], posts: list[dict[str, Any]],
         for post in posts:
             if not post.get("es_inmueble", True):
                 continue
-            ev = evaluar(cliente, post, flex_precio, flex_area)
+            ev = evaluar(cliente, post, flex_precio, flex_area, piso_precio)
             if ev and ev["score"] >= score_minimo:
                 matches.append(ev)
         matches.sort(key=lambda m: m["score"], reverse=True)
