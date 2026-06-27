@@ -8,7 +8,6 @@ pruebas en el computador).
 from __future__ import annotations
 
 import json
-import ssl
 from contextlib import contextmanager
 from typing import Any, Iterator, Optional
 
@@ -25,19 +24,11 @@ def _build_engine():
         # Sin nube: archivo local SQLite.
         return create_engine(f"sqlite:///{config.DB_FILE}")
 
-    # Con nube: Postgres con el driver pg8000 (Python puro, sin compilar).
+    # Con nube: Postgres con el driver psycopg (maneja SSL y SNI de Neon nativamente).
     if raw.startswith("postgres://"):
         raw = "postgresql://" + raw[len("postgres://"):]
-    url = make_url(raw).set(drivername="postgresql+pg8000")
-    # pg8000 no entiende estos parámetros de la URL; el SSL lo damos aparte.
-    query = {k: v for k, v in url.query.items()
-             if k not in ("sslmode", "channel_binding")}
-    url = url.set(query=query)
-    return create_engine(
-        url,
-        connect_args={"ssl_context": ssl.create_default_context()},
-        pool_pre_ping=True,
-    )
+    url = make_url(raw).set(drivername="postgresql+psycopg")
+    return create_engine(url, pool_pre_ping=True)
 
 
 _engine = _build_engine()
