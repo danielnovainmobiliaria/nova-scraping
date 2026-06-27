@@ -78,6 +78,8 @@ def cargar_clientes(ruta: str | Path) -> list[dict[str, Any]]:
 CRM_CAMPOS = {
     "estado": "activo", "visitas": 0, "inmuebles_enviados": [], "notas_crm": "",
     "valor_cierre": 0, "comision": 0,
+    # ids de inmuebles ya enviados o descartados (para ocultarlos de las coincidencias).
+    "ids_enviados": [], "ids_descartados": [],
 }
 
 
@@ -120,8 +122,8 @@ def actualizar_crm(nombre: str, cambios: dict[str, Any]) -> None:
     guardar_lista(lista)
 
 
-def marcar_inmueble_enviado(nombre: str, inmueble: str) -> None:
-    """Agrega un inmueble a la lista de 'enviados' de un cliente (sin duplicar)."""
+def marcar_inmueble_enviado(nombre: str, inmueble: str, post_id: str = "") -> None:
+    """Marca un inmueble como ENVIADO a un cliente (lo oculta de sus coincidencias)."""
     lista = cargar_guardados()
     for c in lista:
         if c.get("nombre", "").lower() == nombre.lower():
@@ -129,6 +131,22 @@ def marcar_inmueble_enviado(nombre: str, inmueble: str) -> None:
             if inmueble not in enviados:
                 enviados.append(inmueble)
             c["inmuebles_enviados"] = enviados
+            ids = c.get("ids_enviados") or []
+            if post_id and post_id not in ids:
+                ids.append(post_id)
+            c["ids_enviados"] = ids
+    guardar_lista(lista)
+
+
+def descartar_inmueble(nombre: str, post_id: str) -> None:
+    """Marca un inmueble como DESCARTADO para un cliente (lo oculta sin enviarlo)."""
+    lista = cargar_guardados()
+    for c in lista:
+        if c.get("nombre", "").lower() == nombre.lower():
+            ids = c.get("ids_descartados") or []
+            if post_id and post_id not in ids:
+                ids.append(post_id)
+            c["ids_descartados"] = ids
     guardar_lista(lista)
 
 

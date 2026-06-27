@@ -152,6 +152,15 @@ def posts_recientes(desde_iso: str) -> list[dict[str, Any]]:
     return resultado
 
 
+def posts_leidos() -> list[dict[str, Any]]:
+    """Todos los inmuebles ya leídos por la IA, SIN filtro de fecha.
+
+    Así un inmueble no desaparece de las coincidencias solo por antigüedad: se
+    mantiene hasta que el broker lo marque (o lo descarte).
+    """
+    return posts_recientes("0000-01-01")
+
+
 def contar_posts() -> int:
     with _conn() as con:
         return con.execute(text("SELECT COUNT(*) FROM posts")).scalar() or 0

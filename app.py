@@ -53,14 +53,18 @@ def slug_archivo(texto: str) -> str:
     return base[:40].strip("_") or "inmueble"
 
 
-def render_descargas(p: dict) -> None:
-    """Botones para descargar los archivos del inmueble (sin link, sin fuente)."""
+def render_descargas(p: dict, prefijo: str) -> None:
+    """Botones para descargar los archivos del inmueble (sin link, sin fuente).
+
+    'prefijo' debe ser único por (cliente, inmueble) para no chocar claves cuando
+    el mismo inmueble le sirve a varios clientes.
+    """
     medios = p.get("media") or []
     st.caption("Descarga los archivos y compártelos directo a tu cliente — "
                "sin link y sin rastro de quién lo publicó.")
     base = slug_archivo(p.get("barrio") or p.get("resumen") or "inmueble")
-    clave = f"prep_{p.get('id')}"
-    if st.button("📥 Preparar archivos", key=f"btnprep_{p.get('id')}"):
+    clave = f"prep_{p.get('id')}"  # los bytes se comparten por inmueble (da igual el cliente)
+    if st.button("📥 Preparar archivos", key=f"btnprep_{prefijo}"):
         st.session_state[clave] = [
             {"tipo": med["tipo"], "data": descargar_bytes(med["url"])}
             for med in medios
@@ -72,7 +76,7 @@ def render_descargas(p: dict) -> None:
                 ext = "mp4" if a["tipo"] == "video" else "jpg"
                 st.download_button(
                     f"⬇️ Descargar {a['tipo']} {i}", a["data"],
-                    file_name=f"{base}_{i}.{ext}", key=f"dl_{p.get('id')}_{i}")
+                    file_name=f"{base}_{i}.{ext}", key=f"dl_{prefijo}_{i}")
             else:
                 st.caption(f"⚠️ {a['tipo']} {i}: el enlace expiró. Vuelve a "
                            "traer publicaciones para refrescarlo.")
@@ -430,7 +434,8 @@ with tab_resultados:
     if es_demo:
         posts = POSTS_DEMO
     else:
-        posts = db.posts_recientes(fecha_corte_iso())
+        # Todos los inmuebles leídos (no se ocultan por antigüedad).
+        posts = db.posts_leidos()
 
     if not clientes:
         st.warning("Primero carga tus clientes en la pestaña **2️⃣ Clientes**.")
@@ -458,8 +463,20 @@ with tab_resultados:
             piso_precio=piso_precio / 100,
         )
 
+        # Ocultar inmuebles ya marcados (enviados o descartados) por cada cliente.
+        ocultos = {
+            c["nombre"]: set(c.get("ids_enviados") or []) | set(c.get("ids_descartados") or [])
+            for c in clientes
+        }
+        for nombre in list(resultados):
+            resultados[nombre] = [
+                m for m in resultados[nombre]
+                if m["post"].get("id") not in ocultos.get(nombre, set())
+            ]
+
         total = sum(len(v) for v in resultados.values())
-        st.caption(f"{len(posts)} publicaciones analizadas · {total} coincidencias encontradas")
+        st.caption(f"{len(posts)} publicaciones analizadas · {total} coincidencias pendientes "
+                   "(los que marcas como enviados o descartados desaparecen).")
 
         for nombre, matches in resultados.items():
             with st.expander(f"👤 {nombre} — {len(matches)} coincidencia(s)",
@@ -509,7 +526,7 @@ with tab_resultados:
                         with a2:
                             if not es_demo and p.get("media"):
                                 with st.popover("📥 Descargar foto/video", use_container_width=True):
-                                    render_descargas(p)
+                                    render_descargas(p, f"{nombre}_{p.get('id', 'x')}")
                     with c2:
                         st.metric("Coincidencia", f"{m['score']}%")
                         if p.get("url"):
@@ -521,13 +538,19 @@ with tab_resultados:
                                 p.get("resumen") or (p.get("caption", "")[:50]),
                                 p.get("barrio", ""),
                                 f"${p['precio']:,.0f}" if p.get("precio") else "",
-                                p.get("url", ""),
                             ] if x)
                             if st.button("📤 Marcar enviado", key=f"env_{nombre}_{p.get('id','x')}",
-                                         help=f"Registrar en el CRM de {nombre}",
+                                         help=f"Lo registra en el CRM de {nombre} y lo quita de esta lista",
                                          use_container_width=True):
-                                mod_clientes.marcar_inmueble_enviado(nombre, inmueble)
-                                st.toast(f"📤 Guardado en el CRM de {nombre}")
+                                mod_clientes.marcar_inmueble_enviado(nombre, inmueble, p.get("id", ""))
+                                st.toast(f"📤 Enviado a {nombre}")
+                                st.rerun()
+                            if st.button("🚫 Descartar", key=f"desc_{nombre}_{p.get('id','x')}",
+                                         help="No le sirve a este cliente: quítalo de la lista (no se borra de la base)",
+                                         use_container_width=True):
+                                mod_clientes.descartar_inmueble(nombre, p.get("id", ""))
+                                st.toast(f"🚫 Descartado para {nombre}")
+                                st.rerun()
                     st.divider()
 
         # Descarga de todos los matches en un CSV.
