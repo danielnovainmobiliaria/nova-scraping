@@ -12,7 +12,6 @@ from contextlib import contextmanager
 from typing import Any, Iterator, Optional
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import make_url
 
 from . import config
 
@@ -24,11 +23,19 @@ def _build_engine():
         # Sin nube: archivo local SQLite.
         return create_engine(f"sqlite:///{config.DB_FILE}")
 
-    # Con nube: Postgres con el driver psycopg (maneja SSL y SNI de Neon nativamente).
+    # Con nube: dejamos que psycopg (libpq) parsee la cadena tal cual. Así no se
+    # daña la contraseña aunque tenga caracteres especiales (SQLAlchemy a veces la
+    # reinterpreta mal; libpq es el parser de referencia que Neon espera).
     if raw.startswith("postgres://"):
         raw = "postgresql://" + raw[len("postgres://"):]
-    url = make_url(raw).set(drivername="postgresql+psycopg")
-    return create_engine(url, pool_pre_ping=True)
+
+    def _crear_conexion():
+        import psycopg
+        return psycopg.connect(raw)
+
+    return create_engine(
+        "postgresql+psycopg://", creator=_crear_conexion, pool_pre_ping=True
+    )
 
 
 _engine = _build_engine()
