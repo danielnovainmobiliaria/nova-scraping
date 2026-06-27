@@ -1,0 +1,26 @@
+name: Actualizar inmuebles (automático)
+
+# Corre solo todos los días, y también se puede correr a mano con un botón.
+on:
+  schedule:
+    - cron: "0 13 * * *"   # 8:00 a.m. hora Colombia (UTC-5)
+  workflow_dispatch: {}
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+      - name: Traer y leer publicaciones
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: claude-haiku-4-5-20251001
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python job_actualizar.py
