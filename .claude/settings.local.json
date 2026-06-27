@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit -q -m 'Scraping incremental \\(ahorro de créditos\\) + confirmado cruce de clientes nuevos *)",
+      "Bash(git fetch *)",
+      "Bash(git pull *)",
+      "Bash(git push *)"
+    ]
+  }
+}

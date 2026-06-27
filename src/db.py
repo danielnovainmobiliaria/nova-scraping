@@ -42,6 +42,23 @@ def init_db() -> None:
             )
             """
         )
+        # Tabla de estado: recuerda, por ejemplo, la fecha del último scraping.
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS meta (clave TEXT PRIMARY KEY, valor TEXT)"
+        )
+
+
+def leer_meta(clave: str, defecto: Optional[str] = None) -> Optional[str]:
+    with _conn() as con:
+        fila = con.execute("SELECT valor FROM meta WHERE clave = ?", (clave,)).fetchone()
+        return fila["valor"] if fila else defecto
+
+
+def guardar_meta(clave: str, valor: str) -> None:
+    with _conn() as con:
+        con.execute(
+            "INSERT OR REPLACE INTO meta (clave, valor) VALUES (?, ?)", (clave, str(valor))
+        )
 
 
 def guardar_post(post: dict[str, Any]) -> None:

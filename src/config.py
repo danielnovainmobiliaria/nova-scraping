@@ -49,6 +49,10 @@ DATA_DIR.mkdir(exist_ok=True)
 # Ventana de tiempo: solo nos interesan publicaciones recientes.
 DIAS_RECIENTES = 30
 
+# Al scrapear de forma incremental, repetimos unos días de solape para no
+# perder publicaciones por diferencias de hora/zona.
+DIAS_SOLAPE = 2
+
 # Cuántos posts pedirle a Apify por cada cuenta (techo de seguridad).
 MAX_POSTS_POR_CUENTA = 30
 
