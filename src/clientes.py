@@ -5,16 +5,15 @@ requerimientos del cliente, listo para el motor de cruce.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-from . import config
+from . import db
 
-# Archivo donde se guardan los clientes que agregas desde el formulario de la app.
-STORE_FILE = config.DATA_DIR / "clientes.json"
+# Los clientes se guardan en la base de datos (db.py), que puede ser local
+# (SQLite) o en la nube (Postgres), para que no se pierdan al reiniciar.
 
 # Columnas esperadas en el Excel (ver plantilla_clientes.xlsx).
 COLUMNAS = [
@@ -91,14 +90,8 @@ def _con_crm(cliente: dict[str, Any]) -> dict[str, Any]:
 
 
 def cargar_guardados() -> list[dict[str, Any]]:
-    """Lee los clientes guardados, garantizando los campos del CRM."""
-    if not STORE_FILE.exists():
-        return []
-    try:
-        lista = json.loads(STORE_FILE.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return []
-    return [_con_crm(c) for c in lista]
+    """Lee los clientes guardados (base de datos), garantizando los campos del CRM."""
+    return [_con_crm(c) for c in db.leer_clientes()]
 
 
 def fusionar_crm(nuevos: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -140,9 +133,7 @@ def marcar_inmueble_enviado(nombre: str, inmueble: str) -> None:
 
 
 def guardar_lista(clientes: list[dict[str, Any]]) -> None:
-    STORE_FILE.write_text(
-        json.dumps(clientes, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    db.guardar_clientes(clientes)
 
 
 def _completitud(c: dict[str, Any]) -> int:

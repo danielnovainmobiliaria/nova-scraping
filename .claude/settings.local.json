@@ -6,7 +6,8 @@
       "Bash(git fetch *)",
       "Bash(git pull *)",
       "Bash(git push *)",
-      "Bash(git commit -q -m 'Presupuesto como rango: piso de precio mínimo \\(oculta inmuebles de otro segmento\\) *)"
+      "Bash(git commit -q -m 'Presupuesto como rango: piso de precio mínimo \\(oculta inmuebles de otro segmento\\) *)",
+      "Bash(git commit -q -m 'Almacenamiento persistente: SQLite local o Postgres en la nube \\(SQLAlchemy + pg8000\\) *)"
     ]
   }
 }

@@ -35,6 +35,10 @@ APIFY_TOKEN = _leer_llave("APIFY_TOKEN")
 ANTHROPIC_API_KEY = _leer_llave("ANTHROPIC_API_KEY")
 ANTHROPIC_MODEL = _leer_llave("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 
+# Base de datos en la nube (Postgres). Si está vacía, se usa SQLite local.
+# Sirve para que los datos NO se pierdan cuando el servidor se reinicia.
+DATABASE_URL = _leer_llave("DATABASE_URL")
+
 # ── Rutas de archivos ─────────────────────────────────────────
 CONFIG_DIR = BASE_DIR / "config"
 DATA_DIR = BASE_DIR / "data"
