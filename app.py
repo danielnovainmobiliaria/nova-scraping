@@ -14,6 +14,7 @@ import io
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
+import requests
 import streamlit as st
 
 from src import clientes as mod_clientes
@@ -34,6 +35,47 @@ def bonito(extra: str) -> str:
 
 def fecha_corte_iso() -> str:
     return (datetime.now(timezone.utc) - timedelta(days=config.DIAS_RECIENTES)).date().isoformat()
+
+
+def descargar_bytes(url: str):
+    """Descarga un archivo (foto/video) y devuelve sus bytes, o None si falla."""
+    try:
+        r = requests.get(url, timeout=40)
+        if r.ok and r.content:
+            return r.content
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def slug_archivo(texto: str) -> str:
+    base = "".join(c if c.isalnum() else "_" for c in (texto or "inmueble").lower())
+    return base[:40].strip("_") or "inmueble"
+
+
+def render_descargas(p: dict) -> None:
+    """Botones para descargar los archivos del inmueble (sin link, sin fuente)."""
+    medios = p.get("media") or []
+    st.caption("Descarga los archivos y compártelos directo a tu cliente — "
+               "sin link y sin rastro de quién lo publicó.")
+    base = slug_archivo(p.get("barrio") or p.get("resumen") or "inmueble")
+    clave = f"prep_{p.get('id')}"
+    if st.button("📥 Preparar archivos", key=f"btnprep_{p.get('id')}"):
+        st.session_state[clave] = [
+            {"tipo": med["tipo"], "data": descargar_bytes(med["url"])}
+            for med in medios
+        ]
+    archivos = st.session_state.get(clave)
+    if archivos:
+        for i, a in enumerate(archivos, 1):
+            if a["data"]:
+                ext = "mp4" if a["tipo"] == "video" else "jpg"
+                st.download_button(
+                    f"⬇️ Descargar {a['tipo']} {i}", a["data"],
+                    file_name=f"{base}_{i}.{ext}", key=f"dl_{p.get('id')}_{i}")
+            else:
+                st.caption(f"⚠️ {a['tipo']} {i}: el enlace expiró. Vuelve a "
+                           "traer publicaciones para refrescarlo.")
 
 
 def actualizar_publicaciones(log) -> None:
@@ -442,25 +484,38 @@ with tab_resultados:
                             st.markdown("✅ " + " · ".join(m["razones_ok"]))
                         if m["razones_no"]:
                             st.markdown("⚠️ " + " · ".join(m["razones_no"]))
-                        st.caption(f"@{p.get('cuenta', '')} · publicado {p.get('fecha', '')}")
-                        # Mensaje listo para compartir por WhatsApp.
+                        st.caption(f"Fuente (solo tú): @{p.get('cuenta', '')} · publicado {p.get('fecha', '')}")
+                        # Foto de portada (vista previa)
+                        if p.get("imagen"):
+                            st.image(p["imagen"], width=260)
+                        # Texto LIMPIO para compartir: sin link y sin la fuente.
                         extras_txt = ", ".join(bonito(e) for e in p.get("extras", []))
                         mensaje = (
-                            f"Hola {nombre.split()[0]}, encontré esta opción que puede interesarte:\n"
-                            f"{p.get('resumen','')}\n"
-                            f"{p.get('barrio','')} · {p.get('area_m2','?')} m² · "
-                            f"{p.get('habitaciones','?')} hab · {p.get('banos','?')} baños\n"
-                            + (f"Extras: {extras_txt}\n" if extras_txt else "")
-                            + (f"Valor: ${p['precio']:,.0f}\n" if p.get('precio') else "")
-                            + (f"{p.get('url','')}" if p.get('url') else "")
+                            f"🏙️ {p.get('resumen') or 'Apartamento'}\n"
+                            + (f"📍 {p.get('barrio','')}\n" if p.get('barrio') else "")
+                            + (f"📐 {p.get('area_m2'):g} m²  " if p.get('area_m2') else "")
+                            + (f"🛏️ {p.get('habitaciones'):g} hab  " if p.get('habitaciones') is not None else "")
+                            + (f"🛁 {p.get('banos'):g} baños" if p.get('banos') is not None else "")
+                            + "\n"
+                            + (f"✨ {extras_txt}\n" if extras_txt else "")
+                            + (f"💰 ${p['precio']:,.0f}\n" if p.get('precio') else "")
+                            + "\nEscríbeme para más información y agendar visita. — Nova Inmobiliaria"
                         )
-                        with st.popover("📲 Texto para compartir"):
-                            st.code(mensaje, language=None)
+                        a1, a2 = st.columns(2)
+                        with a1:
+                            with st.popover("📲 Texto para compartir", use_container_width=True):
+                                st.caption("Listo para tu cliente: solo datos + tu marca, sin link ni fuente.")
+                                st.code(mensaje, language=None)
+                        with a2:
+                            if not es_demo and p.get("media"):
+                                with st.popover("📥 Descargar foto/video", use_container_width=True):
+                                    render_descargas(p)
                     with c2:
                         st.metric("Coincidencia", f"{m['score']}%")
                         if p.get("url"):
-                            st.link_button("🔗 Ver inmueble", p["url"],
-                                           use_container_width=True)
+                            st.link_button("🔗 Ver original (solo tú)", p["url"],
+                                           use_container_width=True,
+                                           help="Para que TÚ verifiques el inmueble. No lo compartas: revela la fuente.")
                         if not es_demo:
                             inmueble = " · ".join(x for x in [
                                 p.get("resumen") or (p.get("caption", "")[:50]),

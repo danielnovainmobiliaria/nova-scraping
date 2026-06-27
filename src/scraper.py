@@ -106,6 +106,39 @@ def scrapear_cuentas(cuentas: list[str], log=print) -> int:
     return nuevos
 
 
+def _media(item: dict[str, Any]) -> list[dict[str, str]]:
+    """Lista de archivos descargables del post (videos y fotos), sin duplicar.
+
+    Maneja posts de video, fotos sueltas y carruseles (Sidecar).
+    """
+    media: list[dict[str, str]] = []
+    vistos: set[str] = set()
+
+    def agregar(tipo: str, url: str | None) -> None:
+        if url and url not in vistos:
+            vistos.add(url)
+            media.append({"tipo": tipo, "url": url})
+
+    # Video principal
+    if item.get("videoUrl"):
+        agregar("video", item["videoUrl"])
+    # Carrusel: cada elemento puede ser foto o video
+    hijos = item.get("childPosts") or []
+    if hijos:
+        for hijo in hijos:
+            if hijo.get("videoUrl"):
+                agregar("video", hijo["videoUrl"])
+            else:
+                agregar("foto", hijo.get("displayUrl"))
+    else:
+        for img in (item.get("images") or []):
+            agregar("foto", img)
+    # Respaldo: la imagen de portada
+    if not media:
+        agregar("foto", item.get("displayUrl"))
+    return media
+
+
 def _normalizar(item: dict[str, Any]) -> dict[str, Any] | None:
     """Convierte un item crudo de Apify al formato que usa nuestra caché."""
     post_id = item.get("id") or item.get("shortCode")
@@ -120,4 +153,5 @@ def _normalizar(item: dict[str, Any]) -> dict[str, Any] | None:
         "caption": caption,
         "fecha": (item.get("timestamp") or "")[:10],  # YYYY-MM-DD
         "imagen": item.get("displayUrl", ""),
+        "media": _media(item),
     }

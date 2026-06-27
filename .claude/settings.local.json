@@ -9,7 +9,8 @@
       "Bash(git commit -q -m 'Presupuesto como rango: piso de precio mínimo \\(oculta inmuebles de otro segmento\\) *)",
       "Bash(git commit -q -m 'Almacenamiento persistente: SQLite local o Postgres en la nube \\(SQLAlchemy + pg8000\\) *)",
       "Bash(git commit -q -m 'Usar psycopg en vez de pg8000 \\(compatibilidad con Neon/SNI\\) *)",
-      "Bash(git commit -q -m 'Conexión robusta: psycopg/libpq parsea la cadena cruda \\(soporta contraseñas con símbolos\\) *)"
+      "Bash(git commit -q -m 'Conexión robusta: psycopg/libpq parsea la cadena cruda \\(soporta contraseñas con símbolos\\) *)",
+      "Bash(git commit -q -m 'Compartir sin huella: foto + descarga de video/fotos + texto limpio \\(sin link ni fuente\\) *)"
     ]
   }
 }

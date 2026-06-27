@@ -59,7 +59,8 @@ def init_db() -> None:
                 caption     TEXT,
                 fecha       TEXT,
                 imagen      TEXT,
-                datos_json  TEXT
+                datos_json  TEXT,
+                media_json  TEXT
             )
             """
         ))
@@ -70,6 +71,15 @@ def init_db() -> None:
             "CREATE TABLE IF NOT EXISTS clientes (nombre TEXT PRIMARY KEY, datos_json TEXT)"
         ))
 
+    # Migración: agrega columnas nuevas a tablas que ya existían (cada una en su
+    # propia transacción, porque un ALTER que falla aborta la transacción).
+    for columna in ["media_json TEXT"]:
+        try:
+            with _conn() as con:
+                con.execute(text(f"ALTER TABLE posts ADD COLUMN {columna}"))
+        except Exception:  # noqa: BLE001 - la columna ya existe
+            pass
+
 
 # ── Publicaciones (posts) ─────────────────────────────────────
 
@@ -78,8 +88,8 @@ def guardar_post(post: dict[str, Any]) -> None:
     with _conn() as con:
         con.execute(text(
             """
-            INSERT INTO posts (id, cuenta, url, caption, fecha, imagen)
-            VALUES (:id, :cuenta, :url, :caption, :fecha, :imagen)
+            INSERT INTO posts (id, cuenta, url, caption, fecha, imagen, media_json)
+            VALUES (:id, :cuenta, :url, :caption, :fecha, :imagen, :media_json)
             ON CONFLICT (id) DO NOTHING
             """
         ), {
@@ -89,7 +99,17 @@ def guardar_post(post: dict[str, Any]) -> None:
             "caption": post.get("caption", ""),
             "fecha": post.get("fecha", ""),
             "imagen": post.get("imagen", ""),
+            "media_json": json.dumps(post.get("media") or [], ensure_ascii=False),
         })
+
+
+def actualizar_media(post_id: str, media: list) -> None:
+    """Agrega/actualiza los archivos descargables de un post ya guardado."""
+    with _conn() as con:
+        con.execute(
+            text("UPDATE posts SET media_json = :m WHERE id = :id"),
+            {"m": json.dumps(media or [], ensure_ascii=False), "id": post_id},
+        )
 
 
 def guardar_extraccion(post_id: str, datos: dict[str, Any]) -> None:
@@ -122,10 +142,12 @@ def posts_recientes(desde_iso: str) -> list[dict[str, Any]]:
     resultado: list[dict[str, Any]] = []
     for fila in filas:
         datos = json.loads(fila["datos_json"])
+        media = json.loads(fila["media_json"]) if fila.get("media_json") else []
         resultado.append({
             "id": fila["id"], "cuenta": fila["cuenta"], "url": fila["url"],
             "caption": fila["caption"], "fecha": fila["fecha"], "imagen": fila["imagen"],
             **datos,
+            "media": media,
         })
     return resultado
 
