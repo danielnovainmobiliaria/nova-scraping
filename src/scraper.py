@@ -8,6 +8,7 @@ Documentación del actor: https://apify.com/apify/instagram-scraper
 """
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -83,11 +84,13 @@ def scrapear_cuentas(cuentas: list[str], log=print) -> int:
         raise RuntimeError("Apify no devolvió resultados. Revisa tu plan o las cuentas.")
 
     nuevos = 0
-    restringidas = 0
+    restringidas: list[str] = []
     dataset = cliente.dataset(run.default_dataset_id).iterate_items()
     for item in dataset:
         if item.get("error"):  # perfil restringido/privado: Instagram lo bloquea
-            restringidas += 1
+            url = item.get("inputUrl") or item.get("url") or ""
+            if url and url not in restringidas:
+                restringidas.append(url)
             continue
         post = _normalizar(item)
         if post is None:
@@ -97,11 +100,12 @@ def scrapear_cuentas(cuentas: list[str], log=print) -> int:
         if db.contar_posts() > antes:
             nuevos += 1
 
-    # Recuerda cuándo scrapeamos por última vez (para el modo incremental).
+    # Recuerda cuándo scrapeamos y qué cuentas no se dejaron leer.
     db.guardar_meta("ultimo_scrape", datetime.now(timezone.utc).date().isoformat())
+    db.guardar_meta("cuentas_restringidas", json.dumps(restringidas, ensure_ascii=False))
 
     if restringidas:
-        log(f"⚠️ {restringidas} cuenta(s) no se pudieron leer (perfil restringido o privado).")
+        log(f"⚠️ {len(restringidas)} cuenta(s) no se pudieron leer (perfil restringido o privado).")
     log(f"Listo. Se guardaron {nuevos} publicaciones nuevas.")
     return nuevos
 

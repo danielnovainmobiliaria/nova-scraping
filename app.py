@@ -11,6 +11,7 @@ Flujo:
 from __future__ import annotations
 
 import io
+import json
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
@@ -352,6 +353,20 @@ with tab_fuentes:
             except Exception as e:  # noqa: BLE001
                 st.error(f"Ocurrió un problema: {e}")
         col2.metric("Posts en la caché", db.contar_posts())
+
+        # ── Cuentas que Instagram no dejó leer (revisar a mano) ──
+        try:
+            restr = json.loads(db.leer_meta("cuentas_restringidas") or "[]")
+        except json.JSONDecodeError:
+            restr = []
+        if restr:
+            st.divider()
+            st.markdown(f"**⚠️ {len(restr)} perfil(es) que Instagram NO dejó leer** "
+                        "(ábrelos a mano para revisar su inventario):")
+            for u in restr:
+                st.markdown(f"- [{u}]({u})")
+            st.caption("Son perfiles restringidos por Instagram. No es falla de la app — "
+                       "revísalos manualmente cuando quieras.")
 
 # ===== 2. CLIENTES ===========================================
 EXTRAS_OPCIONES = [
@@ -725,6 +740,21 @@ with tab_resultados:
                    "(los que marcas como enviados o descartados desaparecen).")
         st.caption("Frescura del aviso: 🟢 reciente (≤7 días, más fácil de conseguir) · "
                    "🟡 unas semanas · 🔴 más viejo (puede estar ya tomado).")
+
+        # ── Cuadro: inmuebles potenciales por cliente (cobertura) ──
+        resumen = []
+        for nombre, matches in resultados.items():
+            n = len(matches)
+            resumen.append({
+                "Cliente": nombre,
+                "Inmuebles potenciales": n,
+                "Cobertura": "🔴 Buscar más" if n == 0 else ("🟡 Pocos" if n <= 2 else "🟢 Bien cubierto"),
+            })
+        resumen.sort(key=lambda r: r["Inmuebles potenciales"])  # los más flojos primero
+        with st.expander("📋 Cobertura por cliente (cuántos inmuebles potenciales hay)", expanded=True):
+            st.dataframe(pd.DataFrame(resumen), hide_index=True, use_container_width=True)
+            st.caption("Ordenado de menos a más. Los 🔴/🟡 son a quienes conviene "
+                       "buscarles más (incluso manual o ampliando criterios con los deslizadores).")
 
         for nombre, matches in resultados.items():
             with st.expander(f"👤 {nombre} — {len(matches)} coincidencia(s)",
