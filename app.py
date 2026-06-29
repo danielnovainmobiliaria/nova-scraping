@@ -384,6 +384,15 @@ ETIQUETA_OBLIGATORIO = {
     "metraje": "metraje (rango)", "extras": "extras deseados",
 }
 
+# Perfil de flexibilidad por cliente (qué tan acertado debe ser el inmueble).
+FLEX_OPCIONES = matcher.FLEX_VALIDOS  # ["estricto","medio","flexible"]
+ETIQUETA_FLEX = {
+    "estricto": "🔒 Estricto — no cede, solo lo MUY acertado",
+    "medio": "⚖️ Medio — equilibrado (recomendado)",
+    "flexible": "🌊 Flexible — abierto a más opciones",
+}
+BADGE_FLEX = {"estricto": "🔒 Estricto", "medio": "⚖️ Medio", "flexible": "🌊 Flexible"}
+
 
 def num_o_none(v):
     """Convierte 0/vacío en None (0 = 'no especificado')."""
@@ -427,7 +436,7 @@ def texto_a_lista(v) -> list[str]:
 
 
 # Columnas de la "hoja de clientes" dentro de la app.
-COLS_HOJA = ["nombre", "telefono", "operacion", "barrios", "zona", "presupuesto",
+COLS_HOJA = ["nombre", "telefono", "operacion", "flexibilidad", "barrios", "zona", "presupuesto",
              "area_min", "area_max", "habitaciones_min", "banos_min", "extras",
              "obligatorios", "notas"]
 
@@ -440,6 +449,7 @@ def clientes_a_df(lista):
             "nombre": c.get("nombre", ""),
             "telefono": c.get("telefono", ""),
             "operacion": c.get("operacion", "venta"),
+            "flexibilidad": c.get("flexibilidad") or "medio",
             "barrios": lista_a_texto(c.get("barrios")),
             "zona": c.get("zona", ""),
             "presupuesto": matcher.formato_cop(c.get("presupuesto_max")),
@@ -500,6 +510,9 @@ def _aplicar_columna(cliente, col, val):
         cliente["telefono"] = "".join(ch for ch in str(val) if ch.isdigit())
     elif col == "operacion":
         cliente["operacion"] = str(val or "venta").strip().lower()
+    elif col == "flexibilidad":
+        cliente["flexibilidad"] = (str(val or "medio").strip().lower()
+                                   if str(val or "").strip().lower() in FLEX_OPCIONES else "medio")
     elif col == "barrios":
         cliente["barrios"] = texto_a_lista(val)
     elif col == "zona":
@@ -530,10 +543,10 @@ def coincide_busqueda(cliente, q):
 
 
 def _cliente_nuevo_vacio():
-    return {"nombre": "", "telefono": "", "operacion": "venta", "barrios": [], "zona": "",
-            "presupuesto_max": None, "area_min": None, "area_max": None,
-            "habitaciones_min": None, "banos_min": None, "extras": [], "obligatorios": [],
-            "perimetro": "", "notas": ""}
+    return {"nombre": "", "telefono": "", "operacion": "venta", "flexibilidad": "medio",
+            "barrios": [], "zona": "", "presupuesto_max": None, "area_min": None,
+            "area_max": None, "habitaciones_min": None, "banos_min": None, "extras": [],
+            "obligatorios": [], "perimetro": "", "notas": ""}
 
 
 def guardar_edicion_hoja(editor_key):
@@ -630,6 +643,11 @@ with tab_clientes:
                     "🔒 No negociable (sí o sí) — filtra duro",
                     OBLIGATORIOS_OPCIONES, format_func=lambda o: ETIQUETA_OBLIGATORIO.get(o, o),
                     help="Lo que marques aquí se exige obligatoriamente; el resto se busca flexible.")
+                z_flex = st.selectbox(
+                    "¿Qué tan flexible es este cliente?", FLEX_OPCIONES, index=1,
+                    format_func=lambda f: ETIQUETA_FLEX.get(f, f),
+                    help="Estricto = solo inmuebles muy acertados (clientes que no ceden, como Eleonora). "
+                         "Flexible = abierto a más opciones. Medio = equilibrado.")
                 if st.form_submit_button("➕ Agregar cliente", type="primary"):
                     if not z_nombre.strip():
                         st.error("Ponle un nombre al cliente.")
@@ -647,6 +665,7 @@ with tab_clientes:
                             # Une lo que la IA detectó como obligatorio con lo que marcaste.
                             nuevos[0]["obligatorios"] = sorted(
                                 set(nuevos[0].get("obligatorios") or []) | set(z_oblig))
+                            nuevos[0]["flexibilidad"] = z_flex  # lo que elegiste manda
                             existentes = mod_clientes.cargar_guardados()
                             antes = len(existentes)
                             combinados = mod_clientes.fusionar_duplicados(existentes + nuevos)
@@ -709,7 +728,14 @@ with tab_clientes:
                     g1, g2 = st.columns(2)
                     e_op = g1.selectbox("Compra / Arriendo", ["venta", "arriendo"],
                                         index=0 if (cliente_e.get("operacion") or "venta") == "venta" else 1)
-                    e_zona = g2.text_input("Zona", value=cliente_e.get("zona", ""))
+                    _fx = (cliente_e.get("flexibilidad") or "medio")
+                    _fx = _fx if _fx in FLEX_OPCIONES else "medio"
+                    e_flex = g2.selectbox("Flexibilidad", FLEX_OPCIONES,
+                                          index=FLEX_OPCIONES.index(_fx),
+                                          format_func=lambda f: ETIQUETA_FLEX.get(f, f),
+                                          help="Estricto = no cede (solo lo muy acertado). "
+                                               "Flexible = abierto a más opciones.")
+                    e_zona = st.text_input("Zona", value=cliente_e.get("zona", ""))
                     e_barrios = st.text_input("Barrios", value=lista_a_texto(cliente_e.get("barrios")))
                     e_pres = st.text_input("Presupuesto",
                                            value=matcher.formato_cop(cliente_e.get("presupuesto_max")))
@@ -733,6 +759,7 @@ with tab_clientes:
                                 c["nombre"] = e_nombre.strip()
                                 c["telefono"] = "".join(ch for ch in e_tel if ch.isdigit())
                                 c["operacion"] = e_op
+                                c["flexibilidad"] = e_flex
                                 c["barrios"] = texto_a_lista(e_barrios)
                                 c["zona"] = e_zona.strip()
                                 c["presupuesto_max"] = parse_cop(e_pres)
@@ -894,6 +921,7 @@ with tab_resultados:
         ocultos = {c["nombre"]: mod_clientes.ids_en_proceso(c) for c in clientes}
         aprendizajes = {c["nombre"]: mod_clientes.aprendizajes_cliente(c) for c in clientes}
         oblig_map = {c["nombre"]: (c.get("obligatorios") or []) for c in clientes}
+        flex_map = {c["nombre"]: (c.get("flexibilidad") or "medio") for c in clientes}
         for nombre in list(resultados):
             resultados[nombre] = [
                 m for m in resultados[nombre]
@@ -912,6 +940,7 @@ with tab_resultados:
             n = len(matches)
             resumen.append({
                 "Cliente": nombre,
+                "Perfil": BADGE_FLEX.get(flex_map.get(nombre, "medio"), "⚖️ Medio"),
                 "Inmuebles potenciales": n,
                 "Cobertura": "🔴 Buscar más" if n == 0 else ("🟡 Pocos" if n <= 2 else "🟢 Bien cubierto"),
             })
@@ -924,6 +953,10 @@ with tab_resultados:
         for nombre, matches in resultados.items():
             with st.expander(f"👤 {nombre} — {len(matches)} coincidencia(s)",
                              expanded=bool(matches)):
+                perfil = flex_map.get(nombre, "medio")
+                st.caption(f"Perfil de búsqueda: **{ETIQUETA_FLEX.get(perfil, perfil)}**"
+                           + ("  ·  con este perfil solo verás inmuebles muy acertados."
+                              if perfil == "estricto" else ""))
                 oblig = oblig_map.get(nombre, [])
                 if oblig:
                     st.info("🔒 No negociable (filtra duro): "

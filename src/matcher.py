@@ -80,6 +80,24 @@ def _zona_de(barrio: str) -> str:
 # Criterios que el cliente puede marcar como NO negociables (filtro duro).
 OBLIGATORIOS_VALIDOS = ["barrio", "presupuesto", "habitaciones", "banos", "metraje", "extras"]
 
+# Perfil de flexibilidad de cada cliente. Ajusta qué tan acertado debe ser el
+# inmueble para que aparezca, SIN tocar los deslizadores globales:
+#   - mult: multiplica la tolerancia de precio y metraje (más bajo = más estricto).
+#   - piso_extra: sube/baja el piso de precio (estricto rechaza lo muy barato).
+#   - score_min: puntaje mínimo propio (estricto solo muestra coincidencias muy altas).
+PERFILES_FLEX = {
+    "estricto": {"mult": 0.3, "piso_extra": 0.20, "score_min": 80},   # no cede en nada
+    "medio":    {"mult": 1.0, "piso_extra": 0.0,  "score_min": 0},    # equilibrado (def.)
+    "flexible": {"mult": 2.0, "piso_extra": -0.20, "score_min": 0},   # abierto a más opciones
+}
+FLEX_VALIDOS = list(PERFILES_FLEX.keys())
+
+
+def perfil_flex(cliente: dict[str, Any]) -> dict[str, Any]:
+    """Devuelve el perfil de flexibilidad del cliente (por defecto 'medio')."""
+    clave = str(cliente.get("flexibilidad") or "medio").lower().strip()
+    return PERFILES_FLEX.get(clave, PERFILES_FLEX["medio"])
+
 
 def _operacion_compatible(cliente_op: str, post_op: str | None) -> bool:
     cli = _norm(cliente_op)
@@ -247,6 +265,12 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
     puntaje = 0.0
     peso_total = 0.0
 
+    # ── Flexibilidad del cliente: ajusta las tolerancias a su perfil ──
+    perfil = perfil_flex(cliente)
+    flex_precio = min(0.60, flex_precio * perfil["mult"])
+    flex_area = min(0.60, flex_area * perfil["mult"])
+    piso_precio = min(0.98, max(0.0, piso_precio + perfil["piso_extra"]))
+
     # ── Operación: este sí es un choque de fondo (arriendo ≠ venta) ──
     if not _operacion_compatible(cliente.get("operacion", ""), post.get("operacion")):
         return None
@@ -369,12 +393,14 @@ def cruzar(clientes: list[dict[str, Any]], posts: list[dict[str, Any]],
     """
     resultado: dict[str, list[dict[str, Any]]] = {}
     for cliente in clientes:
+        # Los clientes 'estrictos' exigen un puntaje mínimo más alto (solo lo muy acertado).
+        piso_score = max(score_minimo, perfil_flex(cliente)["score_min"])
         matches = []
         for post in posts:
             if not post.get("es_inmueble", True):
                 continue
             ev = evaluar(cliente, post, flex_precio, flex_area, piso_precio)
-            if ev and ev["score"] >= score_minimo:
+            if ev and ev["score"] >= piso_score:
                 matches.append(ev)
         matches.sort(key=lambda m: m["score"], reverse=True)
         resultado[cliente["nombre"]] = matches

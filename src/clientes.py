@@ -56,6 +56,9 @@ def cargar_clientes(ruta: str | Path) -> list[dict[str, Any]]:
                 "nombre": nombre,
                 "telefono": "".join(ch for ch in str(fila.get("telefono", "")) if ch.isdigit()),
                 "operacion": str(fila.get("operacion", "")).strip().lower(),
+                "flexibilidad": (str(fila.get("flexibilidad", "")).strip().lower()
+                                 if str(fila.get("flexibilidad", "")).strip().lower()
+                                 in ("estricto", "medio", "flexible") else "medio"),
                 "barrios": _lista(fila.get("barrios")),
                 "zona": str(fila.get("zona", "")).strip(),
                 "area_min": _numero(fila.get("area_min")),
