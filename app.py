@@ -134,6 +134,33 @@ def cobertura_emoji(n: int) -> str:
     return "🔴" if n == 0 else ("🟡" if n <= 2 else "🟢")
 
 
+def comision_potencial(c: dict) -> float:
+    """Comisión estimada de un cliente: la fijada, o estimada desde su presupuesto.
+
+    Arriendo = 1 canon (≈ presupuesto). Venta = 3% del valor (≈ presupuesto).
+    """
+    com = float(c.get("comision") or 0)
+    if com > 0:
+        return com
+    pres = float(c.get("presupuesto_max") or 0)
+    if pres <= 0:
+        return 0.0
+    op = (c.get("operacion") or "venta").lower()
+    return pres if op == "arriendo" else pres * COMISION_VENTA_PCT
+
+
+def prob_cierre(c: dict) -> float:
+    """Probabilidad estimada de cierre según qué tan avanzado va el negocio."""
+    estados = {pr.get("estado") for pr in (c.get("procesos") or [])}
+    if "visitado" in estados:
+        return 0.50
+    if "agendado" in estados:
+        return 0.30
+    if "enviado" in estados:
+        return 0.15
+    return 0.05  # aún no le hemos mandado nada
+
+
 def render_procesos(c: dict) -> None:
     """Muestra y permite editar el embudo de inmuebles en seguimiento de un cliente."""
     procs = c.get("procesos") or []
@@ -834,6 +861,28 @@ with tab_crm:
         if descuidados:
             st.warning("👀 **Ojo, tienes clientes descuidados:** " + " · ".join(descuidados)
                        + ". Mándales opciones para no perderlos.")
+
+        # ── Proyección de ganancias (comisiones) ──
+        ganados_c = [c for c in crm_clientes if c["estado"] == "ganado"]
+        gan_total = sum(comision_potencial(c) for c in ganados_c)
+        pot_total = sum(comision_potencial(c) for c in activos_list)
+        realista = gan_total + sum(comision_potencial(c) * prob_cierre(c) for c in activos_list)
+        with st.expander("📈 Proyección de ganancias (comisiones)", expanded=True):
+            p1, p2, p3 = st.columns(3)
+            p1.metric("🟢 Ya ganado", matcher.formato_cop(gan_total) or "$0",
+                      help="Comisiones de los negocios marcados como Ganados.")
+            p2.metric("📊 Potencial en juego", matcher.formato_cop(pot_total) or "$0",
+                      help="Si cerraras TODOS los negocios activos.")
+            p3.metric("🎯 Proyección realista", matcher.formato_cop(realista) or "$0",
+                      help="Potencial ponderado por qué tan avanzado va cada negocio "
+                           "(visitado 50%, agendado 30%, enviado 15%, sin envíos 5%).")
+            pot_arr = sum(comision_potencial(c) for c in activos_list
+                          if (c.get("operacion") or "venta").lower() == "arriendo")
+            pot_ven = pot_total - pot_arr
+            st.caption(f"Del potencial en juego → 🏠 arriendo: {matcher.formato_cop(pot_arr) or '$0'}  ·  "
+                       f"🔑 venta: {matcher.formato_cop(pot_ven) or '$0'}")
+            st.caption("Arriendo = 1 canon · Venta = 3% del valor. Si no fijaste la comisión de un "
+                       "cliente, se estima desde su presupuesto.")
 
         if es_demo:
             st.info("Modo Demo: el seguimiento no se guarda. Cambia a modo Real para usarlo.")
