@@ -90,6 +90,8 @@ CRM_CAMPOS = {
     # Lo que la IA aprendió que el cliente EVITA (de los descartados):
     # {"palabras": [...], "extras": [...]}
     "preferencias_evitar": {},
+    # Comentarios libres del broker para afinar la búsqueda de este cliente.
+    "comentarios_ia": [],
 }
 
 # Estados del embudo de seguimiento de cada inmueble enviado a un cliente.
@@ -225,6 +227,20 @@ def aprendizajes_cliente(cliente: dict[str, Any]) -> list[str]:
         if pr.get("estado") == "descartado" and pr.get("observaciones"):
             notas.append(pr["observaciones"].strip())
     return notas
+
+
+def agregar_comentario_ia(nombre: str, comentario: str) -> None:
+    """Guarda un comentario libre del broker para afinar la búsqueda de un cliente."""
+    comentario = (comentario or "").strip()
+    if not comentario:
+        return
+    lista = cargar_guardados()
+    for c in lista:
+        if c.get("nombre", "").lower() == nombre.lower():
+            coms = c.get("comentarios_ia") or []
+            coms.append(comentario)
+            c["comentarios_ia"] = coms
+    guardar_lista(lista)
 
 
 def guardar_lista(clientes: list[dict[str, Any]]) -> None:

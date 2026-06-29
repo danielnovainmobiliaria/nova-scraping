@@ -103,7 +103,7 @@ def proceso_de(p: dict, estado: str, observaciones: str = "") -> dict:
 
 
 def recalcular_preferencias(nombre: str) -> None:
-    """Aprende qué evita el cliente a partir de sus inmuebles descartados."""
+    """Afina al cliente con la IA: aprende de sus descartes Y de los comentarios del broker."""
     if not config.ANTHROPIC_API_KEY:
         return
     cli = next((c for c in mod_clientes.cargar_guardados()
@@ -112,7 +112,8 @@ def recalcular_preferencias(nombre: str) -> None:
         return
     try:
         from src import extractor
-        prefs = extractor.aprender_preferencias(mod_clientes.aprendizajes_cliente(cli))
+        señales = mod_clientes.aprendizajes_cliente(cli) + (cli.get("comentarios_ia") or [])
+        prefs = extractor.aprender_preferencias(señales)
         mod_clientes.set_preferencias_evitar(nombre, prefs)
     except Exception:  # noqa: BLE001
         pass
@@ -910,6 +911,7 @@ with tab_resultados:
         aprendizajes = {c["nombre"]: mod_clientes.aprendizajes_cliente(c) for c in clientes}
         oblig_map = {c["nombre"]: (c.get("obligatorios") or []) for c in clientes}
         flex_map = {c["nombre"]: (c.get("flexibilidad") or "medio") for c in clientes}
+        com_map = {c["nombre"]: (c.get("comentarios_ia") or []) for c in clientes}
         for nombre in list(resultados):
             resultados[nombre] = [
                 m for m in resultados[nombre]
@@ -955,6 +957,30 @@ with tab_resultados:
                 if aprend:
                     st.warning("🧠 Lo que NO le gustó a este cliente (tenlo en cuenta): "
                                + " · ".join(aprend))
+
+                # ── Afinar con IA: comentarios libres del broker sobre este cliente ──
+                with st.popover("🤖 Afinar con IA — ¿los resultados no son buenos?",
+                                use_container_width=True):
+                    st.caption("Escribe qué está mal o qué buscas y la IA lo tendrá en cuenta para "
+                               "las próximas coincidencias de **este** cliente. "
+                               "Ej: *«están muy lejos del Chicó»*, *«no quiero primer piso»*, "
+                               "*«prioriza vista y remodelado»*.")
+                    coms_prev = com_map.get(nombre, [])
+                    if coms_prev:
+                        st.caption("📝 Ya le dijiste: " + "  ·  ".join(f"«{c}»" for c in coms_prev[-4:]))
+                    txt = st.text_area("Tu comentario", key=f"afinar_txt_{nombre}", height=90,
+                                       placeholder="ej: las opciones están muy lejos; prioriza vista y que sea remodelado")
+                    if st.button("✨ Afinar este cliente", key=f"afinar_btn_{nombre}"):
+                        if not config.ANTHROPIC_API_KEY:
+                            st.error("Falta la llave de Claude para afinar. Revisa «🔑 Mis llaves».")
+                        elif not txt.strip():
+                            st.warning("Escribe un comentario primero.")
+                        else:
+                            mod_clientes.agregar_comentario_ia(nombre, txt.strip())
+                            recalcular_preferencias(nombre)
+                            st.toast(f"✨ Afiné la búsqueda de {nombre}")
+                            st.rerun()
+
                 if not matches:
                     st.write("Sin coincidencias por ahora.")
                     continue

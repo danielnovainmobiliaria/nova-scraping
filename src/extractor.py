@@ -320,9 +320,11 @@ def interpretar_texto_libre(texto: str, log=print) -> list[dict[str, Any]]:
 
 # ── Aprender qué evita un cliente (de los inmuebles descartados) ─────
 
-SYSTEM_PREFERENCIAS = f"""Eres un asistente inmobiliario en Bogotá. Te doy las observaciones de
-por qué un cliente RECHAZÓ varios inmuebles. Tu tarea es deducir qué EVITAR en sus próximas
-búsquedas.
+SYSTEM_PREFERENCIAS = f"""Eres un asistente inmobiliario en Bogotá. Te doy señales sobre un cliente:
+(a) observaciones de por qué RECHAZÓ inmuebles, y/o (b) comentarios del BROKER afinando la
+búsqueda (ej. "los resultados están muy lejos, busco algo más moderno y con vista", "no quiero
+primer piso", "que siempre tenga parqueadero"). Tu tarea es deducir qué EVITAR y qué priorizar
+en sus próximas búsquedas.
 
 Devuelve ÚNICAMENTE un objeto JSON válido (sin texto extra), con estas claves:
 {{
