@@ -126,6 +126,7 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin texto extra, sin ```), con esta
 
 {{
   "nombre": string|null,            // nombre del cliente si aparece
+  "telefono": string|null,          // teléfono/celular si aparece (solo dígitos)
   "operacion": "arriendo"|"venta"|null,
   "barrios": [string],              // barrios de interés mencionados
   "zona": string|null,              // localidad o sector (ej. Chapinero, Norte)
@@ -212,6 +213,7 @@ def interpretar_clientes(textos: list[str], log=print) -> list[dict[str, Any]]:
         datos["extras"] = [e for e in datos.get("extras", []) if e in EXTRAS_VALIDOS]
         datos["barrios"] = datos.get("barrios") or []
         datos["perimetro"] = ""
+        datos["telefono"] = "".join(ch for ch in str(datos.get("telefono") or "") if ch.isdigit())
         if not datos.get("nombre"):
             datos["nombre"] = f"Cliente {len(resultado) + 1}"
         resultado.append(datos)

@@ -54,6 +54,7 @@ def cargar_clientes(ruta: str | Path) -> list[dict[str, Any]]:
         clientes.append(
             {
                 "nombre": nombre,
+                "telefono": "".join(ch for ch in str(fila.get("telefono", "")) if ch.isdigit()),
                 "operacion": str(fila.get("operacion", "")).strip().lower(),
                 "barrios": _lista(fila.get("barrios")),
                 "zona": str(fila.get("zona", "")).strip(),
@@ -254,32 +255,42 @@ def _fusionar_dos(base: dict[str, Any], otro: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _norm_nombre(nombre: str) -> str:
+    """Normaliza un nombre para comparar (minúsculas, sin tildes, espacios colapsados)."""
+    t = str(nombre or "").lower().strip()
+    for a, b in {"á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ñ": "n"}.items():
+        t = t.replace(a, b)
+    return " ".join(t.split())
+
+
+def _norm_tel(tel: str) -> str:
+    """Deja solo dígitos del teléfono (últimos 10) para comparar."""
+    d = "".join(ch for ch in str(tel or "") if ch.isdigit())
+    return d[-10:] if len(d) >= 10 else d
+
+
 def fusionar_duplicados(lista: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Une clientes con el mismo nombre: toma el más completo y fusiona el resto.
+    """Une clientes que son el mismo (mismo nombre SIN tildes/mayúsculas, o mismo teléfono).
 
-    Une listas (barrios, extras, inmuebles_enviados) sin duplicar y concatena las notas.
+    Toma el más completo como base, une listas (barrios, extras, enviados) sin duplicar
+    y concatena las notas. Así, venga de Zoho o de un alta manual, no se duplican.
     """
-    grupos: dict[str, list[dict[str, Any]]] = {}
-    orden: list[str] = []
+    out: list[dict[str, Any]] = []
     for c in lista:
-        key = c.get("nombre", "").strip().lower()
-        if key not in grupos:
-            grupos[key] = []
-            orden.append(key)
-        grupos[key].append(c)
-
-    resultado: list[dict[str, Any]] = []
-    for key in orden:
-        grupo = grupos[key]
-        if len(grupo) == 1:
-            resultado.append(grupo[0])
-            continue
-        grupo = sorted(grupo, key=_completitud, reverse=True)  # el más completo primero
-        fusionado = dict(grupo[0])
-        for otro in grupo[1:]:
-            fusionado = _fusionar_dos(fusionado, otro)
-        resultado.append(fusionado)
-    return resultado
+        nk, tk = _norm_nombre(c.get("nombre", "")), _norm_tel(c.get("telefono", ""))
+        encontrado = None
+        for g in out:
+            if (nk and nk == _norm_nombre(g.get("nombre", ""))) or \
+               (tk and tk == _norm_tel(g.get("telefono", ""))):
+                encontrado = g
+                break
+        if encontrado is None:
+            out.append(dict(c))
+        else:
+            base, otro = ((encontrado, c) if _completitud(encontrado) >= _completitud(c)
+                          else (dict(c), encontrado))
+            out[out.index(encontrado)] = _fusionar_dos(base, otro)
+    return out
 
 
 def agregar_o_actualizar(cliente: dict[str, Any]) -> None:

@@ -335,7 +335,7 @@ def texto_a_lista(v) -> list[str]:
 
 
 # Columnas de la "hoja de clientes" dentro de la app.
-COLS_HOJA = ["nombre", "operacion", "barrios", "zona", "presupuesto_max",
+COLS_HOJA = ["nombre", "telefono", "operacion", "barrios", "zona", "presupuesto_max",
              "area_min", "area_max", "habitaciones_min", "banos_min", "extras", "notas"]
 
 
@@ -345,6 +345,7 @@ def clientes_a_df(lista):
     for c in lista:
         filas.append({
             "nombre": c.get("nombre", ""),
+            "telefono": c.get("telefono", ""),
             "operacion": c.get("operacion", "venta"),
             "barrios": lista_a_texto(c.get("barrios")),
             "zona": c.get("zona", ""),
@@ -368,6 +369,7 @@ def df_a_clientes(df):
             continue
         out.append({
             "nombre": nombre,
+            "telefono": "".join(ch for ch in str(fila.get("telefono", "") or "") if ch.isdigit()),
             "operacion": str(fila.get("operacion", "") or "venta").strip().lower(),
             "barrios": texto_a_lista(fila.get("barrios")),
             "zona": str(fila.get("zona", "") or "").strip(),
@@ -431,41 +433,46 @@ with tab_clientes:
                    "celdas, agrega filas con el **+** de abajo, o borra una fila seleccionándola. "
                    "Al terminar, dale **Guardar**. Descarga tu copia maestra cuando quieras.")
 
-        # ── Agregar un cliente nuevo con formulario ──────────
+        # ── Agregar un cliente nuevo (MISMO formato que Zoho, con IA) ──
         with st.expander("➕ Agregar un cliente nuevo", expanded=False):
+            st.caption("Llénalo igual que tu formulario de Zoho. La **misma IA** lo interpreta "
+                       "(corrige abreviaturas como 12M) y, si el cliente ya existe (mismo nombre "
+                       "o teléfono), lo **une automáticamente** sin duplicar.")
             with st.form("nuevo_cliente", clear_on_submit=True):
                 c1, c2 = st.columns(2)
-                n_nombre = c1.text_input("Nombre del cliente *", placeholder="Familia Gómez")
-                n_op = c2.selectbox("¿Busca…?", ["venta", "arriendo"], key="nc_op")
+                z_nombre = c1.text_input("Nombre *", placeholder="Alfonso Rubiano")
+                z_tel = c2.text_input("Teléfono", placeholder="300 123 4567")
                 c1, c2 = st.columns(2)
-                n_barrios = c1.text_input("Barrios de interés", placeholder="El Nogal, Rosales")
-                n_zona = c2.text_input("Zona / sector", placeholder="Chapinero")
-                c1, c2, c3 = st.columns(3)
-                n_pres = c1.number_input("Presupuesto máx ($)", min_value=0, value=0,
-                                         step=10_000_000, format="%d")
-                n_amin = c2.number_input("Área mín (m²)", min_value=0, value=0, step=5)
-                n_amax = c3.number_input("Área máx (m²)", min_value=0, value=0, step=5)
-                c1, c2 = st.columns(2)
-                n_hab = c1.number_input("Habitaciones mín", min_value=0, value=0, step=1)
-                n_ban = c2.number_input("Baños mín", min_value=0, value=0, step=1)
-                n_extras = st.multiselect("Extras deseados", EXTRAS_OPCIONES,
-                                          format_func=lambda e: ETIQUETA_EXTRA.get(e, e))
-                n_notas = st.text_input("Notas (opcional)", placeholder="ej: tienen 2 hijos")
+                z_op = c1.selectbox("Compra / Arriendo", ["Compra", "Arriendo"])
+                z_zona = c2.text_input("Zona", placeholder="Chicó, Rosales, Cabrera")
+                z_pres = st.text_input("Presupuesto",
+                                       placeholder="ej: 12M   ·   800M-900M   ·   1.900.000.000")
+                z_req = st.text_area("Requerimiento", height=110,
+                                     placeholder="2 habitaciones\n90 m2 o más\ncon estudio y parqueadero")
                 if st.form_submit_button("➕ Agregar cliente", type="primary"):
-                    if not n_nombre.strip():
+                    if not z_nombre.strip():
                         st.error("Ponle un nombre al cliente.")
+                    elif not config.ANTHROPIC_API_KEY:
+                        st.error("Falta la llave de Claude para interpretar. Revisa «🔑 Mis llaves».")
                     else:
-                        mod_clientes.agregar_o_actualizar({
-                            "nombre": n_nombre.strip(), "operacion": n_op,
-                            "barrios": [b.strip() for b in n_barrios.split(",") if b.strip()],
-                            "zona": n_zona.strip(),
-                            "presupuesto_max": num_o_none(n_pres),
-                            "area_min": num_o_none(n_amin), "area_max": num_o_none(n_amax),
-                            "habitaciones_min": num_o_none(n_hab), "banos_min": num_o_none(n_ban),
-                            "extras": n_extras, "perimetro": "", "notas": n_notas.strip(),
-                        })
-                        st.success(f"Cliente «{n_nombre.strip()}» agregado. 🎉")
-                        st.rerun()
+                        from src import extractor
+                        blob = (f"Nombre: {z_nombre} | Teléfono: {z_tel} | "
+                                f"Compra / Arriendo: {z_op} | Zona: {z_zona} | "
+                                f"Presupuesto: {z_pres} | Requerimiento: {z_req}")
+                        nuevos = extractor.interpretar_clientes([blob], log=lambda m: None)
+                        if not nuevos:
+                            st.error("No se pudo interpretar. Revisa los datos.")
+                        else:
+                            existentes = mod_clientes.cargar_guardados()
+                            antes = len(existentes)
+                            combinados = mod_clientes.fusionar_duplicados(existentes + nuevos)
+                            mod_clientes.guardar_lista(combinados)
+                            if len(combinados) == antes:
+                                st.success(f"«{z_nombre.strip()}» ya existía → se unió/actualizó "
+                                           "sin duplicar. ✅")
+                            else:
+                                st.success(f"Cliente «{z_nombre.strip()}» agregado e interpretado. 🎉")
+                            st.rerun()
 
         with st.expander("ℹ️ Cómo llenar cada columna"):
             st.markdown(
@@ -554,7 +561,17 @@ with tab_clientes:
                     st.error(f"No se pudo leer el Excel: {e}")
 
         st.session_state["clientes"] = mod_clientes.cargar_guardados()
-        st.caption(f"👥 {len(st.session_state['clientes'])} cliente(s) guardado(s).")
+        cols_pie = st.columns([2, 1])
+        cols_pie[0].caption(f"👥 {len(st.session_state['clientes'])} cliente(s) guardado(s).")
+        if cols_pie[1].button("🧹 Unir duplicados", use_container_width=True,
+                              help="Junta clientes repetidos (mismo nombre o teléfono) en uno solo."):
+            actuales = mod_clientes.cargar_guardados()
+            unidos = mod_clientes.fusionar_duplicados(actuales)
+            mod_clientes.guardar_lista(unidos)
+            quitados = len(actuales) - len(unidos)
+            st.success(f"Listo: {quitados} duplicado(s) unido(s)." if quitados
+                       else "No había duplicados. ✅")
+            st.rerun()
 
 # ===== 3. RESULTADOS =========================================
 with tab_resultados:
