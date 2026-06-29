@@ -882,32 +882,36 @@ with tab_crm:
             st.warning("👀 **Ojo, tienes clientes descuidados:** " + " · ".join(descuidados)
                        + ". Mándales opciones para no perderlos.")
 
-        # ── Proyección de ganancias, SEPARADA por arriendo y venta (solo activos) ──
+        # ── Proyección cerrando TODOS los activos: directo y compartido con aliado ──
         ganados_c = [c for c in crm_clientes if c["estado"] == "ganado"]
 
         def _proyeccion(op_filtro):
-            """(ganado, potencial activos, realista ponderado) para un tipo de operación."""
+            """(ya ganado, potencial cerrando todos los activos) para un tipo de operación."""
             gan = sum(comision_potencial(c) for c in ganados_c
                       if (c.get("operacion") or "venta").lower() == op_filtro)
             pot = sum(comision_potencial(c) for c in activos_list
                       if (c.get("operacion") or "venta").lower() == op_filtro)
-            rea = sum(comision_potencial(c) * prob_cierre(c) for c in activos_list
-                      if (c.get("operacion") or "venta").lower() == op_filtro)
-            return gan, pot, rea
+            return gan, pot
 
-        with st.expander("📈 Proyección de ganancias por tipo (solo activos)", expanded=True):
+        with st.expander("📈 Proyección de ganancias (cerrando todos los activos)", expanded=True):
+            share = st.slider("Si el cliente es en alianza con otro broker, ¿qué % te queda?",
+                              10, 100, 50, 5,
+                              help="Muchos clientes llegan en alianza; ahí la comisión se reparte. "
+                                   "Por defecto 50/50.")
             col_arr, col_ven = st.columns(2)
             for col, titulo, op_filtro in [(col_arr, "🏠 Arriendo", "arriendo"),
                                            (col_ven, "🔑 Venta", "venta")]:
-                gan, pot, rea = _proyeccion(op_filtro)
+                gan, pot = _proyeccion(op_filtro)
                 with col:
                     st.markdown(f"**{titulo}**")
                     st.metric("🟢 Ya ganado", matcher.formato_cop(gan) or "$0")
-                    st.metric("📊 Potencial (si cierras todo)", matcher.formato_cop(pot) or "$0")
-                    st.metric("🎯 Realista (ponderado)", matcher.formato_cop(rea) or "$0")
+                    st.metric("🙋 Cerrando todo — cliente directo", matcher.formato_cop(pot) or "$0",
+                              help="Si cierras todos los activos y son clientes tuyos (100%).")
+                    st.metric(f"🤝 Cerrando todo — compartido ({share}%)",
+                              matcher.formato_cop(pot * share / 100) or "$0",
+                              help="Si esos negocios fueran en alianza y te queda ese %.")
             st.caption("Arriendo = 1 canon · Venta = 3% del valor. Solo cuenta clientes ACTIVOS "
-                       "(los perdidos no entran). La realista pondera por avance: visitado 50%, "
-                       "agendado 30%, enviado 15%, sin envíos 5%.")
+                       "(los perdidos no entran).")
 
         if es_demo:
             st.info("Modo Demo: el seguimiento no se guarda. Cambia a modo Real para usarlo.")
