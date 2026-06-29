@@ -430,6 +430,43 @@ with tab_clientes:
         st.caption("Esta es tu **hoja de clientes**. Funciona como un Excel: escribe en las "
                    "celdas, agrega filas con el **+** de abajo, o borra una fila seleccionándola. "
                    "Al terminar, dale **Guardar**. Descarga tu copia maestra cuando quieras.")
+
+        # ── Agregar un cliente nuevo con formulario ──────────
+        with st.expander("➕ Agregar un cliente nuevo", expanded=False):
+            with st.form("nuevo_cliente", clear_on_submit=True):
+                c1, c2 = st.columns(2)
+                n_nombre = c1.text_input("Nombre del cliente *", placeholder="Familia Gómez")
+                n_op = c2.selectbox("¿Busca…?", ["venta", "arriendo"], key="nc_op")
+                c1, c2 = st.columns(2)
+                n_barrios = c1.text_input("Barrios de interés", placeholder="El Nogal, Rosales")
+                n_zona = c2.text_input("Zona / sector", placeholder="Chapinero")
+                c1, c2, c3 = st.columns(3)
+                n_pres = c1.number_input("Presupuesto máx ($)", min_value=0, value=0,
+                                         step=10_000_000, format="%d")
+                n_amin = c2.number_input("Área mín (m²)", min_value=0, value=0, step=5)
+                n_amax = c3.number_input("Área máx (m²)", min_value=0, value=0, step=5)
+                c1, c2 = st.columns(2)
+                n_hab = c1.number_input("Habitaciones mín", min_value=0, value=0, step=1)
+                n_ban = c2.number_input("Baños mín", min_value=0, value=0, step=1)
+                n_extras = st.multiselect("Extras deseados", EXTRAS_OPCIONES,
+                                          format_func=lambda e: ETIQUETA_EXTRA.get(e, e))
+                n_notas = st.text_input("Notas (opcional)", placeholder="ej: tienen 2 hijos")
+                if st.form_submit_button("➕ Agregar cliente", type="primary"):
+                    if not n_nombre.strip():
+                        st.error("Ponle un nombre al cliente.")
+                    else:
+                        mod_clientes.agregar_o_actualizar({
+                            "nombre": n_nombre.strip(), "operacion": n_op,
+                            "barrios": [b.strip() for b in n_barrios.split(",") if b.strip()],
+                            "zona": n_zona.strip(),
+                            "presupuesto_max": num_o_none(n_pres),
+                            "area_min": num_o_none(n_amin), "area_max": num_o_none(n_amax),
+                            "habitaciones_min": num_o_none(n_hab), "banos_min": num_o_none(n_ban),
+                            "extras": n_extras, "perimetro": "", "notas": n_notas.strip(),
+                        })
+                        st.success(f"Cliente «{n_nombre.strip()}» agregado. 🎉")
+                        st.rerun()
+
         with st.expander("ℹ️ Cómo llenar cada columna"):
             st.markdown(
                 "- **operacion**: escribe `venta` o `arriendo`.\n"
