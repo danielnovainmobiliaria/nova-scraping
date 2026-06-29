@@ -39,6 +39,9 @@ ANTHROPIC_MODEL = _leer_llave("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 # Sirve para que los datos NO se pierdan cuando el servidor se reinicia.
 DATABASE_URL = _leer_llave("DATABASE_URL")
 
+# Contraseña para entrar a la app (cuando es pública). Si está vacía, no pide nada.
+APP_PASSWORD = _leer_llave("APP_PASSWORD")
+
 # ── Rutas de archivos ─────────────────────────────────────────
 CONFIG_DIR = BASE_DIR / "config"
 DATA_DIR = BASE_DIR / "data"
