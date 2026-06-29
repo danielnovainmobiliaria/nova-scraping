@@ -867,6 +867,11 @@ with tab_resultados:
     else:
         st.caption("Ajusta qué tan flexible quieres ser. La búsqueda muestra "
                    "opciones **similares**, no solo idénticas.")
+        dias_max = st.slider("📅 Frescura máxima (días desde publicado)", 7, 180, 30, 1,
+                             help="Solo muestra inmuebles publicados en los últimos N días. "
+                                  "Por defecto 30 (lo acordado). Súbelo solo si quieres ver más antiguos.")
+        posts = [p for p in posts
+                 if (dias_publicado(p.get("fecha")) is None or dias_publicado(p.get("fecha")) <= dias_max)]
         c1, c2, c3, c4 = st.columns(4)
         score_min = c1.slider("Coincidencia mínima (%)", 0, 100, 50, 5,
                               help="Sube el valor para ver solo los matches más fuertes.")
