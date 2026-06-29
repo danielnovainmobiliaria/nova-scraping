@@ -99,13 +99,29 @@ def perfil_flex(cliente: dict[str, Any]) -> dict[str, Any]:
     return PERFILES_FLEX.get(clave, PERFILES_FLEX["medio"])
 
 
-def _operacion_compatible(cliente_op: str, post_op: str | None) -> bool:
+# Por encima de este precio, en Bogotá ya es una VENTA; por debajo, un canon de
+# ARRIENDO. Sirve para deducir la operación cuando el aviso no la dice.
+PISO_VENTA = 100_000_000
+
+
+def _inferir_operacion(post: dict[str, Any]) -> str:
+    """Operación del aviso; si no la dice, la deduce por el precio (canon vs venta)."""
+    op = _norm(post.get("operacion"))
+    if op in ("venta", "arriendo", "ambos"):
+        return op
+    precio = post.get("precio")
+    if precio:
+        return "arriendo" if precio < PISO_VENTA else "venta"
+    return ""                  # sin operación ni precio → no hay pista
+
+
+def _operacion_compatible(cliente_op: str, post: dict[str, Any]) -> bool:
     cli = _norm(cliente_op)
-    pos = _norm(post_op)
     if not cli:
         return True            # el cliente no especificó → todo sirve
+    pos = _inferir_operacion(post)
     if not pos or pos == "ambos":
-        return True            # el post no dice o sirve para ambas
+        return True            # el post no dice (ni por precio) o sirve para ambas
     return cli == pos
 
 
@@ -272,7 +288,7 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
     piso_precio = min(0.98, max(0.0, piso_precio + perfil["piso_extra"]))
 
     # ── Operación: este sí es un choque de fondo (arriendo ≠ venta) ──
-    if not _operacion_compatible(cliente.get("operacion", ""), post.get("operacion")):
+    if not _operacion_compatible(cliente.get("operacion", ""), post):
         return None
 
     # ── Filtros NO negociables (lo que el cliente marcó como obligatorio) ──

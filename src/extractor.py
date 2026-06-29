@@ -66,6 +66,9 @@ Reglas:
   "parq"/"gj" = parqueaderos; "admin" = administracion.
 - Precios: "1.500" o "1500" en contexto de arriendo suele ser millones → conviértelo a pesos
   (1.500.000). "$450M" o "450 millones" en venta = 450000000. Usa tu criterio del mercado bogotano.
+- "operacion": si el texto no lo dice explícito, dedúcelo por el precio. Un canon MENSUAL
+  (millones: ej. $3 a $40 millones) es "arriendo"; un precio de cientos o miles de millones
+  (ej. $450M, $1.800.000.000) es "venta". Deja null SOLO si no hay ninguna pista.
 - "cuarto de servicio"/"alcoba de servicio"/"zona de ropas con baño" → "cuarto_servicio".
 - Si el post NO es un inmueble específico (es publicidad genérica, motivacional, etc.),
   pon "es_inmueble": false y el resto en null.
