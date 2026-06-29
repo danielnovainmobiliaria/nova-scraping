@@ -678,6 +678,62 @@ with tab_clientes:
                     except Exception as e:  # noqa: BLE001
                         st.error(f"No se pudo interpretar: {e}")
 
+        # ── Editar / renombrar un cliente (vía confiable, sin la tabla) ──
+        with st.expander("✏️ Editar o renombrar un cliente", expanded=False):
+            _lista = mod_clientes.cargar_guardados()
+            if not _lista:
+                st.caption("Aún no hay clientes.")
+            else:
+                sel = st.selectbox("¿Cuál cliente quieres editar?",
+                                   [c["nombre"] for c in _lista], key="edit_sel")
+                cliente_e = next((c for c in _lista if c["nombre"] == sel), _lista[0])
+                with st.form("editar_cliente"):
+                    g1, g2 = st.columns(2)
+                    e_nombre = g1.text_input("Nombre", value=cliente_e.get("nombre", ""))
+                    e_tel = g2.text_input("Teléfono", value=cliente_e.get("telefono", ""))
+                    g1, g2 = st.columns(2)
+                    e_op = g1.selectbox("Compra / Arriendo", ["venta", "arriendo"],
+                                        index=0 if (cliente_e.get("operacion") or "venta") == "venta" else 1)
+                    e_zona = g2.text_input("Zona", value=cliente_e.get("zona", ""))
+                    e_barrios = st.text_input("Barrios", value=lista_a_texto(cliente_e.get("barrios")))
+                    e_pres = st.text_input("Presupuesto",
+                                           value=matcher.formato_cop(cliente_e.get("presupuesto_max")))
+                    g1, g2, g3, g4 = st.columns(4)
+                    e_amin = g1.number_input("Área mín", min_value=0, value=int(cliente_e.get("area_min") or 0))
+                    e_amax = g2.number_input("Área máx", min_value=0, value=int(cliente_e.get("area_max") or 0))
+                    e_hab = g3.number_input("Habitac.", min_value=0, value=int(cliente_e.get("habitaciones_min") or 0))
+                    e_ban = g4.number_input("Baños", min_value=0, value=int(cliente_e.get("banos_min") or 0))
+                    e_extras = st.multiselect(
+                        "Extras", EXTRAS_OPCIONES, format_func=lambda x: ETIQUETA_EXTRA.get(x, x),
+                        default=[x for x in (cliente_e.get("extras") or []) if x in EXTRAS_OPCIONES])
+                    e_oblig = st.multiselect(
+                        "🔒 No negociable", OBLIGATORIOS_OPCIONES,
+                        format_func=lambda x: ETIQUETA_OBLIGATORIO.get(x, x),
+                        default=[x for x in (cliente_e.get("obligatorios") or []) if x in OBLIGATORIOS_OPCIONES])
+                    e_notas = st.text_input("Notas", value=cliente_e.get("notas", ""))
+                    if st.form_submit_button("💾 Guardar cambios", type="primary"):
+                        clientes = mod_clientes.cargar_guardados()
+                        for c in clientes:
+                            if c.get("nombre") == sel:
+                                c["nombre"] = e_nombre.strip()
+                                c["telefono"] = "".join(ch for ch in e_tel if ch.isdigit())
+                                c["operacion"] = e_op
+                                c["barrios"] = texto_a_lista(e_barrios)
+                                c["zona"] = e_zona.strip()
+                                c["presupuesto_max"] = parse_cop(e_pres)
+                                c["area_min"] = num_o_none(e_amin)
+                                c["area_max"] = num_o_none(e_amax)
+                                c["habitaciones_min"] = num_o_none(e_hab)
+                                c["banos_min"] = num_o_none(e_ban)
+                                c["extras"] = e_extras
+                                c["obligatorios"] = e_oblig
+                                c["notas"] = e_notas.strip()
+                                break
+                        mod_clientes.guardar_lista(clientes)
+                        refrescar_hoja_clientes()
+                        st.success(f"«{e_nombre.strip()}» actualizado. ✅")
+                        st.rerun()
+
         with st.expander("ℹ️ Cómo llenar cada columna"):
             st.markdown(
                 "- **operacion**: escribe `venta` o `arriendo`.\n"
