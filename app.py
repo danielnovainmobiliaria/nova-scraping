@@ -481,6 +481,16 @@ def df_a_clientes(df):
     return out
 
 
+def refrescar_hoja_clientes():
+    """Reconstruye la hoja editable desde la base y reinicia el editor.
+
+    Necesario para que la tabla no pierda los cambios entre recargas: usamos un
+    DataFrame estable en sesión y cambiamos la 'versión' (key) solo cuando hace falta.
+    """
+    st.session_state["df_clientes"] = clientes_a_df(mod_clientes.cargar_guardados())
+    st.session_state["hoja_ver"] = st.session_state.get("hoja_ver", 0) + 1
+
+
 def excel_bytes(df) -> bytes:
     """Genera un archivo Excel (en memoria) a partir de la tabla."""
     buffer = io.BytesIO()
@@ -575,6 +585,7 @@ with tab_clientes:
                                            "sin duplicar. ✅")
                             else:
                                 st.success(f"Cliente «{z_nombre.strip()}» agregado e interpretado. 🎉")
+                            refrescar_hoja_clientes()
                             st.rerun()
 
         # ── Pegar TODO en un cuadro y que la IA lo organice ──
@@ -605,6 +616,7 @@ with tab_clientes:
                             nombres = ", ".join(c.get("nombre", "") for c in nuevos)
                             st.success(f"Se interpretaron {len(nuevos)} cliente(s): {nombres}. "
                                        f"(Quedan {len(combinados)} en total, duplicados unidos.) 🎉")
+                            refrescar_hoja_clientes()
                             st.rerun()
                     except Exception as e:  # noqa: BLE001
                         st.error(f"No se pudo interpretar: {e}")
@@ -653,14 +665,19 @@ with tab_clientes:
                         st.success(f"¡Listo! Se procesaron {len(nuevos)} fila(s) → "
                                    f"{len(combinados)} cliente(s) en total (duplicados unidos). "
                                    "Revísalos en la tabla y dale Guardar si todo está bien.")
+                        refrescar_hoja_clientes()
                         st.rerun()
                     except Exception as e:  # noqa: BLE001
                         st.error(f"No se pudo procesar el archivo: {e}")
 
-        df_actual = clientes_a_df(mod_clientes.cargar_guardados())
+        # Tabla ESTABLE en sesión: así no se pierden los cambios al recargar.
+        if "df_clientes" not in st.session_state:
+            st.session_state["df_clientes"] = clientes_a_df(mod_clientes.cargar_guardados())
+            st.session_state["hoja_ver"] = 0
         editado = st.data_editor(
-            df_actual, num_rows="dynamic", use_container_width=True, hide_index=True,
-            key="editor_clientes",
+            st.session_state["df_clientes"], num_rows="dynamic",
+            use_container_width=True, hide_index=True,
+            key=f"editor_clientes_{st.session_state['hoja_ver']}",
             column_config={
                 "nombre": st.column_config.TextColumn("nombre", required=True),
                 "operacion": st.column_config.SelectboxColumn(
@@ -692,6 +709,7 @@ with tab_clientes:
                 # Agregaste o quitaste filas: conservamos CRM por nombre.
                 mod_clientes.guardar_lista(mod_clientes.fusionar_crm(nuevos))
             st.success("¡Clientes guardados!")
+            refrescar_hoja_clientes()
             st.rerun()
         c2.download_button(
             "⬇️ Descargar copia (Excel)", excel_bytes(editado),
@@ -705,6 +723,7 @@ with tab_clientes:
                 try:
                     mod_clientes.guardar_lista(mod_clientes.cargar_clientes(archivo))
                     st.success("¡Restaurado!")
+                    refrescar_hoja_clientes()
                     st.rerun()
                 except Exception as e:  # noqa: BLE001
                     st.error(f"No se pudo leer el Excel: {e}")
@@ -720,6 +739,7 @@ with tab_clientes:
             quitados = len(actuales) - len(unidos)
             st.success(f"Listo: {quitados} duplicado(s) unido(s)." if quitados
                        else "No había duplicados. ✅")
+            refrescar_hoja_clientes()
             st.rerun()
 
 # ===== 3. RESULTADOS =========================================
