@@ -4,7 +4,7 @@ Ejecuta:  streamlit run app.py
 
 Flujo:
   1. Configuras las cuentas de Instagram a monitorear.
-  2. Cargas tu Excel de clientes (o usas el modo demo).
+  2. Cargas tu Excel de clientes.
   3. Actualizas (trae posts de los últimos 30 días y los lee con IA).
   4. Ves las coincidencias por cliente y las compartes.
 """
@@ -20,7 +20,6 @@ import streamlit as st
 
 from src import clientes as mod_clientes
 from src import config, db, matcher
-from src.sample_data import CLIENTES_DEMO, POSTS_DEMO
 
 st.set_page_config(page_title="Nova Scraping", page_icon="🏙️", layout="wide")
 db.init_db()
@@ -234,43 +233,32 @@ def actualizar_publicaciones(log) -> None:
 
 # ── Barra lateral ─────────────────────────────────────────────
 st.sidebar.title("🏙️ Nova Scraping")
-modo = st.sidebar.radio(
-    "Modo de trabajo",
-    ["Demo (sin costo)", "Real (Instagram + IA)"],
-    help="El modo Demo usa datos de ejemplo para que veas cómo funciona el cruce "
-         "sin gastar nada. El modo Real trae publicaciones de Instagram con Apify "
-         "y las lee con Claude.",
-)
-es_demo = modo.startswith("Demo")
 
 st.sidebar.divider()
 tiene_llaves = bool(config.APIFY_TOKEN and config.ANTHROPIC_API_KEY)
 estado = "✅ Listas" if tiene_llaves else "❌ Faltan"
-with st.sidebar.expander(f"🔑 Mis llaves — {estado}", expanded=not tiene_llaves and not es_demo):
+with st.sidebar.expander(f"🔑 Mis llaves — {estado}", expanded=not tiene_llaves):
     st.caption("Pega aquí tus llaves. Se guardan en tu computador y no hay que volver "
-               "a hacerlo. (El modo Demo no las necesita.)")
+               "a hacerlo.")
     apify_in = st.text_input("Llave de Apify", value=config.APIFY_TOKEN,
                              type="password", placeholder="apify_api_...")
     claude_in = st.text_input("Llave de Claude (Anthropic)", value=config.ANTHROPIC_API_KEY,
                               type="password", placeholder="sk-ant-...")
     if st.button("💾 Guardar mis llaves"):
         config.guardar_llaves(apify_in, claude_in)
-        st.success("¡Guardadas! Ya puedes usar el modo Real.")
+        st.success("¡Guardadas!")
         st.rerun()
 
 st.sidebar.caption(
     "💾 Memoria: " + ("☁️ en la nube (permanente)" if config.DATABASE_URL
                       else "📍 local (se borra al reiniciar)"))
 
-# ── Botón principal: correr el scraping (siempre visible en modo Real) ──
-if not es_demo:
-    st.sidebar.divider()
-    st.sidebar.markdown("**▶️ Buscar inmuebles**")
-    correr = st.sidebar.button("🔄 Traer y leer publicaciones",
-                               type="primary", use_container_width=True)
-    st.sidebar.caption(f"📦 {db.contar_posts()} inmuebles en memoria")
-else:
-    correr = False
+# ── Botón principal: correr el scraping ──
+st.sidebar.divider()
+st.sidebar.markdown("**▶️ Buscar inmuebles**")
+correr = st.sidebar.button("🔄 Traer y leer publicaciones",
+                           type="primary", use_container_width=True)
+st.sidebar.caption(f"📦 {db.contar_posts()} inmuebles en memoria")
 
 # ── Acción del botón: traer + leer publicaciones ──────────────
 if correr:
@@ -330,43 +318,39 @@ with tab_fuentes:
 
     st.divider()
     st.subheader("Actualizar publicaciones")
-    if es_demo:
-        st.info("Estás en **modo Demo**: se usan 5 publicaciones de ejemplo. "
-                "Cambia a **modo Real** en la barra lateral para traer posts reales.")
-    else:
-        st.caption(f"Trae los posts de los últimos {config.DIAS_RECIENTES} días "
-                   "y los lee con IA. Cada post se procesa una sola vez.")
-        col1, col2 = st.columns(2)
-        if col1.button("🔄 Traer y leer publicaciones", type="primary"):
-            registro = st.empty()
-            lineas: list[str] = []
+    st.caption(f"Trae los posts de los últimos {config.DIAS_RECIENTES} días "
+               "y los lee con IA. Cada post se procesa una sola vez.")
+    col1, col2 = st.columns(2)
+    if col1.button("🔄 Traer y leer publicaciones", type="primary"):
+        registro = st.empty()
+        lineas: list[str] = []
 
-            def log(msg: str) -> None:
-                lineas.append(msg)
-                registro.code("\n".join(lineas[-12:]))
+        def log(msg: str) -> None:
+            lineas.append(msg)
+            registro.code("\n".join(lineas[-12:]))
 
-            try:
-                from src import extractor, scraper
-                scraper.scrapear_cuentas(config.leer_cuentas(), log=log)
-                extractor.extraer_pendientes(log=log)
-                st.success("¡Actualización completa!")
-            except Exception as e:  # noqa: BLE001
-                st.error(f"Ocurrió un problema: {e}")
-        col2.metric("Posts en la caché", db.contar_posts())
-
-        # ── Cuentas que Instagram no dejó leer (revisar a mano) ──
         try:
-            restr = json.loads(db.leer_meta("cuentas_restringidas") or "[]")
-        except json.JSONDecodeError:
-            restr = []
-        if restr:
-            st.divider()
-            st.markdown(f"**⚠️ {len(restr)} perfil(es) que Instagram NO dejó leer** "
-                        "(ábrelos a mano para revisar su inventario):")
-            for u in restr:
-                st.markdown(f"- [{u}]({u})")
-            st.caption("Son perfiles restringidos por Instagram. No es falla de la app — "
-                       "revísalos manualmente cuando quieras.")
+            from src import extractor, scraper
+            scraper.scrapear_cuentas(config.leer_cuentas(), log=log)
+            extractor.extraer_pendientes(log=log)
+            st.success("¡Actualización completa!")
+        except Exception as e:  # noqa: BLE001
+            st.error(f"Ocurrió un problema: {e}")
+    col2.metric("Posts en la caché", db.contar_posts())
+
+    # ── Cuentas que Instagram no dejó leer (revisar a mano) ──
+    try:
+        restr = json.loads(db.leer_meta("cuentas_restringidas") or "[]")
+    except json.JSONDecodeError:
+        restr = []
+    if restr:
+        st.divider()
+        st.markdown(f"**⚠️ {len(restr)} perfil(es) que Instagram NO dejó leer** "
+                    "(ábrelos a mano para revisar su inventario):")
+        for u in restr:
+            st.markdown(f"- [{u}]({u})")
+        st.caption("Son perfiles restringidos por Instagram. No es falla de la app — "
+                   "revísalos manualmente cuando quieras.")
 
 # ===== 2. CLIENTES ===========================================
 EXTRAS_OPCIONES = [
@@ -612,279 +596,270 @@ def fila_a_texto(fila, columnas) -> str:
 with tab_clientes:
     st.subheader("Tus clientes y sus requerimientos")
 
-    if es_demo:
-        st.session_state["clientes"] = CLIENTES_DEMO
-        st.info("Modo Demo: se usan 3 clientes de ejemplo. Cambia a modo Real "
-                "para administrar tus clientes de verdad.")
-        st.dataframe(clientes_a_df(CLIENTES_DEMO), use_container_width=True, hide_index=True)
-    else:
-        st.caption("Agrega clientes con cualquiera de los métodos de abajo. Para **editar o "
-                   "borrar**, usa el editor **«✏️»**. La tabla del final es solo para ver.")
-        buscar_cli = st.text_input("🔍 Buscar cliente", key="buscar_cli",
-                                   placeholder="Escribe un nombre, barrio, teléfono o zona…")
+    st.caption("Agrega clientes con cualquiera de los métodos de abajo. Para **editar o "
+               "borrar**, usa el editor **«✏️»**. La tabla del final es solo para ver.")
+    buscar_cli = st.text_input("🔍 Buscar cliente", key="buscar_cli",
+                               placeholder="Escribe un nombre, barrio, teléfono o zona…")
 
-        # ── Agregar un cliente nuevo (MISMO formato que Zoho, con IA) ──
-        with st.expander("➕ Agregar un cliente nuevo", expanded=False):
-            st.caption("Llénalo igual que tu formulario de Zoho. La **misma IA** lo interpreta "
-                       "(corrige abreviaturas como 12M) y, si el cliente ya existe (mismo nombre "
-                       "o teléfono), lo **une automáticamente** sin duplicar.")
-            with st.form("nuevo_cliente", clear_on_submit=True):
-                c1, c2 = st.columns(2)
-                z_nombre = c1.text_input("Nombre *", placeholder="Alfonso Rubiano")
-                z_tel = c2.text_input("Teléfono", placeholder="300 123 4567")
-                c1, c2 = st.columns(2)
-                z_op = c1.selectbox("Compra / Arriendo", ["Compra", "Arriendo"])
-                z_zona = c2.text_input("Zona", placeholder="Chicó, Rosales, Cabrera")
-                z_pres = st.text_input("Presupuesto",
-                                       placeholder="ej: 12M   ·   800M-900M   ·   1.900.000.000")
-                z_req = st.text_area("Requerimiento", height=110,
-                                     placeholder="2 habitaciones\n90 m2 o más\ncon estudio y parqueadero")
-                z_oblig = st.multiselect(
-                    "🔒 No negociable (sí o sí) — filtra duro",
-                    OBLIGATORIOS_OPCIONES, format_func=lambda o: ETIQUETA_OBLIGATORIO.get(o, o),
-                    help="Lo que marques aquí se exige obligatoriamente; el resto se busca flexible.")
-                z_flex = st.selectbox(
-                    "¿Qué tan flexible es este cliente?", FLEX_OPCIONES, index=1,
-                    format_func=lambda f: ETIQUETA_FLEX.get(f, f),
-                    help="Estricto = solo inmuebles muy acertados (clientes que no ceden, como Eleonora). "
-                         "Flexible = abierto a más opciones. Medio = equilibrado.")
-                if st.form_submit_button("➕ Agregar cliente", type="primary"):
-                    if not z_nombre.strip():
-                        st.error("Ponle un nombre al cliente.")
-                    elif not config.ANTHROPIC_API_KEY:
-                        st.error("Falta la llave de Claude para interpretar. Revisa «🔑 Mis llaves».")
+    # ── Agregar un cliente nuevo (MISMO formato que Zoho, con IA) ──
+    with st.expander("➕ Agregar un cliente nuevo", expanded=False):
+        st.caption("Llénalo igual que tu formulario de Zoho. La **misma IA** lo interpreta "
+                   "(corrige abreviaturas como 12M) y, si el cliente ya existe (mismo nombre "
+                   "o teléfono), lo **une automáticamente** sin duplicar.")
+        with st.form("nuevo_cliente", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            z_nombre = c1.text_input("Nombre *", placeholder="Alfonso Rubiano")
+            z_tel = c2.text_input("Teléfono", placeholder="300 123 4567")
+            c1, c2 = st.columns(2)
+            z_op = c1.selectbox("Compra / Arriendo", ["Compra", "Arriendo"])
+            z_zona = c2.text_input("Zona", placeholder="Chicó, Rosales, Cabrera")
+            z_pres = st.text_input("Presupuesto",
+                                   placeholder="ej: 12M   ·   800M-900M   ·   1.900.000.000")
+            z_req = st.text_area("Requerimiento", height=110,
+                                 placeholder="2 habitaciones\n90 m2 o más\ncon estudio y parqueadero")
+            z_oblig = st.multiselect(
+                "🔒 No negociable (sí o sí) — filtra duro",
+                OBLIGATORIOS_OPCIONES, format_func=lambda o: ETIQUETA_OBLIGATORIO.get(o, o),
+                help="Lo que marques aquí se exige obligatoriamente; el resto se busca flexible.")
+            z_flex = st.selectbox(
+                "¿Qué tan flexible es este cliente?", FLEX_OPCIONES, index=1,
+                format_func=lambda f: ETIQUETA_FLEX.get(f, f),
+                help="Estricto = solo inmuebles muy acertados (clientes que no ceden, como Eleonora). "
+                     "Flexible = abierto a más opciones. Medio = equilibrado.")
+            if st.form_submit_button("➕ Agregar cliente", type="primary"):
+                if not z_nombre.strip():
+                    st.error("Ponle un nombre al cliente.")
+                elif not config.ANTHROPIC_API_KEY:
+                    st.error("Falta la llave de Claude para interpretar. Revisa «🔑 Mis llaves».")
+                else:
+                    from src import extractor
+                    blob = (f"Nombre: {z_nombre} | Teléfono: {z_tel} | "
+                            f"Compra / Arriendo: {z_op} | Zona: {z_zona} | "
+                            f"Presupuesto: {z_pres} | Requerimiento: {z_req}")
+                    nuevos = extractor.interpretar_clientes([blob], log=lambda m: None)
+                    if not nuevos:
+                        st.error("No se pudo interpretar. Revisa los datos.")
                     else:
-                        from src import extractor
-                        blob = (f"Nombre: {z_nombre} | Teléfono: {z_tel} | "
-                                f"Compra / Arriendo: {z_op} | Zona: {z_zona} | "
-                                f"Presupuesto: {z_pres} | Requerimiento: {z_req}")
-                        nuevos = extractor.interpretar_clientes([blob], log=lambda m: None)
-                        if not nuevos:
-                            st.error("No se pudo interpretar. Revisa los datos.")
-                        else:
-                            # Une lo que la IA detectó como obligatorio con lo que marcaste.
-                            nuevos[0]["obligatorios"] = sorted(
-                                set(nuevos[0].get("obligatorios") or []) | set(z_oblig))
-                            nuevos[0]["flexibilidad"] = z_flex  # lo que elegiste manda
-                            existentes = mod_clientes.cargar_guardados()
-                            antes = len(existentes)
-                            combinados = mod_clientes.fusionar_duplicados(existentes + nuevos)
-                            mod_clientes.guardar_lista(combinados)
-                            if len(combinados) == antes:
-                                st.success(f"«{z_nombre.strip()}» ya existía → se unió/actualizó "
-                                           "sin duplicar. ✅")
-                            else:
-                                st.success(f"Cliente «{z_nombre.strip()}» agregado e interpretado. 🎉")
-                            refrescar_hoja_clientes()
-                            st.rerun()
-
-        # ── Pegar TODO en un cuadro y que la IA lo organice ──
-        with st.expander("📋 Pegar todo en un cuadro (la IA lo organiza)", expanded=False):
-            st.caption("Pega aquí lo que sea (un mensaje de WhatsApp, un correo, una lista de varios "
-                       "clientes…). La IA detecta uno o varios clientes, los interpreta y los une si "
-                       "ya existen.")
-            texto_libre = st.text_area("Pega aquí la info", height=160, key="texto_libre",
-                                       placeholder="Ej:\nJuan, 300 555 1212, compra Chicó 2 hab hasta 800M\n"
-                                                   "Marcela quiere arriendo en Rosales, 3 alcobas, 12M, con estudio")
-            if st.button("🤖 Interpretar y agregar", key="btn_texto_libre"):
-                if not config.ANTHROPIC_API_KEY:
-                    st.error("Falta la llave de Claude. Revisa «🔑 Mis llaves».")
-                elif not texto_libre.strip():
-                    st.error("Pega algún texto primero.")
-                else:
-                    try:
-                        from src import extractor
-                        with st.spinner("Interpretando…"):
-                            nuevos = extractor.interpretar_texto_libre(texto_libre, log=lambda m: None)
-                        if not nuevos:
-                            st.error("No reconocí clientes en el texto. Revisa que tenga datos.")
-                        else:
-                            existentes = mod_clientes.cargar_guardados()
-                            antes = len(existentes)
-                            combinados = mod_clientes.fusionar_duplicados(existentes + nuevos)
-                            mod_clientes.guardar_lista(combinados)
-                            nombres = ", ".join(c.get("nombre", "") for c in nuevos)
-                            st.success(f"Se interpretaron {len(nuevos)} cliente(s): {nombres}. "
-                                       f"(Quedan {len(combinados)} en total, duplicados unidos.) 🎉")
-                            refrescar_hoja_clientes()
-                            st.rerun()
-                    except Exception as e:  # noqa: BLE001
-                        st.error(f"No se pudo interpretar: {e}")
-
-        # ── Editar / renombrar un cliente (vía confiable, sin la tabla) ──
-        with st.expander("✏️ Editar o renombrar un cliente", expanded=True):
-            _lista = mod_clientes.cargar_guardados()
-            if not _lista:
-                st.caption("Aún no hay clientes.")
-            else:
-                opciones = ([c["nombre"] for c in _lista if coincide_busqueda(c, buscar_cli)]
-                            or [c["nombre"] for c in _lista])
-                sel = st.selectbox("¿Cuál cliente quieres editar?", opciones, key="edit_sel")
-                cliente_e = next((c for c in _lista if c["nombre"] == sel), _lista[0])
-                with st.form("editar_cliente"):
-                    g1, g2 = st.columns(2)
-                    e_nombre = g1.text_input("Nombre", value=cliente_e.get("nombre", ""))
-                    e_tel = g2.text_input("Teléfono", value=cliente_e.get("telefono", ""))
-                    g1, g2 = st.columns(2)
-                    e_op = g1.selectbox("Compra / Arriendo", ["venta", "arriendo"],
-                                        index=0 if (cliente_e.get("operacion") or "venta") == "venta" else 1)
-                    _fx = (cliente_e.get("flexibilidad") or "medio")
-                    _fx = _fx if _fx in FLEX_OPCIONES else "medio"
-                    e_flex = g2.selectbox("Flexibilidad", FLEX_OPCIONES,
-                                          index=FLEX_OPCIONES.index(_fx),
-                                          format_func=lambda f: ETIQUETA_FLEX.get(f, f),
-                                          help="Estricto = no cede (solo lo muy acertado). "
-                                               "Flexible = abierto a más opciones.")
-                    e_zona = st.text_input("Zona", value=cliente_e.get("zona", ""))
-                    e_barrios = st.text_input("Barrios", value=lista_a_texto(cliente_e.get("barrios")))
-                    e_pres = st.text_input("Presupuesto",
-                                           value=matcher.formato_cop(cliente_e.get("presupuesto_max")))
-                    g1, g2, g3, g4 = st.columns(4)
-                    e_amin = g1.number_input("Área mín", min_value=0, value=int(cliente_e.get("area_min") or 0))
-                    e_amax = g2.number_input("Área máx", min_value=0, value=int(cliente_e.get("area_max") or 0))
-                    e_hab = g3.number_input("Habitac.", min_value=0, value=int(cliente_e.get("habitaciones_min") or 0))
-                    e_ban = g4.number_input("Baños", min_value=0, value=int(cliente_e.get("banos_min") or 0))
-                    e_extras = st.multiselect(
-                        "Extras", EXTRAS_OPCIONES, format_func=lambda x: ETIQUETA_EXTRA.get(x, x),
-                        default=[x for x in (cliente_e.get("extras") or []) if x in EXTRAS_OPCIONES])
-                    e_oblig = st.multiselect(
-                        "🔒 No negociable", OBLIGATORIOS_OPCIONES,
-                        format_func=lambda x: ETIQUETA_OBLIGATORIO.get(x, x),
-                        default=[x for x in (cliente_e.get("obligatorios") or []) if x in OBLIGATORIOS_OPCIONES])
-                    e_notas = st.text_input("Notas", value=cliente_e.get("notas", ""))
-                    if st.form_submit_button("💾 Guardar cambios", type="primary"):
-                        clientes = mod_clientes.cargar_guardados()
-                        for c in clientes:
-                            if c.get("nombre") == sel:
-                                c["nombre"] = e_nombre.strip()
-                                c["telefono"] = "".join(ch for ch in e_tel if ch.isdigit())
-                                c["operacion"] = e_op
-                                c["flexibilidad"] = e_flex
-                                c["barrios"] = texto_a_lista(e_barrios)
-                                c["zona"] = e_zona.strip()
-                                c["presupuesto_max"] = parse_cop(e_pres)
-                                c["area_min"] = num_o_none(e_amin)
-                                c["area_max"] = num_o_none(e_amax)
-                                c["habitaciones_min"] = num_o_none(e_hab)
-                                c["banos_min"] = num_o_none(e_ban)
-                                c["extras"] = e_extras
-                                c["obligatorios"] = e_oblig
-                                c["notas"] = e_notas.strip()
-                                break
-                        mod_clientes.guardar_lista(clientes)
-                        refrescar_hoja_clientes()
-                        st.success(f"«{e_nombre.strip()}» actualizado. ✅")
-                        st.rerun()
-
-                if st.button("🗑️ Eliminar este cliente", key="edit_del",
-                             help="Quita este cliente de la lista (no se puede deshacer)."):
-                    mod_clientes.eliminar(sel)
-                    refrescar_hoja_clientes()
-                    st.success(f"«{sel}» eliminado.")
-                    st.rerun()
-
-        with st.expander("ℹ️ Cómo llenar cada columna"):
-            st.markdown(
-                "- **operacion**: escribe `venta` o `arriendo`.\n"
-                "- **barrios**: varios separados por coma → `El Nogal, Rosales`.\n"
-                "- **presupuesto**: como quieras → `1'700.000.000`, `12M` o `1900000000`.\n"
-                "- **area_min / area_max**: metros cuadrados. Deja vacío si no importa.\n"
-                "- **habitaciones_min / banos_min**: mínimo deseado. Vacío = no filtra.\n"
-                f"- **extras**: separados por coma. Válidos: {', '.join(EXTRAS_OPCIONES)}."
-            )
-
-        # ── Importar con IA desde un archivo "como sea" ──────
-        with st.expander("🤖 Importar clientes desde un archivo (con IA)"):
-            st.caption("Sube tu lista tal como la tengas (CSV o Excel), aunque esté en "
-                       "texto libre y con abreviaciones (ej. *“arriendo 12M, 2 alcobas, "
-                       "Chapinero, mín 60 mts”*). La IA lee cada fila, la interpreta "
-                       "(12M → $12.000.000) y la acomoda al formato. Revisa el resultado "
-                       "en la tabla de abajo antes de guardar.")
-            archivo_ia = st.file_uploader("Archivo de clientes (.csv o .xlsx)",
-                                          type=["csv", "xlsx"], key="ia_uploader")
-            if archivo_ia is not None and st.button("🤖 Interpretar y agregar con IA"):
-                if not config.ANTHROPIC_API_KEY:
-                    st.error("Falta la llave de Claude. Revisa «🔑 Mis llaves» en la barra lateral.")
-                else:
-                    try:
-                        df_in = leer_tabla(archivo_ia)
-                        cols = list(df_in.columns)
-                        textos = [fila_a_texto(fila, cols) for _, fila in df_in.iterrows()]
-                        registro = st.empty()
-                        lineas: list[str] = []
-
-                        def log_ia(msg: str) -> None:
-                            lineas.append(msg)
-                            registro.code("\n".join(lineas[-10:]))
-
-                        from src import extractor
-                        nuevos = extractor.interpretar_clientes(textos, log=log_ia)
+                        # Une lo que la IA detectó como obligatorio con lo que marcaste.
+                        nuevos[0]["obligatorios"] = sorted(
+                            set(nuevos[0].get("obligatorios") or []) | set(z_oblig))
+                        nuevos[0]["flexibilidad"] = z_flex  # lo que elegiste manda
                         existentes = mod_clientes.cargar_guardados()
-                        # Une duplicados (mismo nombre) tomando el más completo, y
-                        # conserva el seguimiento CRM de los que ya existían.
+                        antes = len(existentes)
                         combinados = mod_clientes.fusionar_duplicados(existentes + nuevos)
                         mod_clientes.guardar_lista(combinados)
-                        st.success(f"¡Listo! Se procesaron {len(nuevos)} fila(s) → "
-                                   f"{len(combinados)} cliente(s) en total (duplicados unidos). "
-                                   "Revísalos en la tabla y dale Guardar si todo está bien.")
+                        if len(combinados) == antes:
+                            st.success(f"«{z_nombre.strip()}» ya existía → se unió/actualizó "
+                                       "sin duplicar. ✅")
+                        else:
+                            st.success(f"Cliente «{z_nombre.strip()}» agregado e interpretado. 🎉")
                         refrescar_hoja_clientes()
                         st.rerun()
-                    except Exception as e:  # noqa: BLE001
-                        st.error(f"No se pudo procesar el archivo: {e}")
 
-        # La tabla es SOLO para ver. (La data_editor de Streamlit no guardaba bien los
-        # cambios, así que toda edición se hace con el editor "✏️" de arriba.)
-        st.info("👁️ Esta tabla es **solo para ver**. Para **editar, renombrar o borrar** un "
-                "cliente, usa **«✏️ Editar o renombrar un cliente»** (arriba). Eso sí guarda bien.")
-        todos = mod_clientes.cargar_guardados()
-        lista_ver = [c for c in todos if coincide_busqueda(c, buscar_cli)]
-        st.dataframe(clientes_a_df(lista_ver), use_container_width=True, hide_index=True)
-        if buscar_cli:
-            st.caption(f"Mostrando {len(lista_ver)} de {len(todos)} clientes que coinciden "
-                       f"con «{buscar_cli}».")
-
-        c2, c3 = st.columns(2)
-        c2.download_button(
-            "⬇️ Descargar copia (Excel)", excel_bytes(clientes_a_df(todos)),
-            "clientes.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-        with c3.popover("⬆️ Restaurar desde Excel", use_container_width=True):
-            archivo = st.file_uploader("Sube tu copia (.xlsx)", type=["xlsx"])
-            if archivo is not None and st.button("Restaurar ahora"):
+    # ── Pegar TODO en un cuadro y que la IA lo organice ──
+    with st.expander("📋 Pegar todo en un cuadro (la IA lo organiza)", expanded=False):
+        st.caption("Pega aquí lo que sea (un mensaje de WhatsApp, un correo, una lista de varios "
+                   "clientes…). La IA detecta uno o varios clientes, los interpreta y los une si "
+                   "ya existen.")
+        texto_libre = st.text_area("Pega aquí la info", height=160, key="texto_libre",
+                                   placeholder="Ej:\nJuan, 300 555 1212, compra Chicó 2 hab hasta 800M\n"
+                                               "Marcela quiere arriendo en Rosales, 3 alcobas, 12M, con estudio")
+        if st.button("🤖 Interpretar y agregar", key="btn_texto_libre"):
+            if not config.ANTHROPIC_API_KEY:
+                st.error("Falta la llave de Claude. Revisa «🔑 Mis llaves».")
+            elif not texto_libre.strip():
+                st.error("Pega algún texto primero.")
+            else:
                 try:
-                    mod_clientes.guardar_lista(mod_clientes.cargar_clientes(archivo))
-                    st.success("¡Restaurado!")
+                    from src import extractor
+                    with st.spinner("Interpretando…"):
+                        nuevos = extractor.interpretar_texto_libre(texto_libre, log=lambda m: None)
+                    if not nuevos:
+                        st.error("No reconocí clientes en el texto. Revisa que tenga datos.")
+                    else:
+                        existentes = mod_clientes.cargar_guardados()
+                        antes = len(existentes)
+                        combinados = mod_clientes.fusionar_duplicados(existentes + nuevos)
+                        mod_clientes.guardar_lista(combinados)
+                        nombres = ", ".join(c.get("nombre", "") for c in nuevos)
+                        st.success(f"Se interpretaron {len(nuevos)} cliente(s): {nombres}. "
+                                   f"(Quedan {len(combinados)} en total, duplicados unidos.) 🎉")
+                        refrescar_hoja_clientes()
+                        st.rerun()
+                except Exception as e:  # noqa: BLE001
+                    st.error(f"No se pudo interpretar: {e}")
+
+    # ── Editar / renombrar un cliente (vía confiable, sin la tabla) ──
+    with st.expander("✏️ Editar o renombrar un cliente", expanded=True):
+        _lista = mod_clientes.cargar_guardados()
+        if not _lista:
+            st.caption("Aún no hay clientes.")
+        else:
+            opciones = ([c["nombre"] for c in _lista if coincide_busqueda(c, buscar_cli)]
+                        or [c["nombre"] for c in _lista])
+            sel = st.selectbox("¿Cuál cliente quieres editar?", opciones, key="edit_sel")
+            cliente_e = next((c for c in _lista if c["nombre"] == sel), _lista[0])
+            with st.form("editar_cliente"):
+                g1, g2 = st.columns(2)
+                e_nombre = g1.text_input("Nombre", value=cliente_e.get("nombre", ""))
+                e_tel = g2.text_input("Teléfono", value=cliente_e.get("telefono", ""))
+                g1, g2 = st.columns(2)
+                e_op = g1.selectbox("Compra / Arriendo", ["venta", "arriendo"],
+                                    index=0 if (cliente_e.get("operacion") or "venta") == "venta" else 1)
+                _fx = (cliente_e.get("flexibilidad") or "medio")
+                _fx = _fx if _fx in FLEX_OPCIONES else "medio"
+                e_flex = g2.selectbox("Flexibilidad", FLEX_OPCIONES,
+                                      index=FLEX_OPCIONES.index(_fx),
+                                      format_func=lambda f: ETIQUETA_FLEX.get(f, f),
+                                      help="Estricto = no cede (solo lo muy acertado). "
+                                           "Flexible = abierto a más opciones.")
+                e_zona = st.text_input("Zona", value=cliente_e.get("zona", ""))
+                e_barrios = st.text_input("Barrios", value=lista_a_texto(cliente_e.get("barrios")))
+                e_pres = st.text_input("Presupuesto",
+                                       value=matcher.formato_cop(cliente_e.get("presupuesto_max")))
+                g1, g2, g3, g4 = st.columns(4)
+                e_amin = g1.number_input("Área mín", min_value=0, value=int(cliente_e.get("area_min") or 0))
+                e_amax = g2.number_input("Área máx", min_value=0, value=int(cliente_e.get("area_max") or 0))
+                e_hab = g3.number_input("Habitac.", min_value=0, value=int(cliente_e.get("habitaciones_min") or 0))
+                e_ban = g4.number_input("Baños", min_value=0, value=int(cliente_e.get("banos_min") or 0))
+                e_extras = st.multiselect(
+                    "Extras", EXTRAS_OPCIONES, format_func=lambda x: ETIQUETA_EXTRA.get(x, x),
+                    default=[x for x in (cliente_e.get("extras") or []) if x in EXTRAS_OPCIONES])
+                e_oblig = st.multiselect(
+                    "🔒 No negociable", OBLIGATORIOS_OPCIONES,
+                    format_func=lambda x: ETIQUETA_OBLIGATORIO.get(x, x),
+                    default=[x for x in (cliente_e.get("obligatorios") or []) if x in OBLIGATORIOS_OPCIONES])
+                e_notas = st.text_input("Notas", value=cliente_e.get("notas", ""))
+                if st.form_submit_button("💾 Guardar cambios", type="primary"):
+                    clientes = mod_clientes.cargar_guardados()
+                    for c in clientes:
+                        if c.get("nombre") == sel:
+                            c["nombre"] = e_nombre.strip()
+                            c["telefono"] = "".join(ch for ch in e_tel if ch.isdigit())
+                            c["operacion"] = e_op
+                            c["flexibilidad"] = e_flex
+                            c["barrios"] = texto_a_lista(e_barrios)
+                            c["zona"] = e_zona.strip()
+                            c["presupuesto_max"] = parse_cop(e_pres)
+                            c["area_min"] = num_o_none(e_amin)
+                            c["area_max"] = num_o_none(e_amax)
+                            c["habitaciones_min"] = num_o_none(e_hab)
+                            c["banos_min"] = num_o_none(e_ban)
+                            c["extras"] = e_extras
+                            c["obligatorios"] = e_oblig
+                            c["notas"] = e_notas.strip()
+                            break
+                    mod_clientes.guardar_lista(clientes)
+                    refrescar_hoja_clientes()
+                    st.success(f"«{e_nombre.strip()}» actualizado. ✅")
+                    st.rerun()
+
+            if st.button("🗑️ Eliminar este cliente", key="edit_del",
+                         help="Quita este cliente de la lista (no se puede deshacer)."):
+                mod_clientes.eliminar(sel)
+                refrescar_hoja_clientes()
+                st.success(f"«{sel}» eliminado.")
+                st.rerun()
+
+    with st.expander("ℹ️ Cómo llenar cada columna"):
+        st.markdown(
+            "- **operacion**: escribe `venta` o `arriendo`.\n"
+            "- **barrios**: varios separados por coma → `El Nogal, Rosales`.\n"
+            "- **presupuesto**: como quieras → `1'700.000.000`, `12M` o `1900000000`.\n"
+            "- **area_min / area_max**: metros cuadrados. Deja vacío si no importa.\n"
+            "- **habitaciones_min / banos_min**: mínimo deseado. Vacío = no filtra.\n"
+            f"- **extras**: separados por coma. Válidos: {', '.join(EXTRAS_OPCIONES)}."
+        )
+
+    # ── Importar con IA desde un archivo "como sea" ──────
+    with st.expander("🤖 Importar clientes desde un archivo (con IA)"):
+        st.caption("Sube tu lista tal como la tengas (CSV o Excel), aunque esté en "
+                   "texto libre y con abreviaciones (ej. *“arriendo 12M, 2 alcobas, "
+                   "Chapinero, mín 60 mts”*). La IA lee cada fila, la interpreta "
+                   "(12M → $12.000.000) y la acomoda al formato. Revisa el resultado "
+                   "en la tabla de abajo antes de guardar.")
+        archivo_ia = st.file_uploader("Archivo de clientes (.csv o .xlsx)",
+                                      type=["csv", "xlsx"], key="ia_uploader")
+        if archivo_ia is not None and st.button("🤖 Interpretar y agregar con IA"):
+            if not config.ANTHROPIC_API_KEY:
+                st.error("Falta la llave de Claude. Revisa «🔑 Mis llaves» en la barra lateral.")
+            else:
+                try:
+                    df_in = leer_tabla(archivo_ia)
+                    cols = list(df_in.columns)
+                    textos = [fila_a_texto(fila, cols) for _, fila in df_in.iterrows()]
+                    registro = st.empty()
+                    lineas: list[str] = []
+
+                    def log_ia(msg: str) -> None:
+                        lineas.append(msg)
+                        registro.code("\n".join(lineas[-10:]))
+
+                    from src import extractor
+                    nuevos = extractor.interpretar_clientes(textos, log=log_ia)
+                    existentes = mod_clientes.cargar_guardados()
+                    # Une duplicados (mismo nombre) tomando el más completo, y
+                    # conserva el seguimiento CRM de los que ya existían.
+                    combinados = mod_clientes.fusionar_duplicados(existentes + nuevos)
+                    mod_clientes.guardar_lista(combinados)
+                    st.success(f"¡Listo! Se procesaron {len(nuevos)} fila(s) → "
+                               f"{len(combinados)} cliente(s) en total (duplicados unidos). "
+                               "Revísalos en la tabla y dale Guardar si todo está bien.")
                     refrescar_hoja_clientes()
                     st.rerun()
                 except Exception as e:  # noqa: BLE001
-                    st.error(f"No se pudo leer el Excel: {e}")
+                    st.error(f"No se pudo procesar el archivo: {e}")
 
-        st.session_state["clientes"] = mod_clientes.cargar_guardados()
-        cols_pie = st.columns([2, 1])
-        cols_pie[0].caption(f"👥 {len(st.session_state['clientes'])} cliente(s) guardado(s).")
-        if cols_pie[1].button("🧹 Unir duplicados", use_container_width=True,
-                              help="Junta clientes repetidos (mismo nombre o teléfono) en uno solo."):
-            actuales = mod_clientes.cargar_guardados()
-            unidos = mod_clientes.fusionar_duplicados(actuales)
-            mod_clientes.guardar_lista(unidos)
-            quitados = len(actuales) - len(unidos)
-            st.success(f"Listo: {quitados} duplicado(s) unido(s)." if quitados
-                       else "No había duplicados. ✅")
-            refrescar_hoja_clientes()
-            st.rerun()
+    # La tabla es SOLO para ver. (La data_editor de Streamlit no guardaba bien los
+    # cambios, así que toda edición se hace con el editor "✏️" de arriba.)
+    st.info("👁️ Esta tabla es **solo para ver**. Para **editar, renombrar o borrar** un "
+            "cliente, usa **«✏️ Editar o renombrar un cliente»** (arriba). Eso sí guarda bien.")
+    todos = mod_clientes.cargar_guardados()
+    lista_ver = [c for c in todos if coincide_busqueda(c, buscar_cli)]
+    st.dataframe(clientes_a_df(lista_ver), use_container_width=True, hide_index=True)
+    if buscar_cli:
+        st.caption(f"Mostrando {len(lista_ver)} de {len(todos)} clientes que coinciden "
+                   f"con «{buscar_cli}».")
+
+    c2, c3 = st.columns(2)
+    c2.download_button(
+        "⬇️ Descargar copia (Excel)", excel_bytes(clientes_a_df(todos)),
+        "clientes.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
+    with c3.popover("⬆️ Restaurar desde Excel", use_container_width=True):
+        archivo = st.file_uploader("Sube tu copia (.xlsx)", type=["xlsx"])
+        if archivo is not None and st.button("Restaurar ahora"):
+            try:
+                mod_clientes.guardar_lista(mod_clientes.cargar_clientes(archivo))
+                st.success("¡Restaurado!")
+                refrescar_hoja_clientes()
+                st.rerun()
+            except Exception as e:  # noqa: BLE001
+                st.error(f"No se pudo leer el Excel: {e}")
+
+    st.session_state["clientes"] = mod_clientes.cargar_guardados()
+    cols_pie = st.columns([2, 1])
+    cols_pie[0].caption(f"👥 {len(st.session_state['clientes'])} cliente(s) guardado(s).")
+    if cols_pie[1].button("🧹 Unir duplicados", use_container_width=True,
+                          help="Junta clientes repetidos (mismo nombre o teléfono) en uno solo."):
+        actuales = mod_clientes.cargar_guardados()
+        unidos = mod_clientes.fusionar_duplicados(actuales)
+        mod_clientes.guardar_lista(unidos)
+        quitados = len(actuales) - len(unidos)
+        st.success(f"Listo: {quitados} duplicado(s) unido(s)." if quitados
+                   else "No había duplicados. ✅")
+        refrescar_hoja_clientes()
+        st.rerun()
 
 # ===== 3. RESULTADOS =========================================
 with tab_resultados:
     st.subheader("Coincidencias por cliente")
     clientes = st.session_state.get("clientes", [])
 
-    if es_demo:
-        posts = POSTS_DEMO
-    else:
-        # Todos los inmuebles leídos (no se ocultan por antigüedad).
-        posts = db.posts_leidos()
+    # Todos los inmuebles leídos (no se ocultan por antigüedad).
+    posts = db.posts_leidos()
 
     if not clientes:
         st.warning("Primero carga tus clientes en la pestaña **2️⃣ Clientes**.")
@@ -1011,7 +986,7 @@ with tab_resultados:
                                 st.caption("Listo para tu cliente: solo datos + tu marca, sin link ni fuente.")
                                 st.code(mensaje, language=None)
                         with a2:
-                            if not es_demo and p.get("media"):
+                            if p.get("media"):
                                 with st.popover("📥 Descargar foto/video", use_container_width=True):
                                     render_descargas(p, f"{nombre}_{p.get('id', 'x')}")
                     with c2:
@@ -1020,26 +995,25 @@ with tab_resultados:
                             st.link_button("🔗 Ver original (solo tú)", p["url"],
                                            use_container_width=True,
                                            help="Para que TÚ verifiques el inmueble. No lo compartas: revela la fuente.")
-                        if not es_demo:
-                            if st.button("📤 Marcar enviado", key=f"env_{nombre}_{p.get('id','x')}",
-                                         help=f"Pasa al seguimiento de {nombre} (lo ves en el CRM)",
-                                         use_container_width=True):
-                                mod_clientes.agregar_proceso(nombre, proceso_de(p, "enviado"))
-                                st.toast(f"📤 En seguimiento de {nombre}")
+                        if st.button("📤 Marcar enviado", key=f"env_{nombre}_{p.get('id','x')}",
+                                     help=f"Pasa al seguimiento de {nombre} (lo ves en el CRM)",
+                                     use_container_width=True):
+                            mod_clientes.agregar_proceso(nombre, proceso_de(p, "enviado"))
+                            st.toast(f"📤 En seguimiento de {nombre}")
+                            st.rerun()
+                        with st.popover("🚫 Descartar", use_container_width=True):
+                            obs = st.text_input(
+                                "¿Por qué no le sirvió? (opcional)",
+                                key=f"obsdesc_{nombre}_{p.get('id','x')}",
+                                placeholder="ej: muy oscuro, sin parqueadero, piso bajo…")
+                            if st.button("Confirmar descarte",
+                                         key=f"cdesc_{nombre}_{p.get('id','x')}"):
+                                mod_clientes.agregar_proceso(
+                                    nombre, proceso_de(p, "descartado", obs))
+                                if obs.strip():
+                                    recalcular_preferencias(nombre)
+                                st.toast(f"🚫 Descartado para {nombre}")
                                 st.rerun()
-                            with st.popover("🚫 Descartar", use_container_width=True):
-                                obs = st.text_input(
-                                    "¿Por qué no le sirvió? (opcional)",
-                                    key=f"obsdesc_{nombre}_{p.get('id','x')}",
-                                    placeholder="ej: muy oscuro, sin parqueadero, piso bajo…")
-                                if st.button("Confirmar descarte",
-                                             key=f"cdesc_{nombre}_{p.get('id','x')}"):
-                                    mod_clientes.agregar_proceso(
-                                        nombre, proceso_de(p, "descartado", obs))
-                                    if obs.strip():
-                                        recalcular_preferencias(nombre)
-                                    st.toast(f"🚫 Descartado para {nombre}")
-                                    st.rerun()
                     st.divider()
 
         # Descarga de todos los matches en un CSV.
@@ -1145,8 +1119,6 @@ with tab_crm:
             st.caption("Arriendo = 1 canon · Venta = 3% del valor. Solo cuenta clientes ACTIVOS "
                        "(los perdidos no entran).")
 
-        if es_demo:
-            st.info("Modo Demo: el seguimiento no se guarda. Cambia a modo Real para usarlo.")
 
         st.divider()
         filtro = st.radio("Ver", ["Todos", "🟡 Activos", "🟢 Ganados", "🔴 Perdidos"],
@@ -1168,10 +1140,6 @@ with tab_crm:
                 cab += f"  ·  💰 {matcher.formato_cop(com_actual)}"
             with st.container(border=True):
                 st.markdown(cab)
-                if es_demo:
-                    if enviados:
-                        st.caption("Enviados: " + "; ".join(enviados[:3]))
-                    continue
 
                 op = (c.get("operacion") or "venta").lower()
                 es_arriendo = op == "arriendo"
