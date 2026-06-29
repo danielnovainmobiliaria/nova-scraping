@@ -516,6 +516,19 @@ def _aplicar_columna(cliente, col, val):
         cliente["notas"] = str(val).strip()
 
 
+def coincide_busqueda(cliente, q):
+    """True si el cliente coincide con el texto de búsqueda (ignora tildes/mayúsculas)."""
+    q = mod_clientes._norm_nombre(q)  # minúsculas, sin tildes
+    if not q:
+        return True
+    campos = [
+        cliente.get("nombre", ""), cliente.get("telefono", ""), cliente.get("zona", ""),
+        cliente.get("notas", ""), cliente.get("operacion", ""),
+        " ".join(cliente.get("barrios") or []),
+    ]
+    return q in mod_clientes._norm_nombre(" ".join(str(c) for c in campos))
+
+
 def _cliente_nuevo_vacio():
     return {"nombre": "", "telefono": "", "operacion": "venta", "barrios": [], "zona": "",
             "presupuesto_max": None, "area_min": None, "area_max": None,
@@ -592,9 +605,10 @@ with tab_clientes:
                 "para administrar tus clientes de verdad.")
         st.dataframe(clientes_a_df(CLIENTES_DEMO), use_container_width=True, hide_index=True)
     else:
-        st.caption("Esta es tu **hoja de clientes**. Funciona como un Excel: escribe en las "
-                   "celdas, agrega filas con el **+** de abajo, o borra una fila seleccionándola. "
-                   "Al terminar, dale **Guardar**. Descarga tu copia maestra cuando quieras.")
+        st.caption("Agrega clientes con cualquiera de los métodos de abajo. Para **editar o "
+                   "borrar**, usa el editor **«✏️»**. La tabla del final es solo para ver.")
+        buscar_cli = st.text_input("🔍 Buscar cliente", key="buscar_cli",
+                                   placeholder="Escribe un nombre, barrio, teléfono o zona…")
 
         # ── Agregar un cliente nuevo (MISMO formato que Zoho, con IA) ──
         with st.expander("➕ Agregar un cliente nuevo", expanded=False):
@@ -684,8 +698,9 @@ with tab_clientes:
             if not _lista:
                 st.caption("Aún no hay clientes.")
             else:
-                sel = st.selectbox("¿Cuál cliente quieres editar?",
-                                   [c["nombre"] for c in _lista], key="edit_sel")
+                opciones = ([c["nombre"] for c in _lista if coincide_busqueda(c, buscar_cli)]
+                            or [c["nombre"] for c in _lista])
+                sel = st.selectbox("¿Cuál cliente quieres editar?", opciones, key="edit_sel")
                 cliente_e = next((c for c in _lista if c["nombre"] == sel), _lista[0])
                 with st.form("editar_cliente"):
                     g1, g2 = st.columns(2)
@@ -794,12 +809,16 @@ with tab_clientes:
         # cambios, así que toda edición se hace con el editor "✏️" de arriba.)
         st.info("👁️ Esta tabla es **solo para ver**. Para **editar, renombrar o borrar** un "
                 "cliente, usa **«✏️ Editar o renombrar un cliente»** (arriba). Eso sí guarda bien.")
-        df_ver = clientes_a_df(mod_clientes.cargar_guardados())
-        st.dataframe(df_ver, use_container_width=True, hide_index=True)
+        todos = mod_clientes.cargar_guardados()
+        lista_ver = [c for c in todos if coincide_busqueda(c, buscar_cli)]
+        st.dataframe(clientes_a_df(lista_ver), use_container_width=True, hide_index=True)
+        if buscar_cli:
+            st.caption(f"Mostrando {len(lista_ver)} de {len(todos)} clientes que coinciden "
+                       f"con «{buscar_cli}».")
 
         c2, c3 = st.columns(2)
         c2.download_button(
-            "⬇️ Descargar copia (Excel)", excel_bytes(df_ver),
+            "⬇️ Descargar copia (Excel)", excel_bytes(clientes_a_df(todos)),
             "clientes.xlsx",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
