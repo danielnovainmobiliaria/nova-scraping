@@ -223,6 +223,70 @@ def interpretar_clientes(textos: list[str], log=print) -> list[dict[str, Any]]:
     return resultado
 
 
+SYSTEM_TEXTO_LIBRE = f"""Eres un asistente inmobiliario en Bogotá. Recibes un texto libre que puede
+contener UNO O VARIOS clientes (pegado de WhatsApp, correo, notas, una lista, etc.).
+
+Devuelve ÚNICAMENTE un ARRAY JSON válido (sin texto extra, sin ```), con un objeto por cada
+cliente que encuentres, con estas claves:
+
+[{{
+  "nombre": string|null, "telefono": string|null,
+  "operacion": "arriendo"|"venta"|null,
+  "barrios": [string], "zona": string|null,
+  "presupuesto_max": number|null, "area_min": number|null, "area_max": number|null,
+  "habitaciones_min": number|null, "banos_min": number|null,
+  "extras": [string], "notas": string|null
+}}]
+
+"extras" SOLO de esta lista: {EXTRAS_VALIDOS}.
+Reglas (mercado bogotano): "12M"/"12 millones"=12000000; "MM"=millones; "$450M" en venta=450000000;
+"1.900.000.000" tal cual. Rangos ("800M-900M","11M-14M"): usa el MÁXIMO. "comprar"/"compra" ->
+operacion "venta"; "arrendar"/"arriendo" -> "arriendo". "2 alcobas/habs/dormitorios"=habitaciones;
+"mts2/m2/metros"=área. "cuarto de servicio" -> "cuarto_servicio". Si la zona viene por calles/carreras,
+deduce los barrios reales de Bogotá de ese sector. Teléfono solo dígitos.
+Si hay un solo cliente, devuelve un array con un solo objeto. NO inventes clientes que no estén.
+"""
+
+
+def interpretar_texto_libre(texto: str, log=print) -> list[dict[str, Any]]:
+    """Interpreta un texto libre (uno o varios clientes) y devuelve la lista estructurada."""
+    if not config.ANTHROPIC_API_KEY:
+        raise RuntimeError("Falta la llave de Claude (ANTHROPIC_API_KEY).")
+    if not texto or not texto.strip():
+        return []
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    msg = client.messages.create(
+        model=config.ANTHROPIC_MODEL, max_tokens=2000,
+        system=SYSTEM_TEXTO_LIBRE,
+        messages=[{"role": "user", "content": texto.strip()[:8000]}],
+    )
+    t = msg.content[0].text.strip()
+    if t.startswith("```"):
+        t = t.strip("`")
+        t = t[t.find("[") : t.rfind("]") + 1]
+    try:
+        datos = json.loads(t)
+    except json.JSONDecodeError:
+        return []
+    if isinstance(datos, dict):
+        datos = [datos]
+
+    resultado: list[dict[str, Any]] = []
+    for d in datos:
+        if not isinstance(d, dict):
+            continue
+        d["extras"] = [e for e in (d.get("extras") or []) if e in EXTRAS_VALIDOS]
+        d["barrios"] = d.get("barrios") or []
+        d["perimetro"] = ""
+        d["telefono"] = "".join(ch for ch in str(d.get("telefono") or "") if ch.isdigit())
+        if not d.get("nombre"):
+            d["nombre"] = f"Cliente {len(resultado) + 1}"
+        resultado.append(d)
+        log(f"Interpretado: {d['nombre']} ({len(resultado)})")
+    log(f"Listo. Se encontraron {len(resultado)} cliente(s).")
+    return resultado
+
+
 # ── Aprender qué evita un cliente (de los inmuebles descartados) ─────
 
 SYSTEM_PREFERENCIAS = f"""Eres un asistente inmobiliario en Bogotá. Te doy las observaciones de

@@ -496,6 +496,38 @@ with tab_clientes:
                                 st.success(f"Cliente «{z_nombre.strip()}» agregado e interpretado. 🎉")
                             st.rerun()
 
+        # ── Pegar TODO en un cuadro y que la IA lo organice ──
+        with st.expander("📋 Pegar todo en un cuadro (la IA lo organiza)", expanded=False):
+            st.caption("Pega aquí lo que sea (un mensaje de WhatsApp, un correo, una lista de varios "
+                       "clientes…). La IA detecta uno o varios clientes, los interpreta y los une si "
+                       "ya existen.")
+            texto_libre = st.text_area("Pega aquí la info", height=160, key="texto_libre",
+                                       placeholder="Ej:\nJuan, 300 555 1212, compra Chicó 2 hab hasta 800M\n"
+                                                   "Marcela quiere arriendo en Rosales, 3 alcobas, 12M, con estudio")
+            if st.button("🤖 Interpretar y agregar", key="btn_texto_libre"):
+                if not config.ANTHROPIC_API_KEY:
+                    st.error("Falta la llave de Claude. Revisa «🔑 Mis llaves».")
+                elif not texto_libre.strip():
+                    st.error("Pega algún texto primero.")
+                else:
+                    try:
+                        from src import extractor
+                        with st.spinner("Interpretando…"):
+                            nuevos = extractor.interpretar_texto_libre(texto_libre, log=lambda m: None)
+                        if not nuevos:
+                            st.error("No reconocí clientes en el texto. Revisa que tenga datos.")
+                        else:
+                            existentes = mod_clientes.cargar_guardados()
+                            antes = len(existentes)
+                            combinados = mod_clientes.fusionar_duplicados(existentes + nuevos)
+                            mod_clientes.guardar_lista(combinados)
+                            nombres = ", ".join(c.get("nombre", "") for c in nuevos)
+                            st.success(f"Se interpretaron {len(nuevos)} cliente(s): {nombres}. "
+                                       f"(Quedan {len(combinados)} en total, duplicados unidos.) 🎉")
+                            st.rerun()
+                    except Exception as e:  # noqa: BLE001
+                        st.error(f"No se pudo interpretar: {e}")
+
         with st.expander("ℹ️ Cómo llenar cada columna"):
             st.markdown(
                 "- **operacion**: escribe `venta` o `arriendo`.\n"
