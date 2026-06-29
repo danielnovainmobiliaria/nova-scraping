@@ -13,7 +13,9 @@
       "Bash(git commit -q -m 'Compartir sin huella: foto + descarga de video/fotos + texto limpio \\(sin link ni fuente\\) *)",
       "Bash(curl -sS -L --max-time 30 -o /dev/null -w \"URL responde: HTTP %{http_code}\\\\n\" \"https://nova-scraping-yxhsgk9bbe5ibjrbakr4bh.streamlit.app/\")",
       "Bash(curl -sS -o /dev/null -D - --max-time 30 \"https://nova-scraping-yxhsgk9bbe5ibjrbakr4bh.streamlit.app/\")",
-      "Bash(curl -sS --max-time 30 -o /dev/null -w \"HTTP %{http_code}\\\\n\" \"https://nova-scraping-yxhsgk9bbe5ibjrbakr4bh.streamlit.app/_stcore/health\")"
+      "Bash(curl -sS --max-time 30 -o /dev/null -w \"HTTP %{http_code}\\\\n\" \"https://nova-scraping-yxhsgk9bbe5ibjrbakr4bh.streamlit.app/_stcore/health\")",
+      "Bash(curl -sS -o /dev/null -w \"HTTP %{http_code}\\\\n\" --max-time 30 \"https://nova-scraping-yxhsgk9bbe5ibjrbakr4bh.streamlit.app/\")",
+      "Bash(cd /tmp && echo \"=== Título de la página ===\" && grep -oiE \"<title>[^<]*</title>\" pagina.html | head -1; echo \"=== Marcadores de login vs app ===\" && grep -oiE \"sign in|continue with|log in|streamlit.app|nova scraping|view app|authenticate\" pagina.html | sort -u | head -10; echo \"=== Tamaño ===\" && wc -c < pagina.html)"
     ]
   }
 }

@@ -22,22 +22,6 @@ from src import config, db, matcher
 from src.sample_data import CLIENTES_DEMO, POSTS_DEMO
 
 st.set_page_config(page_title="Nova Scraping", page_icon="🏙️", layout="wide")
-
-# ── Puerta de contraseña (solo si APP_PASSWORD está configurada) ──
-# Permite que la app sea pública (para que un robot la mantenga despierta) pero
-# que solo entre quien tenga la clave.
-if config.APP_PASSWORD and not st.session_state.get("_auth_ok"):
-    st.title("🔒 Nova Scraping")
-    st.caption("Ingresa la contraseña para entrar.")
-    _pwd = st.text_input("Contraseña", type="password")
-    if st.button("Entrar", type="primary"):
-        if _pwd == config.APP_PASSWORD:
-            st.session_state["_auth_ok"] = True
-            st.rerun()
-        else:
-            st.error("Contraseña incorrecta.")
-    st.stop()
-
 db.init_db()
 
 EXTRAS_LEGIBLES = {
