@@ -912,6 +912,7 @@ with tab_resultados:
         oblig_map = {c["nombre"]: (c.get("obligatorios") or []) for c in clientes}
         flex_map = {c["nombre"]: (c.get("flexibilidad") or "medio") for c in clientes}
         com_map = {c["nombre"]: (c.get("comentarios_ia") or []) for c in clientes}
+        cli_map = {c["nombre"]: c for c in clientes}
         for nombre in list(resultados):
             resultados[nombre] = [
                 m for m in resultados[nombre]
@@ -959,27 +960,57 @@ with tab_resultados:
                                + " · ".join(aprend))
 
                 # ── Afinar con IA: comentarios libres del broker sobre este cliente ──
+                exc_cli = (cli_map.get(nombre, {}).get("exclusiones") or {})
+                exc_barrios = exc_cli.get("barrios") or []
+                exc_palabras = exc_cli.get("palabras") or []
+                if exc_barrios or exc_palabras:
+                    partes_x = []
+                    if exc_barrios:
+                        partes_x.append("barrios: " + ", ".join(exc_barrios))
+                    if exc_palabras:
+                        partes_x.append("palabras: " + ", ".join(exc_palabras))
+                    st.error("🚫 Anulando (filtro duro) — " + "  ·  ".join(partes_x))
                 with st.popover("🤖 Afinar con IA — ¿los resultados no son buenos?",
                                 use_container_width=True):
-                    st.caption("Escribe qué está mal o qué buscas y la IA lo tendrá en cuenta para "
-                               "las próximas coincidencias de **este** cliente. "
-                               "Ej: *«están muy lejos del Chicó»*, *«no quiero primer piso»*, "
-                               "*«prioriza vista y remodelado»*.")
+                    st.caption("Escribe qué está mal o qué buscas. La IA **anula de una** lo que no "
+                               "cumpla (ej. *«nada después de la calle 100»*, *«no quiero primer "
+                               "piso»*) y prioriza lo que pidas (ej. *«prioriza vista y remodelado»*). "
+                               "Aplica solo a **este** cliente.")
+                    res_prev = st.session_state.get(f"afin_res_{nombre}")
+                    if res_prev:
+                        st.success("✨ " + res_prev)
                     coms_prev = com_map.get(nombre, [])
                     if coms_prev:
                         st.caption("📝 Ya le dijiste: " + "  ·  ".join(f"«{c}»" for c in coms_prev[-4:]))
                     txt = st.text_area("Tu comentario", key=f"afinar_txt_{nombre}", height=90,
-                                       placeholder="ej: las opciones están muy lejos; prioriza vista y que sea remodelado")
-                    if st.button("✨ Afinar este cliente", key=f"afinar_btn_{nombre}"):
+                                       placeholder="ej: nada después de la 100; prioriza vista y que sea remodelado")
+                    ccol1, ccol2 = st.columns(2)
+                    if ccol1.button("✨ Afinar este cliente", key=f"afinar_btn_{nombre}",
+                                    type="primary", use_container_width=True):
                         if not config.ANTHROPIC_API_KEY:
                             st.error("Falta la llave de Claude para afinar. Revisa «🔑 Mis llaves».")
                         elif not txt.strip():
                             st.warning("Escribe un comentario primero.")
                         else:
+                            from src import extractor
+                            af = extractor.interpretar_afinacion(txt.strip(), cli_map.get(nombre))
                             mod_clientes.agregar_comentario_ia(nombre, txt.strip())
-                            recalcular_preferencias(nombre)
+                            if af["excluir_barrios"] or af["excluir_palabras"]:
+                                mod_clientes.agregar_exclusiones(
+                                    nombre, af["excluir_barrios"], af["excluir_palabras"])
+                            recalcular_preferencias(nombre)   # ajuste suave (priorizar/penalizar)
+                            st.session_state[f"afin_res_{nombre}"] = (
+                                af["resumen"] or "Lo tomé en cuenta para afinar la búsqueda.")
                             st.toast(f"✨ Afiné la búsqueda de {nombre}")
                             st.rerun()
+                    if (exc_barrios or exc_palabras) and ccol2.button(
+                            "♻️ Quitar exclusiones", key=f"afinar_clr_{nombre}",
+                            use_container_width=True,
+                            help="Vuelve a mostrar los inmuebles que habías anulado."):
+                        mod_clientes.limpiar_exclusiones(nombre)
+                        st.session_state.pop(f"afin_res_{nombre}", None)
+                        st.toast(f"♻️ Quité las exclusiones de {nombre}")
+                        st.rerun()
 
                 if not matches:
                     st.write("Sin coincidencias por ahora.")

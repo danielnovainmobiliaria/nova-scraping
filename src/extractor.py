@@ -341,6 +341,60 @@ Reglas: incluye solo lo que se deduzca claramente. Si no hay nada claro, usa lis
 """
 
 
+SYSTEM_AFINACION = """Eres un asistente inmobiliario experto en la geografía de Bogotá, Colombia.
+El broker está revisando las coincidencias de un cliente y da una instrucción para LIMPIAR
+(anular) los inmuebles que NO cumplen.
+
+Devuelve ÚNICAMENTE un objeto JSON válido (sin texto extra, sin ```), con estas claves:
+{
+  "excluir_barrios": [string],  // barrios/sectores a EXCLUIR por completo. Si el broker pone un
+                                // límite geográfico, EXPÁNDELO a los barrios reales que quedan
+                                // FUERA. En Bogotá, a MAYOR número de calle = más al NORTE.
+                                // "nada después de la calle 100" / "no más arriba de la 100"
+                                //   (al norte de la 100) -> ["Santa Bárbara","Cedritos",
+                                //   "La Carolina","Country Club","Usaquén","Multicentro",
+                                //   "San Patricio","Unicentro","Toberín","Cedro"]
+                                // "solo del Chicó hacia el sur" -> excluye lo que esté al norte.
+  "excluir_palabras": [string], // frases que, si aparecen en el aviso, lo anulan por completo
+                                // (ej. "primer piso", "para remodelar", "remate", "permuta").
+  "resumen": string            // frase corta en español de lo que entendiste y vas a anular.
+}
+Reglas: incluye SOLO exclusiones CLARAS que el broker pide quitar. Si el comentario es una
+preferencia suave (no una orden de excluir), deja las listas vacías. No inventes barrios que
+no existan. Usa nombres reales de barrios de Bogotá.
+"""
+
+
+def interpretar_afinacion(comentario: str, cliente: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Convierte una instrucción del broker en filtros DUROS (barrios/palabras a anular)."""
+    vacio = {"excluir_barrios": [], "excluir_palabras": [], "resumen": ""}
+    if not config.ANTHROPIC_API_KEY or not (comentario or "").strip():
+        return vacio
+    contexto = ""
+    if cliente:
+        barrios = ", ".join(cliente.get("barrios") or []) or "—"
+        contexto = f"\n\n(Contexto del cliente — barrios de interés: {barrios}; zona: {cliente.get('zona') or '—'})"
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    try:
+        msg = client.messages.create(
+            model=config.ANTHROPIC_MODEL, max_tokens=500,
+            system=SYSTEM_AFINACION,
+            messages=[{"role": "user", "content": (comentario.strip() + contexto)[:3000]}],
+        )
+        t = msg.content[0].text.strip()
+        if t.startswith("```"):
+            t = t.strip("`")
+            t = t[t.find("{"): t.rfind("}") + 1]
+        datos = json.loads(t)
+    except Exception:  # noqa: BLE001
+        return vacio
+    return {
+        "excluir_barrios": [str(b).strip() for b in datos.get("excluir_barrios", []) if str(b).strip()][:30],
+        "excluir_palabras": [str(p).lower().strip() for p in datos.get("excluir_palabras", []) if str(p).strip()][:15],
+        "resumen": str(datos.get("resumen") or "").strip(),
+    }
+
+
 def aprender_preferencias(observaciones: list[str]) -> dict[str, Any]:
     """De las observaciones de inmuebles descartados, deduce qué evitar."""
     if not config.ANTHROPIC_API_KEY or not observaciones:

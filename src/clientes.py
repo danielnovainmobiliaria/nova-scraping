@@ -92,6 +92,9 @@ CRM_CAMPOS = {
     "preferencias_evitar": {},
     # Comentarios libres del broker para afinar la búsqueda de este cliente.
     "comentarios_ia": [],
+    # Filtros DUROS deducidos de los comentarios: anulan inmuebles que no cumplen.
+    # {"barrios": [...], "palabras": [...]}
+    "exclusiones": {},
 }
 
 # Estados del embudo de seguimiento de cada inmueble enviado a un cliente.
@@ -240,6 +243,29 @@ def agregar_comentario_ia(nombre: str, comentario: str) -> None:
             coms = c.get("comentarios_ia") or []
             coms.append(comentario)
             c["comentarios_ia"] = coms
+    guardar_lista(lista)
+
+
+def agregar_exclusiones(nombre: str, barrios=None, palabras=None) -> None:
+    """Suma filtros DUROS (barrios/palabras a anular) a un cliente, sin duplicar."""
+    barrios = barrios or []
+    palabras = palabras or []
+    lista = cargar_guardados()
+    for c in lista:
+        if c.get("nombre", "").lower() == nombre.lower():
+            exc = c.get("exclusiones") or {}
+            exc["barrios"] = list(dict.fromkeys((exc.get("barrios") or []) + barrios))
+            exc["palabras"] = list(dict.fromkeys((exc.get("palabras") or []) + palabras))
+            c["exclusiones"] = exc
+    guardar_lista(lista)
+
+
+def limpiar_exclusiones(nombre: str) -> None:
+    """Quita TODOS los filtros duros de un cliente (vuelven a aparecer esos inmuebles)."""
+    lista = cargar_guardados()
+    for c in lista:
+        if c.get("nombre", "").lower() == nombre.lower():
+            c["exclusiones"] = {}
     guardar_lista(lista)
 
 

@@ -240,6 +240,31 @@ def _falla_obligatorio(cliente: dict[str, Any], post: dict[str, Any]) -> str | N
     return None
 
 
+def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | None:
+    """Filtro DURO por comentarios del broker: barrios o palabras que anulan el inmueble.
+
+    Devuelve el motivo si el inmueble debe anularse, o None si pasa.
+    """
+    exc = cliente.get("exclusiones") or {}
+    barrios_x = exc.get("barrios") or []
+    palabras_x = exc.get("palabras") or []
+    if barrios_x:
+        candidato = " ".join(_norm(x) for x in (
+            post.get("barrio"), post.get("zona"), post.get("direccion"),
+            _zona_de(post.get("barrio") or "")))
+        for b in barrios_x:
+            nb = _norm(b)
+            if nb and nb in candidato:
+                return f"barrio excluido: {b}"
+    if palabras_x:
+        texto = _norm(post.get("caption", "")) + " " + _norm(post.get("resumen", ""))
+        for w in palabras_x:
+            nw = _norm(w)
+            if nw and nw in texto:
+                return f"contiene «{w}» (excluido por ti)"
+    return None
+
+
 def _ajuste_preferencias(cliente: dict[str, Any], post: dict[str, Any]
                          ) -> tuple[int, list[str]]:
     """Penaliza inmuebles parecidos a lo que el cliente ya descartó.
@@ -293,6 +318,10 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
 
     # ── Filtros NO negociables (lo que el cliente marcó como obligatorio) ──
     if _falla_obligatorio(cliente, post):
+        return None
+
+    # ── Exclusiones duras pedidas por el broker (ej. "nada después de la 100") ──
+    if _falla_exclusion(cliente, post):
         return None
 
     # ── Presupuesto (peso 30, flexible) ──────────────────────
