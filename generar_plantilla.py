@@ -10,29 +10,28 @@ from __future__ import annotations
 import pandas as pd
 
 from src import config
-from src.sample_data import CLIENTES_DEMO
+
+# Filas de ejemplo (puedes borrarlas y poner tus clientes reales).
+EJEMPLOS = [
+    {
+        "nombre": "Ana Ejemplo", "telefono": "3001234567", "operacion": "venta",
+        "flexibilidad": "medio", "barrios": "Chicó, El Nogal", "zona": "Chapinero",
+        "area_min": 90, "area_max": 130, "presupuesto_max": 1800000000,
+        "habitaciones_min": 2, "banos_min": 2, "extras": "estudio, parqueadero",
+        "obligatorios": "barrio, habitaciones", "perimetro": "", "notas": "No cede en zona.",
+    },
+    {
+        "nombre": "Carlos Ejemplo", "telefono": "3019876543", "operacion": "arriendo",
+        "flexibilidad": "flexible", "barrios": "Cedritos, Santa Bárbara", "zona": "Usaquén",
+        "area_min": 60, "area_max": 90, "presupuesto_max": 4000000,
+        "habitaciones_min": 2, "banos_min": 1, "extras": "balcon",
+        "obligatorios": "", "perimetro": "", "notas": "Abierto a opciones cercanas.",
+    },
+]
 
 
 def main() -> None:
-    filas = []
-    for c in CLIENTES_DEMO:
-        filas.append(
-            {
-                "nombre": c["nombre"],
-                "operacion": c["operacion"],
-                "barrios": ", ".join(c["barrios"]),
-                "zona": c["zona"],
-                "area_min": c["area_min"],
-                "area_max": c["area_max"],
-                "presupuesto_max": c["presupuesto_max"],
-                "habitaciones_min": c["habitaciones_min"],
-                "banos_min": c["banos_min"],
-                "extras": ", ".join(c["extras"]),
-                "perimetro": c["perimetro"],
-                "notas": c["notas"],
-            }
-        )
-    df = pd.DataFrame(filas)
+    df = pd.DataFrame(EJEMPLOS)
     ruta = config.DATA_DIR / "plantilla_clientes.xlsx"
     df.to_excel(ruta, index=False)
     print(f"✅ Plantilla creada en: {ruta}")
