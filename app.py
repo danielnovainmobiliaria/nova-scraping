@@ -59,6 +59,19 @@ def badge_frescura(fecha_iso: str) -> str:
     return f"{emoji} Publicado hace {d} día{'s' if d != 1 else ''}"
 
 
+# A partir de este puntaje consideramos que un inmueble es "afín" al cliente.
+UMBRAL_AFIN = 70
+
+
+def badge_afinidad(score: int) -> str:
+    """Etiqueta de qué tan cerca está el inmueble del requerimiento del cliente."""
+    if score >= 85:
+        return "🟢 Muy afín"
+    if score >= UMBRAL_AFIN:
+        return "🟡 Afín"
+    return "🟠 Menos afín"
+
+
 def descargar_bytes(url: str):
     """Descarga un archivo (foto/video) y devuelve sus bytes, o None si falla."""
     try:
@@ -908,6 +921,8 @@ with tab_resultados:
                    "(los que marcas como enviados o descartados desaparecen).")
         st.caption("Frescura del aviso: 🟢 reciente (≤7 días, más fácil de conseguir) · "
                    "🟡 unas semanas · 🔴 más viejo (puede estar ya tomado).")
+        st.caption("Cada cliente muestra primero lo MÁS afín a su requerimiento. Afinidad: "
+                   "🟢 muy afín (≥85%) · 🟡 afín (≥70%) · 🟠 menos afín (más lejos de lo pedido).")
 
         # ── Cuadro: inmuebles potenciales por cliente (cobertura) ──
         resumen = []
@@ -943,7 +958,13 @@ with tab_resultados:
                 if not matches:
                     st.write("Sin coincidencias por ahora.")
                     continue
+                # Siempre de MAYOR a menor afinidad: lo más cercano al cliente, primero.
+                matches = sorted(matches, key=lambda m: m["score"], reverse=True)
+                sep_mostrado = False
                 for m in matches:
+                    if not sep_mostrado and m["score"] < UMBRAL_AFIN:
+                        st.markdown("———  🔽 _Opciones menos afines (más lejos de lo que pidió)_  ———")
+                        sep_mostrado = True
                     p = m["post"]
                     c1, c2 = st.columns([3, 1])
                     with c1:
@@ -991,6 +1012,7 @@ with tab_resultados:
                                     render_descargas(p, f"{nombre}_{p.get('id', 'x')}")
                     with c2:
                         st.metric("Coincidencia", f"{m['score']}%")
+                        st.markdown(f"**{badge_afinidad(m['score'])}**")
                         if p.get("url"):
                             st.link_button("🔗 Ver original (solo tú)", p["url"],
                                            use_container_width=True,
