@@ -371,6 +371,26 @@ def num_o_none(v):
     return v if v and v > 0 else None
 
 
+def parse_cop(texto):
+    """Interpreta un presupuesto escrito como sea → número en pesos (o None).
+
+    Entiende: 1'700.000.000, $1.700.000.000, 1700000000, 12M, 12MM, 800M-900M (toma el mayor).
+    """
+    import re
+    s = str(texto or "").strip().lower().replace("$", "").replace(" ", "")
+    if not s:
+        return None
+    if "-" in s:  # rango → tomar el mayor
+        vals = [v for v in (parse_cop(p) for p in s.split("-")) if v]
+        return max(vals) if vals else None
+    m = re.match(r"^([\d.,']+)(mm|m)$", s)  # abreviatura de millones: 12m, 1.700m
+    if m:
+        num = m.group(1).replace("'", "").replace(".", "").replace(",", "")
+        return int(num) * 1_000_000 if num.isdigit() else None
+    digitos = "".join(ch for ch in s if ch.isdigit())
+    return int(digitos) if digitos else None
+
+
 def lista_a_texto(v) -> str:
     """['El Nogal','Rosales'] -> 'El Nogal, Rosales'."""
     if isinstance(v, list):
@@ -384,7 +404,7 @@ def texto_a_lista(v) -> list[str]:
 
 
 # Columnas de la "hoja de clientes" dentro de la app.
-COLS_HOJA = ["nombre", "telefono", "operacion", "barrios", "zona", "presupuesto_max",
+COLS_HOJA = ["nombre", "telefono", "operacion", "barrios", "zona", "presupuesto",
              "area_min", "area_max", "habitaciones_min", "banos_min", "extras", "notas"]
 
 
@@ -398,7 +418,7 @@ def clientes_a_df(lista):
             "operacion": c.get("operacion", "venta"),
             "barrios": lista_a_texto(c.get("barrios")),
             "zona": c.get("zona", ""),
-            "presupuesto_max": c.get("presupuesto_max"),
+            "presupuesto": matcher.formato_cop(c.get("presupuesto_max")),
             "area_min": c.get("area_min"),
             "area_max": c.get("area_max"),
             "habitaciones_min": c.get("habitaciones_min"),
@@ -422,7 +442,7 @@ def df_a_clientes(df):
             "operacion": str(fila.get("operacion", "") or "venta").strip().lower(),
             "barrios": texto_a_lista(fila.get("barrios")),
             "zona": str(fila.get("zona", "") or "").strip(),
-            "presupuesto_max": num_o_none(fila.get("presupuesto_max")),
+            "presupuesto_max": parse_cop(fila.get("presupuesto")),
             "area_min": num_o_none(fila.get("area_min")),
             "area_max": num_o_none(fila.get("area_max")),
             "habitaciones_min": num_o_none(fila.get("habitaciones_min")),
@@ -559,7 +579,7 @@ with tab_clientes:
             st.markdown(
                 "- **operacion**: escribe `venta` o `arriendo`.\n"
                 "- **barrios**: varios separados por coma → `El Nogal, Rosales`.\n"
-                "- **presupuesto_max**: número en pesos sin puntos → `1900000000`.\n"
+                "- **presupuesto**: como quieras → `1'700.000.000`, `12M` o `1900000000`.\n"
                 "- **area_min / area_max**: metros cuadrados. Deja vacío si no importa.\n"
                 "- **habitaciones_min / banos_min**: mínimo deseado. Vacío = no filtra.\n"
                 f"- **extras**: separados por coma. Válidos: {', '.join(EXTRAS_OPCIONES)}."
@@ -611,8 +631,8 @@ with tab_clientes:
                 "nombre": st.column_config.TextColumn("nombre", required=True),
                 "operacion": st.column_config.SelectboxColumn(
                     "operacion", options=["venta", "arriendo"]),
-                "presupuesto_max": st.column_config.NumberColumn(
-                    "presupuesto_max", format="%d", help="En pesos, sin puntos"),
+                "presupuesto": st.column_config.TextColumn(
+                    "presupuesto", help="Ej: 1'700.000.000 o 12M. Lo entiende igual."),
                 "area_min": st.column_config.NumberColumn("area_min", format="%d"),
                 "area_max": st.column_config.NumberColumn("area_max", format="%d"),
                 "habitaciones_min": st.column_config.NumberColumn("habitaciones_min", format="%d"),
@@ -865,16 +885,17 @@ with tab_crm:
         # ── Proyección de ganancias (comisiones) ──
         ganados_c = [c for c in crm_clientes if c["estado"] == "ganado"]
         gan_total = sum(comision_potencial(c) for c in ganados_c)
+        # La proyección es SOLO de clientes ACTIVOS (los perdidos no cuentan).
         pot_total = sum(comision_potencial(c) for c in activos_list)
-        realista = gan_total + sum(comision_potencial(c) * prob_cierre(c) for c in activos_list)
-        with st.expander("📈 Proyección de ganancias (comisiones)", expanded=True):
+        realista = sum(comision_potencial(c) * prob_cierre(c) for c in activos_list)
+        with st.expander("📈 Proyección de ganancias (solo clientes activos)", expanded=True):
             p1, p2, p3 = st.columns(3)
             p1.metric("🟢 Ya ganado", matcher.formato_cop(gan_total) or "$0",
-                      help="Comisiones de los negocios marcados como Ganados.")
-            p2.metric("📊 Potencial en juego", matcher.formato_cop(pot_total) or "$0",
-                      help="Si cerraras TODOS los negocios activos.")
+                      help="Comisiones ya cerradas (negocios Ganados). No es proyección.")
+            p2.metric("📊 Potencial activos", matcher.formato_cop(pot_total) or "$0",
+                      help="Si cerraras TODOS los negocios activos. No cuenta perdidos.")
             p3.metric("🎯 Proyección realista", matcher.formato_cop(realista) or "$0",
-                      help="Potencial ponderado por qué tan avanzado va cada negocio "
+                      help="Potencial de los ACTIVOS ponderado por avance "
                            "(visitado 50%, agendado 30%, enviado 15%, sin envíos 5%).")
             pot_arr = sum(comision_potencial(c) for c in activos_list
                           if (c.get("operacion") or "venta").lower() == "arriendo")
