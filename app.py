@@ -112,6 +112,28 @@ ESTADO_PROCESO_EMOJI = {
 }
 
 
+def envios_cliente(c: dict) -> tuple[int, "int | None"]:
+    """Cuántos inmuebles se le han ENVIADO a un cliente y hace cuántos días el último.
+
+    Cuenta los procesos que NO son 'descartado' (esos no se enviaron, se rechazaron).
+    """
+    enviados = [pr for pr in (c.get("procesos") or []) if pr.get("estado") != "descartado"]
+    dias = None
+    fechas = [str(pr.get("fecha"))[:10] for pr in enviados if pr.get("fecha")]
+    if fechas:
+        try:
+            ult = max(datetime.fromisoformat(f).date() for f in fechas)
+            dias = (datetime.now(timezone.utc).date() - ult).days
+        except ValueError:
+            dias = None
+    return len(enviados), dias
+
+
+def cobertura_emoji(n: int) -> str:
+    """🔴 sin cubrir · 🟡 poco cubierto · 🟢 bien cubierto."""
+    return "🔴" if n == 0 else ("🟡" if n <= 2 else "🟢")
+
+
 def render_procesos(c: dict) -> None:
     """Muestra y permite editar el embudo de inmuebles en seguimiento de un cliente."""
     procs = c.get("procesos") or []
@@ -744,7 +766,9 @@ with tab_crm:
         n_ganados = sum(1 for c in crm_clientes if c["estado"] == "ganado")
         n_perdidos = sum(1 for c in crm_clientes if c["estado"] == "perdido")
         visitas_tot = sum(int(c.get("visitas") or 0) for c in crm_clientes)
-        enviados_tot = sum(len(c.get("inmuebles_enviados") or []) for c in crm_clientes)
+        # Cobertura: cuántos envíos por cliente (procesos no descartados).
+        cobertura = {c["nombre"]: envios_cliente(c) for c in crm_clientes}
+        enviados_tot = sum(n for n, _ in cobertura.values())
 
         com_ganadas = sum(float(c.get("comision") or 0)
                           for c in crm_clientes if c["estado"] == "ganado")
@@ -761,7 +785,23 @@ with tab_crm:
         f1, f2, f3 = st.columns(3)
         f1.metric("💰 Comisiones ganadas", f"${com_ganadas:,.0f}")
         f2.metric("⏳ Comisiones en juego (activos)", f"${com_en_juego:,.0f}")
-        f3.metric("📤 Inmuebles enviados", enviados_tot)
+        f3.metric("📤 Envíos totales", enviados_tot)
+
+        # ── Alerta de cobertura: a quién tenemos descuidado ──
+        activos_list = [c for c in crm_clientes if c["estado"] == "activo"]
+        sin_cubrir = [c["nombre"] for c in activos_list if cobertura[c["nombre"]][0] == 0]
+        sin_movimiento = [c["nombre"] for c in activos_list
+                          if cobertura[c["nombre"]][0] > 0 and (cobertura[c["nombre"]][1] or 0) >= 14]
+        g1, g2, g3 = st.columns(3)
+        g1.metric("🔴 Activos sin cubrir", len(sin_cubrir), help="Clientes activos con 0 envíos.")
+        g2.metric("⏰ Sin enviar +14 días", len(sin_movimiento),
+                  help="Activos a los que no les mandas algo hace más de 2 semanas.")
+        g3.metric("🟢 Bien cubiertos (3+)",
+                  sum(1 for c in activos_list if cobertura[c["nombre"]][0] >= 3))
+        descuidados = sorted(set(sin_cubrir + sin_movimiento))
+        if descuidados:
+            st.warning("👀 **Ojo, tienes clientes descuidados:** " + " · ".join(descuidados)
+                       + ". Mándales opciones para no perderlos.")
 
         if es_demo:
             st.info("Modo Demo: el seguimiento no se guarda. Cambia a modo Real para usarlo.")
@@ -777,8 +817,11 @@ with tab_crm:
             nombre = c["nombre"]
             enviados = c.get("inmuebles_enviados") or []
             com_actual = float(c.get("comision") or 0)
+            n_env, dias_ult = cobertura[nombre]
             cab = (f"{ESTADOS_CRM.get(c['estado'], c['estado'])}  ·  **{nombre}**  ·  "
-                   f"👣 {c.get('visitas', 0)} visita(s)  ·  📤 {len(enviados)} enviado(s)")
+                   f"{cobertura_emoji(n_env)} {n_env} envío(s)  ·  👣 {c.get('visitas', 0)} visita(s)")
+            if dias_ult is not None:
+                cab += f"  ·  último hace {dias_ult}d"
             if com_actual > 0:
                 cab += f"  ·  💰 ${com_actual:,.0f}"
             with st.container(border=True):
