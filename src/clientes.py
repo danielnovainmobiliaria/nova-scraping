@@ -64,6 +64,7 @@ def cargar_clientes(ruta: str | Path) -> list[dict[str, Any]]:
                 "habitaciones_min": _numero(fila.get("habitaciones_min")),
                 "banos_min": _numero(fila.get("banos_min")),
                 "extras": [e.lower() for e in _lista(fila.get("extras"))],
+                "obligatorios": [o.lower().strip() for o in _lista(fila.get("obligatorios"))],
                 "perimetro": str(fila.get("perimetro", "")).strip(),
                 "notas": str(fila.get("notas", "")).strip(),
             }

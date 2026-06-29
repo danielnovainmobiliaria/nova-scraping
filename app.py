@@ -376,6 +376,14 @@ EXTRAS_OPCIONES = [
 ]
 ETIQUETA_EXTRA = {"cuarto_servicio": "cuarto de servicio", "balcon": "balcón"}
 
+# Criterios que el cliente puede marcar como NO negociables (filtran duro).
+OBLIGATORIOS_OPCIONES = matcher.OBLIGATORIOS_VALIDOS  # ["barrio","presupuesto",...]
+ETIQUETA_OBLIGATORIO = {
+    "barrio": "barrio/zona", "presupuesto": "presupuesto (no pasarse)",
+    "habitaciones": "habitaciones mínimas", "banos": "baños mínimos",
+    "metraje": "metraje (rango)", "extras": "extras deseados",
+}
+
 
 def num_o_none(v):
     """Convierte 0/vacío en None (0 = 'no especificado')."""
@@ -420,7 +428,8 @@ def texto_a_lista(v) -> list[str]:
 
 # Columnas de la "hoja de clientes" dentro de la app.
 COLS_HOJA = ["nombre", "telefono", "operacion", "barrios", "zona", "presupuesto",
-             "area_min", "area_max", "habitaciones_min", "banos_min", "extras", "notas"]
+             "area_min", "area_max", "habitaciones_min", "banos_min", "extras",
+             "obligatorios", "notas"]
 
 
 def clientes_a_df(lista):
@@ -439,6 +448,7 @@ def clientes_a_df(lista):
             "habitaciones_min": c.get("habitaciones_min"),
             "banos_min": c.get("banos_min"),
             "extras": lista_a_texto(c.get("extras")),
+            "obligatorios": lista_a_texto(c.get("obligatorios")),
             "notas": c.get("notas", ""),
         })
     return pd.DataFrame(filas, columns=COLS_HOJA)
@@ -463,6 +473,8 @@ def df_a_clientes(df):
             "habitaciones_min": num_o_none(fila.get("habitaciones_min")),
             "banos_min": num_o_none(fila.get("banos_min")),
             "extras": [e.lower() for e in texto_a_lista(fila.get("extras"))],
+            "obligatorios": [o for o in texto_a_lista(fila.get("obligatorios"))
+                             if o in OBLIGATORIOS_OPCIONES],
             "perimetro": "",
             "notas": str(fila.get("notas", "") or "").strip(),
         })
@@ -533,6 +545,10 @@ with tab_clientes:
                                        placeholder="ej: 12M   ·   800M-900M   ·   1.900.000.000")
                 z_req = st.text_area("Requerimiento", height=110,
                                      placeholder="2 habitaciones\n90 m2 o más\ncon estudio y parqueadero")
+                z_oblig = st.multiselect(
+                    "🔒 No negociable (sí o sí) — filtra duro",
+                    OBLIGATORIOS_OPCIONES, format_func=lambda o: ETIQUETA_OBLIGATORIO.get(o, o),
+                    help="Lo que marques aquí se exige obligatoriamente; el resto se busca flexible.")
                 if st.form_submit_button("➕ Agregar cliente", type="primary"):
                     if not z_nombre.strip():
                         st.error("Ponle un nombre al cliente.")
@@ -547,6 +563,9 @@ with tab_clientes:
                         if not nuevos:
                             st.error("No se pudo interpretar. Revisa los datos.")
                         else:
+                            # Une lo que la IA detectó como obligatorio con lo que marcaste.
+                            nuevos[0]["obligatorios"] = sorted(
+                                set(nuevos[0].get("obligatorios") or []) | set(z_oblig))
                             existentes = mod_clientes.cargar_guardados()
                             antes = len(existentes)
                             combinados = mod_clientes.fusionar_duplicados(existentes + nuevos)
@@ -648,6 +667,9 @@ with tab_clientes:
                     "operacion", options=["venta", "arriendo"]),
                 "presupuesto": st.column_config.TextColumn(
                     "presupuesto", help="Ej: 1'700.000.000 o 12M. Lo entiende igual."),
+                "obligatorios": st.column_config.TextColumn(
+                    "obligatorios", help="Lo NO negociable (filtra duro), separado por coma. "
+                    "Opciones: barrio, presupuesto, habitaciones, banos, metraje, extras"),
                 "area_min": st.column_config.NumberColumn("area_min", format="%d"),
                 "area_max": st.column_config.NumberColumn("area_max", format="%d"),
                 "habitaciones_min": st.column_config.NumberColumn("habitaciones_min", format="%d"),
@@ -740,6 +762,7 @@ with tab_resultados:
         # Ocultar inmuebles que ya están en el embudo de seguimiento del cliente.
         ocultos = {c["nombre"]: mod_clientes.ids_en_proceso(c) for c in clientes}
         aprendizajes = {c["nombre"]: mod_clientes.aprendizajes_cliente(c) for c in clientes}
+        oblig_map = {c["nombre"]: (c.get("obligatorios") or []) for c in clientes}
         for nombre in list(resultados):
             resultados[nombre] = [
                 m for m in resultados[nombre]
@@ -770,6 +793,10 @@ with tab_resultados:
         for nombre, matches in resultados.items():
             with st.expander(f"👤 {nombre} — {len(matches)} coincidencia(s)",
                              expanded=bool(matches)):
+                oblig = oblig_map.get(nombre, [])
+                if oblig:
+                    st.info("🔒 No negociable (filtra duro): "
+                            + " · ".join(ETIQUETA_OBLIGATORIO.get(o, o) for o in oblig))
                 aprend = aprendizajes.get(nombre, [])
                 if aprend:
                     st.warning("🧠 Lo que NO le gustó a este cliente (tenlo en cuenta): "

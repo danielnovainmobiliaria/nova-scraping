@@ -30,6 +30,9 @@ EXTRAS_VALIDOS = [
     "penthouse",
 ]
 
+# Criterios que pueden marcarse como NO negociables.
+OBLIGATORIOS_VALIDOS = ["barrio", "presupuesto", "habitaciones", "banos", "metraje", "extras"]
+
 SYSTEM_PROMPT = f"""Eres un asistente experto en el mercado inmobiliario de Bogotá, Colombia.
 Recibes el caption (texto) de una publicación de Instagram de un broker y extraes
 la información del inmueble en formato JSON estricto.
@@ -136,6 +139,8 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin texto extra, sin ```), con esta
   "habitaciones_min": number|null,
   "banos_min": number|null,
   "extras": [string],               // SOLO valores de: {EXTRAS_VALIDOS}
+  "obligatorios": [string],         // criterios NO negociables. SOLO de:
+                                    // ["barrio","presupuesto","habitaciones","banos","metraje","extras"]
   "notas": string|null              // cualquier detalle adicional relevante
 }}
 
@@ -149,6 +154,11 @@ Reglas de interpretación (mercado bogotano):
 - "mts2"/"m2"/"mtrs"/"metros" = área. "mín 60 m2" -> area_min 60.
   "entre 60 y 90 m2" -> area_min 60, area_max 90. "máx 120" -> area_max 120.
 - "cuarto de servicio"/"alcoba de servicio" -> "cuarto_servicio".
+- "obligatorios": agrega un criterio si el texto lo marca como OBLIGATORIO / "sí o sí" /
+  "indispensable" / "solo"/"únicamente". Mapea: "solo en Chicó"->barrio; "máx/no más de X"->
+  presupuesto; "mínimo 3 hab sí o sí"->habitaciones; "obligatorio 2 baños"->banos;
+  "mínimo 80 m2 indispensable"->metraje; "con parqueadero sí o sí"->extras. Si nada es
+  obligatorio, deja la lista vacía.
 - Operación: si el cliente quiere COMPRAR ("compra", "comprar") -> operacion="venta"
   (busca inmuebles EN venta). Si quiere ARRENDAR/alquilar -> "arriendo". Si no lo dice
   pero el presupuesto es de cientos o miles de millones, asume "venta"; si es de pocos
@@ -211,6 +221,7 @@ def interpretar_clientes(textos: list[str], log=print) -> list[dict[str, Any]]:
 
         # Normalización al formato de la app.
         datos["extras"] = [e for e in datos.get("extras", []) if e in EXTRAS_VALIDOS]
+        datos["obligatorios"] = [o for o in (datos.get("obligatorios") or []) if o in OBLIGATORIOS_VALIDOS]
         datos["barrios"] = datos.get("barrios") or []
         datos["perimetro"] = ""
         datos["telefono"] = "".join(ch for ch in str(datos.get("telefono") or "") if ch.isdigit())
@@ -235,10 +246,11 @@ cliente que encuentres, con estas claves:
   "barrios": [string], "zona": string|null,
   "presupuesto_max": number|null, "area_min": number|null, "area_max": number|null,
   "habitaciones_min": number|null, "banos_min": number|null,
-  "extras": [string], "notas": string|null
+  "extras": [string], "obligatorios": [string], "notas": string|null
 }}]
 
-"extras" SOLO de esta lista: {EXTRAS_VALIDOS}.
+"extras" SOLO de: {EXTRAS_VALIDOS}. "obligatorios" SOLO de: {OBLIGATORIOS_VALIDOS} (criterios
+NO negociables que el texto marque como "obligatorio"/"sí o sí"/"indispensable"/"solo").
 Reglas (mercado bogotano): "12M"/"12 millones"=12000000; "MM"=millones; "$450M" en venta=450000000;
 "1.900.000.000" tal cual. Rangos ("800M-900M","11M-14M"): usa el MÁXIMO. "comprar"/"compra" ->
 operacion "venta"; "arrendar"/"arriendo" -> "arriendo". "2 alcobas/habs/dormitorios"=habitaciones;
@@ -276,6 +288,7 @@ def interpretar_texto_libre(texto: str, log=print) -> list[dict[str, Any]]:
         if not isinstance(d, dict):
             continue
         d["extras"] = [e for e in (d.get("extras") or []) if e in EXTRAS_VALIDOS]
+        d["obligatorios"] = [o for o in (d.get("obligatorios") or []) if o in OBLIGATORIOS_VALIDOS]
         d["barrios"] = d.get("barrios") or []
         d["perimetro"] = ""
         d["telefono"] = "".join(ch for ch in str(d.get("telefono") or "") if ch.isdigit())

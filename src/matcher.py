@@ -77,6 +77,10 @@ def _zona_de(barrio: str) -> str:
     return BARRIO_A_ZONA.get(_norm(barrio), "")
 
 
+# Criterios que el cliente puede marcar como NO negociables (filtro duro).
+OBLIGATORIOS_VALIDOS = ["barrio", "presupuesto", "habitaciones", "banos", "metraje", "extras"]
+
+
 def _operacion_compatible(cliente_op: str, post_op: str | None) -> bool:
     cli = _norm(cliente_op)
     pos = _norm(post_op)
@@ -169,6 +173,39 @@ def _factor_area(area: float, a_min: float | None, a_max: float | None, flex: fl
     return 0.0, f"{area:g} m² fuera del rango", False
 
 
+def _falla_obligatorio(cliente: dict[str, Any], post: dict[str, Any]) -> str | None:
+    """Si el cliente marcó criterios NO negociables y el inmueble los incumple
+    (con dato conocido), devuelve cuál falló; si no, None (pasa).
+    """
+    oblig = set(cliente.get("obligatorios") or [])
+    if not oblig:
+        return None
+    if "habitaciones" in oblig:
+        hm, h = cliente.get("habitaciones_min"), post.get("habitaciones")
+        if hm and h is not None and h < hm:
+            return "habitaciones"
+    if "banos" in oblig:
+        bm, b = cliente.get("banos_min"), post.get("banos")
+        if bm and b is not None and b < bm:
+            return "baños"
+    if "presupuesto" in oblig:
+        pr, pc = cliente.get("presupuesto_max"), post.get("precio")
+        if pr and pc and pc > pr:
+            return "presupuesto"
+    if "metraje" in oblig:
+        a, amin, amax = post.get("area_m2"), cliente.get("area_min"), cliente.get("area_max")
+        if a and (amin or amax) and not ((amin or 0) <= a <= (amax or 1e9)):
+            return "metraje"
+    if "barrio" in oblig:
+        p_ubi, _ = _match_ubicacion(cliente, post)
+        if p_ubi < 0.8:
+            return "barrio/zona"
+    if "extras" in oblig:
+        if set(cliente.get("extras") or []) - set(post.get("extras") or []):
+            return "extras"
+    return None
+
+
 def _ajuste_preferencias(cliente: dict[str, Any], post: dict[str, Any]
                          ) -> tuple[int, list[str]]:
     """Penaliza inmuebles parecidos a lo que el cliente ya descartó.
@@ -212,6 +249,10 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
 
     # ── Operación: este sí es un choque de fondo (arriendo ≠ venta) ──
     if not _operacion_compatible(cliente.get("operacion", ""), post.get("operacion")):
+        return None
+
+    # ── Filtros NO negociables (lo que el cliente marcó como obligatorio) ──
+    if _falla_obligatorio(cliente, post):
         return None
 
     # ── Presupuesto (peso 30, flexible) ──────────────────────
