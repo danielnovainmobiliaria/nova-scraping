@@ -491,6 +491,63 @@ def refrescar_hoja_clientes():
     st.session_state["hoja_ver"] = st.session_state.get("hoja_ver", 0) + 1
 
 
+def _aplicar_columna(cliente, col, val):
+    """Aplica el valor editado de una columna de la hoja al cliente."""
+    val = "" if val is None else val
+    if col == "nombre":
+        cliente["nombre"] = str(val).strip()
+    elif col == "telefono":
+        cliente["telefono"] = "".join(ch for ch in str(val) if ch.isdigit())
+    elif col == "operacion":
+        cliente["operacion"] = str(val or "venta").strip().lower()
+    elif col == "barrios":
+        cliente["barrios"] = texto_a_lista(val)
+    elif col == "zona":
+        cliente["zona"] = str(val).strip()
+    elif col == "presupuesto":
+        cliente["presupuesto_max"] = parse_cop(val)
+    elif col in ("area_min", "area_max", "habitaciones_min", "banos_min"):
+        cliente[col] = num_o_none(val)
+    elif col == "extras":
+        cliente["extras"] = [e.lower() for e in texto_a_lista(val)]
+    elif col == "obligatorios":
+        cliente["obligatorios"] = [o for o in texto_a_lista(val) if o in OBLIGATORIOS_OPCIONES]
+    elif col == "notas":
+        cliente["notas"] = str(val).strip()
+
+
+def _cliente_nuevo_vacio():
+    return {"nombre": "", "telefono": "", "operacion": "venta", "barrios": [], "zona": "",
+            "presupuesto_max": None, "area_min": None, "area_max": None,
+            "habitaciones_min": None, "banos_min": None, "extras": [], "obligatorios": [],
+            "perimetro": "", "notas": ""}
+
+
+def guardar_edicion_hoja(editor_key):
+    """Lee los cambios del editor (delta) y los aplica sobre los clientes guardados.
+
+    Es el método confiable: toma exactamente lo que el usuario editó/agregó/borró,
+    sin depender de cómo Streamlit devuelva el DataFrame.
+    """
+    delta = st.session_state.get(editor_key) or {}
+    clientes = mod_clientes.cargar_guardados()
+    for idx_str, cambios in (delta.get("edited_rows") or {}).items():
+        i = int(idx_str)
+        if 0 <= i < len(clientes):
+            for col, val in cambios.items():
+                _aplicar_columna(clientes[i], col, val)
+    for i in sorted(delta.get("deleted_rows") or [], reverse=True):
+        if 0 <= i < len(clientes):
+            del clientes[i]
+    for fila in (delta.get("added_rows") or []):
+        nuevo = _cliente_nuevo_vacio()
+        for col, val in fila.items():
+            _aplicar_columna(nuevo, col, val)
+        if nuevo["nombre"].strip():
+            clientes.append(nuevo)
+    mod_clientes.guardar_lista(clientes)
+
+
 def excel_bytes(df) -> bytes:
     """Genera un archivo Excel (en memoria) a partir de la tabla."""
     buffer = io.BytesIO()
@@ -674,10 +731,11 @@ with tab_clientes:
         if "df_clientes" not in st.session_state:
             st.session_state["df_clientes"] = clientes_a_df(mod_clientes.cargar_guardados())
             st.session_state["hoja_ver"] = 0
+        editor_key = f"editor_clientes_{st.session_state['hoja_ver']}"
         editado = st.data_editor(
             st.session_state["df_clientes"], num_rows="dynamic",
             use_container_width=True, hide_index=True,
-            key=f"editor_clientes_{st.session_state['hoja_ver']}",
+            key=editor_key,
             column_config={
                 "nombre": st.column_config.TextColumn("nombre", required=True),
                 "operacion": st.column_config.SelectboxColumn(
@@ -696,18 +754,7 @@ with tab_clientes:
 
         c1, c2, c3 = st.columns(3)
         if c1.button("💾 Guardar cambios", type="primary", use_container_width=True):
-            nuevos = df_a_clientes(editado)
-            previos = mod_clientes.cargar_guardados()
-            if len(nuevos) == len(previos):
-                # Mismo número de filas (editaste celdas, incl. renombrar): conservamos
-                # el seguimiento del CRM por posición, así no se pierde al cambiar el nombre.
-                for n, p in zip(nuevos, previos):
-                    for campo in mod_clientes.CRM_CAMPOS:
-                        n[campo] = p.get(campo)
-                mod_clientes.guardar_lista(nuevos)
-            else:
-                # Agregaste o quitaste filas: conservamos CRM por nombre.
-                mod_clientes.guardar_lista(mod_clientes.fusionar_crm(nuevos))
+            guardar_edicion_hoja(editor_key)  # aplica los cambios reales (renombrar, etc.)
             st.success("¡Clientes guardados!")
             refrescar_hoja_clientes()
             st.rerun()
