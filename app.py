@@ -145,7 +145,7 @@ def render_procesos(c: dict) -> None:
     opciones = mod_clientes.ESTADOS_PROCESO
     for pr in procs:
         pid = pr.get("post_id", "")
-        precio = f"${pr['precio']:,.0f}" if pr.get("precio") else ""
+        precio = matcher.formato_cop(pr.get("precio"))
         with st.container(border=True):
             st.caption(" · ".join(x for x in [pr.get("resumen", ""), pr.get("barrio", ""), precio] if x))
             cc = st.columns([2, 4, 1, 1])
@@ -697,7 +697,7 @@ with tab_resultados:
                         info = []
                         if p.get("operacion"): info.append(p["operacion"].capitalize())
                         if p.get("barrio"): info.append(p["barrio"])
-                        if p.get("precio"): info.append(f"${p['precio']:,.0f}")
+                        if p.get("precio"): info.append(matcher.formato_cop(p["precio"]))
                         if p.get("area_m2"): info.append(f"{p['area_m2']:g} m²")
                         if p.get("habitaciones") is not None: info.append(f"{p['habitaciones']:g} hab")
                         if p.get("banos") is not None: info.append(f"{p['banos']:g} baños")
@@ -723,7 +723,7 @@ with tab_resultados:
                             + (f"🛁 {p.get('banos'):g} baños" if p.get('banos') is not None else "")
                             + "\n"
                             + (f"✨ {extras_txt}\n" if extras_txt else "")
-                            + (f"💰 ${p['precio']:,.0f}\n" if p.get('precio') else "")
+                            + (f"💰 {matcher.formato_cop(p['precio'])}\n" if p.get('precio') else "")
                             + "\nEscríbeme para más información y agendar visita. — Nova Inmobiliaria"
                         )
                         a1, a2 = st.columns(2)
@@ -815,8 +815,8 @@ with tab_crm:
         m[4].metric("👣 Visitas", visitas_tot)
 
         f1, f2, f3 = st.columns(3)
-        f1.metric("💰 Comisiones ganadas", f"${com_ganadas:,.0f}")
-        f2.metric("⏳ Comisiones en juego (activos)", f"${com_en_juego:,.0f}")
+        f1.metric("💰 Comisiones ganadas", matcher.formato_cop(com_ganadas) or "$0")
+        f2.metric("⏳ Comisiones en juego (activos)", matcher.formato_cop(com_en_juego) or "$0")
         f3.metric("📤 Envíos totales", enviados_tot)
 
         # ── Alerta de cobertura: a quién tenemos descuidado ──
@@ -855,7 +855,7 @@ with tab_crm:
             if dias_ult is not None:
                 cab += f"  ·  último hace {dias_ult}d"
             if com_actual > 0:
-                cab += f"  ·  💰 ${com_actual:,.0f}"
+                cab += f"  ·  💰 {matcher.formato_cop(com_actual)}"
             with st.container(border=True):
                 st.markdown(cab)
                 if es_demo:
@@ -893,7 +893,7 @@ with tab_crm:
                               "Todo es negociable: edítala si hace falta."))
                     sug = comision_sugerida(op, c.get("valor_cierre") or 0)
                     nota_calc = ("💡 Comisión = primer canon." if es_arriendo
-                                 else f"💡 Comisión sugerida ({COMISION_VENTA_PCT * 100:.0f}%): ${sug:,.0f}.")
+                                 else f"💡 Comisión sugerida ({COMISION_VENTA_PCT * 100:.0f}%): {matcher.formato_cop(sug)}.")
                     st.caption(nota_calc + " Si dejas la comisión en 0, se calcula sola al guardar.")
 
                     enviados_txt = st.text_area(

@@ -44,6 +44,24 @@ BARRIO_A_ZONA = {
 }
 
 
+def formato_cop(valor) -> str:
+    """Formatea un monto en pesos al estilo colombiano: $1'700.000.000.
+
+    Puntos para los miles y apóstrofo en el primer separador (millones/miles de millón).
+    """
+    try:
+        n = int(round(float(valor)))
+    except (TypeError, ValueError):
+        return ""
+    if n <= 0:
+        return ""
+    s = f"{n:,}".replace(",", ".")
+    if n >= 1_000_000 and "." in s:  # solo desde un millón se usa el apóstrofo
+        i = s.index(".")
+        s = s[:i] + "'" + s[i + 1:]
+    return "$" + s
+
+
 def _norm(texto: str | None) -> str:
     """Normaliza texto para comparar (minúsculas, sin tildes ni símbolos)."""
     if not texto:
@@ -123,12 +141,12 @@ def _factor_precio(precio: float, presupuesto: float, flex: float, piso: float
     if rel > 1.0 + flex:
         return -1.0, "demasiado por encima del presupuesto", False
     if rel < piso:
-        return -1.0, f"${precio:,.0f}: muy por debajo del presupuesto (otro segmento)", False
+        return -1.0, f"{formato_cop(precio)}: muy por debajo del presupuesto (otro segmento)", False
     if rel > 1.0:
         sobre = rel - 1.0
         factor = 1.0 - 0.7 * (sobre / flex) if flex > 0 else 0.3
-        return factor, f"${precio:,.0f}: {sobre * 100:.0f}% por encima del presupuesto", False
-    return 1.0, f"${precio:,.0f} acorde al presupuesto", True
+        return factor, f"{formato_cop(precio)}: {sobre * 100:.0f}% por encima del presupuesto", False
+    return 1.0, f"{formato_cop(precio)} acorde al presupuesto", True
 
 
 def _factor_area(area: float, a_min: float | None, a_max: float | None, flex: float
