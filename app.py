@@ -657,7 +657,18 @@ with tab_clientes:
 
         c1, c2, c3 = st.columns(3)
         if c1.button("💾 Guardar cambios", type="primary", use_container_width=True):
-            mod_clientes.guardar_lista(mod_clientes.fusionar_crm(df_a_clientes(editado)))
+            nuevos = df_a_clientes(editado)
+            previos = mod_clientes.cargar_guardados()
+            if len(nuevos) == len(previos):
+                # Mismo número de filas (editaste celdas, incl. renombrar): conservamos
+                # el seguimiento del CRM por posición, así no se pierde al cambiar el nombre.
+                for n, p in zip(nuevos, previos):
+                    for campo in mod_clientes.CRM_CAMPOS:
+                        n[campo] = p.get(campo)
+                mod_clientes.guardar_lista(nuevos)
+            else:
+                # Agregaste o quitaste filas: conservamos CRM por nombre.
+                mod_clientes.guardar_lista(mod_clientes.fusionar_crm(nuevos))
             st.success("¡Clientes guardados!")
             st.rerun()
         c2.download_button(
