@@ -679,7 +679,7 @@ with tab_clientes:
                         st.error(f"No se pudo interpretar: {e}")
 
         # ── Editar / renombrar un cliente (vía confiable, sin la tabla) ──
-        with st.expander("✏️ Editar o renombrar un cliente", expanded=False):
+        with st.expander("✏️ Editar o renombrar un cliente", expanded=True):
             _lista = mod_clientes.cargar_guardados()
             if not _lista:
                 st.caption("Aún no hay clientes.")
@@ -734,6 +734,13 @@ with tab_clientes:
                         st.success(f"«{e_nombre.strip()}» actualizado. ✅")
                         st.rerun()
 
+                if st.button("🗑️ Eliminar este cliente", key="edit_del",
+                             help="Quita este cliente de la lista (no se puede deshacer)."):
+                    mod_clientes.eliminar(sel)
+                    refrescar_hoja_clientes()
+                    st.success(f"«{sel}» eliminado.")
+                    st.rerun()
+
         with st.expander("ℹ️ Cómo llenar cada columna"):
             st.markdown(
                 "- **operacion**: escribe `venta` o `arriendo`.\n"
@@ -783,39 +790,16 @@ with tab_clientes:
                     except Exception as e:  # noqa: BLE001
                         st.error(f"No se pudo procesar el archivo: {e}")
 
-        # Tabla ESTABLE en sesión: así no se pierden los cambios al recargar.
-        if "df_clientes" not in st.session_state:
-            st.session_state["df_clientes"] = clientes_a_df(mod_clientes.cargar_guardados())
-            st.session_state["hoja_ver"] = 0
-        editor_key = f"editor_clientes_{st.session_state['hoja_ver']}"
-        editado = st.data_editor(
-            st.session_state["df_clientes"], num_rows="dynamic",
-            use_container_width=True, hide_index=True,
-            key=editor_key,
-            column_config={
-                "nombre": st.column_config.TextColumn("nombre", required=True),
-                "operacion": st.column_config.SelectboxColumn(
-                    "operacion", options=["venta", "arriendo"]),
-                "presupuesto": st.column_config.TextColumn(
-                    "presupuesto", help="Ej: 1'700.000.000 o 12M. Lo entiende igual."),
-                "obligatorios": st.column_config.TextColumn(
-                    "obligatorios", help="Lo NO negociable (filtra duro), separado por coma. "
-                    "Opciones: barrio, presupuesto, habitaciones, banos, metraje, extras"),
-                "area_min": st.column_config.NumberColumn("area_min", format="%d"),
-                "area_max": st.column_config.NumberColumn("area_max", format="%d"),
-                "habitaciones_min": st.column_config.NumberColumn("habitaciones_min", format="%d"),
-                "banos_min": st.column_config.NumberColumn("banos_min", format="%d"),
-            },
-        )
+        # La tabla es SOLO para ver. (La data_editor de Streamlit no guardaba bien los
+        # cambios, así que toda edición se hace con el editor "✏️" de arriba.)
+        st.info("👁️ Esta tabla es **solo para ver**. Para **editar, renombrar o borrar** un "
+                "cliente, usa **«✏️ Editar o renombrar un cliente»** (arriba). Eso sí guarda bien.")
+        df_ver = clientes_a_df(mod_clientes.cargar_guardados())
+        st.dataframe(df_ver, use_container_width=True, hide_index=True)
 
-        c1, c2, c3 = st.columns(3)
-        if c1.button("💾 Guardar cambios", type="primary", use_container_width=True):
-            guardar_edicion_hoja(editor_key)  # aplica los cambios reales (renombrar, etc.)
-            st.success("¡Clientes guardados!")
-            refrescar_hoja_clientes()
-            st.rerun()
+        c2, c3 = st.columns(2)
         c2.download_button(
-            "⬇️ Descargar copia (Excel)", excel_bytes(editado),
+            "⬇️ Descargar copia (Excel)", excel_bytes(df_ver),
             "clientes.xlsx",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
