@@ -952,7 +952,7 @@ with tab_resultados:
 
         for nombre, matches in resultados.items():
             with st.expander(f"👤 {nombre} — {len(matches)} coincidencia(s)",
-                             expanded=bool(matches)):
+                             expanded=False):
                 perfil = flex_map.get(nombre, "medio")
                 st.caption(f"Perfil de búsqueda: **{ETIQUETA_FLEX.get(perfil, perfil)}**"
                            + ("  ·  con este perfil solo verás inmuebles muy acertados."
