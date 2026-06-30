@@ -330,6 +330,14 @@ with tab_fuentes:
         config.CUENTAS_FILE.write_text(cabecera + "\n".join(cuentas), encoding="utf-8")
         st.success(f"Guardadas {len(cuentas)} cuenta(s).")
 
+    cuentas_guardadas = config.leer_cuentas()
+    if cuentas_guardadas:
+        with st.expander(f"🔗 Abrir perfiles ({len(cuentas_guardadas)}) para revisar a mano",
+                         expanded=False):
+            st.caption("Clic en un perfil para abrirlo en Instagram y buscar manualmente.")
+            st.markdown(" · ".join(
+                f"[@{c}](https://www.instagram.com/{c}/)" for c in cuentas_guardadas))
+
     st.divider()
     st.subheader("🏠 Portales y sitios web")
     st.caption("Pega la URL de tu **búsqueda** en el portal (una por línea). Ej: en Metrocuadrado "
