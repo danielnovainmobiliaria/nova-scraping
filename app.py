@@ -331,6 +331,40 @@ with tab_fuentes:
         st.success(f"Guardadas {len(cuentas)} cuenta(s).")
 
     st.divider()
+    st.subheader("🏠 Portales y sitios web")
+    st.caption("Pega la URL de tu **búsqueda** en el portal (una por línea). Ej: en Metrocuadrado "
+               "filtras *apartamentos en venta, zona norte* y copias el link de esa búsqueda. "
+               "La app abre la página con un navegador, baja los inmuebles y los lee con IA. "
+               "Funciona con Metrocuadrado, Fincaraíz y webs de agencias.")
+    portales_actuales = "\n".join(config.leer_portales())
+    texto_portales = st.text_area(
+        "Portales (una URL por línea)", value=portales_actuales, height=130,
+        placeholder="https://www.metrocuadrado.com/apartamentos/venta/bogota/chapinero/\n"
+                    "https://www.fincaraiz.com.co/...\nhttps://www.myhome.com.co/...")
+    if st.button("💾 Guardar portales"):
+        ulist = [l.strip() for l in texto_portales.splitlines() if l.strip()]
+        cab = "# Portales / sitios web a leer (una URL por línea)\n"
+        config.PORTALES_FILE.write_text(cab + "\n".join(ulist), encoding="utf-8")
+        st.success(f"Guardados {len(ulist)} portal(es).")
+    if config.leer_portales() and st.button("🏠 Leer inmuebles de portales", type="primary"):
+        registro_p = st.empty()
+        lineas_p: list[str] = []
+
+        def log_p(msg: str) -> None:
+            lineas_p.append(msg)
+            registro_p.code("\n".join(lineas_p[-12:]))
+
+        try:
+            from src import scraper_portales
+            n = scraper_portales.scrapear_portales(config.leer_portales(), log=log_p)
+            st.success(f"¡Listo! Se agregaron {n} inmueble(s) de portales. "
+                       "Míralos en 3️⃣ Coincidencias.")
+        except Exception as e:  # noqa: BLE001
+            st.error(f"Problema leyendo portales: {e}")
+    st.caption(f"⚙️ Tope de seguridad: {config.MAX_PAGINAS_PORTAL} páginas por corrida "
+               "(para que el gasto no se dispare). Cuesta unos centavos.")
+
+    st.divider()
     st.subheader("Actualizar publicaciones")
     st.caption(f"Trae los posts de los últimos {config.DIAS_RECIENTES} días "
                "y los lee con IA. Cada post se procesa una sola vez.")

@@ -1,0 +1,7 @@
+# Portales / sitios web a leer (una URL por línea)
+# Ideal: pega la URL de una BÚSQUEDA filtrada (ej. apartamentos en venta, zona norte),
+# no solo la página principal. Edítalas desde la app en la pestaña 1️⃣ Fuentes.
+https://www.metrocuadrado.com/
+https://www.fincaraiz.com.co/
+https://inmobiliariaaldana.com/
+https://www.myhome.com.co/

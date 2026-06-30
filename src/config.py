@@ -46,6 +46,7 @@ APP_PASSWORD = _leer_llave("APP_PASSWORD")
 CONFIG_DIR = BASE_DIR / "config"
 DATA_DIR = BASE_DIR / "data"
 CUENTAS_FILE = CONFIG_DIR / "cuentas.txt"
+PORTALES_FILE = CONFIG_DIR / "portales.txt"
 DB_FILE = DATA_DIR / "nova.db"
 CLIENTES_FILE = DATA_DIR / "clientes.xlsx"
 
@@ -62,6 +63,9 @@ DIAS_SOLAPE = 2
 
 # Cuántos posts pedirle a Apify por cada cuenta (techo de seguridad).
 MAX_POSTS_POR_CUENTA = 30
+
+# Páginas máximas a leer por corrida de portales (techo de gasto/seguridad).
+MAX_PAGINAS_PORTAL = 20
 
 
 def guardar_llaves(apify_token: str | None = None,
@@ -110,6 +114,25 @@ def leer_cuentas() -> list[str]:
         if c:
             vistos.setdefault(c, None)
     return list(vistos)
+
+
+def leer_portales() -> list[str]:
+    """Devuelve la lista de URLs de portales/sitios web a leer.
+
+    Ignora líneas vacías y comentarios. Una URL por línea.
+    """
+    if not PORTALES_FILE.exists():
+        return []
+    urls: list[str] = []
+    for linea in PORTALES_FILE.read_text(encoding="utf-8").splitlines():
+        linea = linea.strip()
+        if not linea or linea.startswith("#"):
+            continue
+        if not linea.startswith("http"):
+            linea = "https://" + linea
+        if linea not in urls:
+            urls.append(linea)
+    return urls
 
 
 def _solo_usuario(texto: str) -> str:

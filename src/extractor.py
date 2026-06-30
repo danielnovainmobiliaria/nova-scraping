@@ -130,6 +130,67 @@ def extraer_pendientes(log=print) -> int:
     return procesados
 
 
+# ── Lectura de páginas de portales (varios inmuebles por página) ─────
+
+SYSTEM_PORTAL = f"""Eres un asistente inmobiliario en Bogotá. Recibes el TEXTO de una página de
+un portal o sitio web inmobiliario (puede listar VARIOS inmuebles, o ser la ficha de uno solo).
+Extrae TODOS los inmuebles concretos que encuentres.
+
+Devuelve ÚNICAMENTE un ARRAY JSON válido (sin texto extra, sin ```), un objeto por inmueble:
+[{{
+  "operacion": "arriendo"|"venta"|null,
+  "tipo": "apartamento"|"casa"|"apartaestudio"|"local"|"oficina"|"otro"|null,
+  "barrio": string|null, "zona": string|null, "direccion": string|null,
+  "area_m2": number|null, "precio": number|null, "administracion": number|null,
+  "habitaciones": number|null, "banos": number|null, "parqueaderos": number|null,
+  "estrato": number|null, "antiguedad_anos": number|null,
+  "extras": [string],               // SOLO de: {EXTRAS_VALIDOS}
+  "url": string|null,               // link directo al inmueble si aparece en el texto
+  "resumen": string                 // una frase corta describiendo el inmueble
+}}]
+
+Reglas:
+- Precios en pesos COP como número entero sin puntos. "$450M"/"450 millones"=450000000;
+  "1.900.000.000" tal cual; canon de arriendo en millones (ej. 3.500.000).
+- "operacion": si no es explícita, dedúcela por el precio (millones = arriendo; cientos/miles
+  de millones = venta).
+- "antiguedad_anos": "para estrenar"/"sobre planos"/"obra nueva"=0; "X años"=X; si no, null.
+- Ignora menús, filtros, banners, anuncios y texto que no describa un inmueble concreto.
+- Si no hay ningún inmueble, devuelve un array vacío []. NO inventes datos.
+"""
+
+
+def extraer_inmuebles_pagina(texto: str, fuente: str = "", log=print) -> list[dict[str, Any]]:
+    """Lee el texto de una página de portal y devuelve la lista de inmuebles que contiene."""
+    if not config.ANTHROPIC_API_KEY or not (texto or "").strip():
+        return []
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    try:
+        msg = client.messages.create(
+            model=config.ANTHROPIC_MODEL, max_tokens=4000,
+            system=SYSTEM_PORTAL,
+            messages=[{"role": "user", "content": texto.strip()[:14000]}],
+        )
+        t = msg.content[0].text.strip()
+        if t.startswith("```"):
+            t = t.strip("`")
+            t = t[t.find("["): t.rfind("]") + 1]
+        datos = json.loads(t)
+    except Exception as e:  # noqa: BLE001
+        log(f"  ⚠️ No se pudo leer una página de {fuente}: {e}")
+        return []
+    if isinstance(datos, dict):
+        datos = [datos]
+    salida: list[dict[str, Any]] = []
+    for d in datos:
+        if not isinstance(d, dict):
+            continue
+        d["es_inmueble"] = True
+        d["extras"] = [e for e in (d.get("extras") or []) if e in EXTRAS_VALIDOS]
+        salida.append(d)
+    return salida
+
+
 # ── Interpretación de clientes desde texto libre ─────────────
 
 SYSTEM_CLIENTES = f"""Eres un asistente experto en el mercado inmobiliario de Bogotá, Colombia.
