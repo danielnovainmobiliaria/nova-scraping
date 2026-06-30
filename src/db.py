@@ -112,6 +112,12 @@ def actualizar_media(post_id: str, media: list) -> None:
         )
 
 
+def eliminar_post(post_id: str) -> None:
+    """Borra un inmueble de la base (p.ej. uno ingresado manualmente)."""
+    with _conn() as con:
+        con.execute(text("DELETE FROM posts WHERE id = :id"), {"id": post_id})
+
+
 def guardar_extraccion(post_id: str, datos: dict[str, Any]) -> None:
     with _conn() as con:
         con.execute(

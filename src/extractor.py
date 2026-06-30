@@ -100,6 +100,17 @@ def _extraer_uno(client: anthropic.Anthropic, caption: str) -> dict[str, Any]:
     return datos
 
 
+def interpretar_inmueble(texto: str) -> dict[str, Any]:
+    """Interpreta la descripción de UN inmueble (texto libre) a datos estructurados.
+
+    Sirve para el panel manual: el broker pega lo que vio y la IA lo entiende.
+    """
+    if not config.ANTHROPIC_API_KEY:
+        raise RuntimeError("Falta la llave de Claude (ANTHROPIC_API_KEY) para interpretar.")
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    return _extraer_uno(client, texto)
+
+
 def extraer_pendientes(log=print) -> int:
     """Procesa todos los posts de la caché que aún no tienen extracción.
 

@@ -10,6 +10,7 @@ Flujo:
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 from datetime import datetime, timedelta, timezone
@@ -293,8 +294,9 @@ if correr:
             estado_scrape.update(label=f"⚠️ Ocurrió un problema: {e}", state="error")
 
 # ── Pestañas ──────────────────────────────────────────────────
-tab_fuentes, tab_clientes, tab_resultados, tab_crm = st.tabs(
-    ["1️⃣ Fuentes (Instagram)", "2️⃣ Clientes", "3️⃣ Coincidencias", "4️⃣ CRM"]
+tab_fuentes, tab_clientes, tab_resultados, tab_manual, tab_crm = st.tabs(
+    ["1️⃣ Fuentes (Instagram)", "2️⃣ Clientes", "3️⃣ Coincidencias",
+     "🔎 Inmueble → Clientes", "4️⃣ CRM"]
 )
 
 # Etiquetas visuales de los estados del negocio.
@@ -1179,6 +1181,105 @@ with tab_resultados:
             csv = pd.DataFrame(filas).to_csv(index=False).encode("utf-8")
             st.download_button("⬇️ Descargar coincidencias (CSV)", csv,
                                "coincidencias.csv", "text/csv")
+
+
+# ===== INMUEBLE MANUAL → CLIENTES ============================
+def cargar_inmuebles_manuales():
+    try:
+        return json.loads(db.leer_meta("inmuebles_manuales") or "[]")
+    except json.JSONDecodeError:
+        return []
+
+
+def guardar_inmuebles_manuales(lista):
+    db.guardar_meta("inmuebles_manuales", json.dumps(lista, ensure_ascii=False))
+
+
+with tab_manual:
+    st.subheader("🔎 Pega un inmueble y mira a qué clientes les sirve")
+    st.caption("Ingresa la descripción de un inmueble que viste (y su link de referencia). "
+               "La IA lo interpreta y te dice **a qué clientes encaja**, con el porqué. "
+               "Es más manual, pero te da control total sobre lo que entra.")
+
+    clientes_m = mod_clientes.cargar_guardados()
+    if not clientes_m:
+        st.warning("Primero carga tus clientes en la pestaña **2️⃣ Clientes**.")
+    else:
+        with st.form("inmueble_manual", clear_on_submit=True):
+            desc = st.text_area(
+                "Descripción del inmueble", height=130,
+                placeholder="Ej: Apartamento en venta en El Nogal, 120 m², 3 habitaciones, "
+                            "2 baños, $1.800 millones, remodelado, con vista y parqueadero.")
+            link = st.text_input("Link (para tu referencia)", placeholder="https://…")
+            if st.form_submit_button("🔎 ¿A qué clientes les sirve?", type="primary"):
+                if not desc.strip():
+                    st.warning("Escribe la descripción del inmueble.")
+                elif not config.ANTHROPIC_API_KEY:
+                    st.error("Falta la llave de Claude. Revisa «🔑 Mis llaves».")
+                else:
+                    try:
+                        from src import extractor
+                        datos = extractor.interpretar_inmueble(desc.strip())
+                        item = {
+                            "id": "m_" + hashlib.md5((desc + link).encode("utf-8")).hexdigest()[:16],
+                            "texto": desc.strip(), "link": link.strip(),
+                            "fecha": datetime.now(timezone.utc).date().isoformat(), "datos": datos,
+                        }
+                        lista = [x for x in cargar_inmuebles_manuales() if x.get("id") != item["id"]]
+                        lista.insert(0, item)
+                        guardar_inmuebles_manuales(lista)
+                        st.success("¡Listo! Abajo te muestro a qué clientes les sirve.")
+                        st.rerun()
+                    except Exception as e:  # noqa: BLE001
+                        st.error(f"No se pudo interpretar: {e}")
+
+        manuales = cargar_inmuebles_manuales()
+        if not manuales:
+            st.caption("Aún no has ingresado inmuebles. Agrega el primero arriba. 👆")
+        for item in manuales:
+            datos = item.get("datos", {}) or {}
+            post = {**datos, "caption": item.get("texto", ""),
+                    "url": item.get("link", ""), "id": item.get("id")}
+            with st.container(border=True):
+                resumen = datos.get("resumen") or (item.get("texto", "")[:80])
+                st.markdown(f"**{resumen}**")
+                info = []
+                if datos.get("operacion"): info.append(datos["operacion"].capitalize())
+                if datos.get("barrio"): info.append(datos["barrio"])
+                if datos.get("precio"): info.append(matcher.formato_cop(datos["precio"]))
+                if datos.get("area_m2"): info.append(f"{datos['area_m2']:g} m²")
+                if datos.get("habitaciones") is not None: info.append(f"{datos['habitaciones']:g} hab")
+                if datos.get("banos") is not None: info.append(f"{datos['banos']:g} baños")
+                st.caption(("🤖 La IA entendió: " + " · ".join(info)) if info
+                           else "🤖 No logré sacar datos claros; revisa la descripción.")
+                if item.get("link"):
+                    st.markdown(f"🔗 [Abrir inmueble (tu referencia)]({item['link']})")
+
+                ms = []
+                for c in clientes_m:
+                    ev = matcher.evaluar(c, post)
+                    if ev:
+                        ms.append((c["nombre"], ev))
+                ms.sort(key=lambda x: x[1]["score"], reverse=True)
+                buenos = [m for m in ms if m[1]["score"] >= 50]
+                if buenos:
+                    st.markdown(f"**✅ Le sirve a {len(buenos)} cliente(s):**")
+                    for nombre, ev in buenos:
+                        st.markdown(f"- {badge_afinidad(ev['score'])} **{ev['score']}%** — {nombre}")
+                        if ev["razones_ok"]:
+                            st.caption("　✅ " + " · ".join(ev["razones_ok"]))
+                        if ev["razones_no"]:
+                            st.caption("　⚠️ " + " · ".join(ev["razones_no"]))
+                else:
+                    st.info("Ningún cliente encaja claramente (≥50%) con este inmueble.")
+                    if ms:
+                        st.caption("Los más cercanos: "
+                                   + " · ".join(f"{n} ({e['score']}%)" for n, e in ms[:3]))
+                if st.button("🗑️ Quitar este inmueble", key=f"delm_{item.get('id')}"):
+                    guardar_inmuebles_manuales(
+                        [x for x in cargar_inmuebles_manuales() if x.get("id") != item.get("id")])
+                    st.rerun()
+
 
 # ===== 4. CRM (seguimiento) ==================================
 with tab_crm:
