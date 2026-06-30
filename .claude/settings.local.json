@@ -17,7 +17,12 @@
       "Bash(curl -sS -o /dev/null -w \"HTTP %{http_code}\\\\n\" --max-time 30 \"https://nova-scraping-yxhsgk9bbe5ibjrbakr4bh.streamlit.app/\")",
       "Bash(cd /tmp && echo \"=== Título de la página ===\" && grep -oiE \"<title>[^<]*</title>\" pagina.html | head -1; echo \"=== Marcadores de login vs app ===\" && grep -oiE \"sign in|continue with|log in|streamlit.app|nova scraping|view app|authenticate\" pagina.html | sort -u | head -10; echo \"=== Tamaño ===\" && wc -c < pagina.html)",
       "Bash(grep -n \"^def df_a_clientes\\\\|return out$\\\\|df_actual = clientes_a_df\\\\|key=\\\\\"editor_clientes\\\\\"\" app.py)",
-      "Bash(awk -F: '$1>=500 && $1<=760')"
+      "Bash(awk -F: '$1>=500 && $1<=760')",
+      "Bash(curl -sL -o gh.tar.gz \"https://github.com/cli/cli/releases/download/v2.95.0/gh_2.95.0_macOS_arm64.zip\")",
+      "Bash(unzip -oq gh.tar.gz)",
+      "Bash(ls -d gh_2.95.0_macOS_arm64)",
+      "Bash(break)",
+      "Bash(ls -la gh_2.95.0_macOS_arm64/bin/gh)"
     ]
   }
 }

@@ -974,6 +974,8 @@ with tab_resultados:
                     caps_txt.append(f"mín {exc_cli['habitaciones_min']:g} hab")
                 if exc_cli.get("banos_min"):
                     caps_txt.append(f"mín {exc_cli['banos_min']:g} baños")
+                if exc_cli.get("antiguedad_max"):
+                    caps_txt.append(f"máx {exc_cli['antiguedad_max']:g} años de construido")
                 hay_exc = bool(exc_barrios or exc_palabras or caps_txt)
                 if hay_exc:
                     partes_x = []
@@ -987,9 +989,9 @@ with tab_resultados:
                 with st.popover("🤖 Afinar con IA — ¿los resultados no son buenos?",
                                 use_container_width=True):
                     st.caption("Escribe qué está mal o qué buscas. La IA **anula de una** lo que no "
-                               "cumpla (ej. *«nada después de la calle 100»*, *«no quiero primer "
-                               "piso»*) y prioriza lo que pidas (ej. *«prioriza vista y remodelado»*). "
-                               "Aplica solo a **este** cliente.")
+                               "cumpla y agrega criterios nuevos. Ej: *«nada después de la calle 100»*, "
+                               "*«no más de 160 m²»*, *«quiere algo nuevo, máx 6 años de construido»*, "
+                               "*«no quiero primer piso»*. Aplica solo a **este** cliente.")
                     res_prev = st.session_state.get(f"afin_res_{nombre}")
                     if res_prev:
                         st.success("✨ " + res_prev)

@@ -240,6 +240,31 @@ def _falla_obligatorio(cliente: dict[str, Any], post: dict[str, Any]) -> str | N
     return None
 
 
+_PALABRAS_VIEJO = ["para remodelar", "para remodelacion", "remodelacion total", "antiguo",
+                   "clasico", "anticuado", "muy viejo", "para restaurar"]
+
+
+def _antiguedad_estimada(post: dict[str, Any]) -> tuple[float | None, bool]:
+    """Estima (años de construido, es_viejo) del dato extraído o del texto del aviso.
+
+    años = número si se conoce (o se menciona en el texto), si no None.
+    es_viejo = True si el texto sugiere que es antiguo / para remodelar.
+    """
+    a = post.get("antiguedad_anos")
+    try:
+        if a is not None:
+            a = float(a)
+            return (a if a >= 0 else None), False
+    except (TypeError, ValueError):
+        pass
+    texto = _norm(post.get("caption", "")) + " " + _norm(post.get("resumen", ""))
+    m = re.search(r"(\d{1,3})\s*anos?\s*(de\s+)?(construido|construccion|antiguedad|de uso|uso)", texto)
+    if m:
+        return float(m.group(1)), False
+    es_viejo = any(w in texto for w in _PALABRAS_VIEJO)
+    return None, es_viejo
+
+
 def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | None:
     """Filtro DURO por comentarios del broker: barrios o palabras que anulan el inmueble.
 
@@ -277,6 +302,14 @@ def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | Non
     banos = post.get("banos")
     if exc.get("banos_min") and banos is not None and banos < exc["banos_min"]:
         return f"menos de {exc['banos_min']:g} baños"
+    # Antigüedad: pediste algo nuevo (tope de años de construido).
+    amax = exc.get("antiguedad_max")
+    if amax is not None:
+        anos, es_viejo = _antiguedad_estimada(post)
+        if anos is not None and anos > amax:
+            return f"{anos:g} años de construido (pediste máx {amax:g})"
+        if anos is None and es_viejo:
+            return "el aviso sugiere que es antiguo / para remodelar"
     return None
 
 

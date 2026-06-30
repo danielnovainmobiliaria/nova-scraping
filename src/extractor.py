@@ -56,6 +56,8 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin texto adicional, sin ```), con 
   "banos": number|null,
   "parqueaderos": number|null,
   "estrato": number|null,
+  "antiguedad_anos": number|null,   // años de construido. "para estrenar"/"sobre planos"/
+                                    // "obra nueva"/"proyecto nuevo" = 0; "X años de construido" = X
   "extras": [string],               // SOLO valores de esta lista: {EXTRAS_VALIDOS}
   "resumen": string                 // una frase corta describiendo el inmueble
 }}
@@ -70,6 +72,9 @@ Reglas:
   (millones: ej. $3 a $40 millones) es "arriendo"; un precio de cientos o miles de millones
   (ej. $450M, $1.800.000.000) es "venta". Deja null SOLO si no hay ninguna pista.
 - "cuarto de servicio"/"alcoba de servicio"/"zona de ropas con baño" → "cuarto_servicio".
+- "antiguedad_anos": años de construido si se menciona o se deduce. "para estrenar"/"a estrenar"/
+  "sobre planos"/"obra nueva"/"proyecto nuevo"/"preventa" = 0; "remodelado" NO es lo mismo que nuevo
+  (déjalo null salvo que diga los años); "X años de construido/antigüedad" = X; si no hay pista, null.
 - Si el post NO es un inmueble específico (es publicidad genérica, motivacional, etc.),
   pon "es_inmueble": false y el resto en null.
 - No inventes datos que no estén en el texto.
@@ -363,7 +368,11 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin texto extra, sin ```), con esta
     "precio_max": number|null,  // tope de precio en pesos COP. "que no pase de 1.800 millones"
                                 //   -> 1800000000 ; "máx 12M" (arriendo) -> 12000000
     "habitaciones_min": number|null,  // "al menos 3 habitaciones" -> 3
-    "banos_min": number|null    // "mínimo 2 baños" -> 2
+    "banos_min": number|null,   // "mínimo 2 baños" -> 2
+    "antiguedad_max": number|null  // años máximos de construido. "quiere algo nuevo/a estrenar"
+                                // -> pocos años (ej. 5); "máximo 6 años de construido" -> 6;
+                                // "nada viejo" -> ~10. Interpreta la INTENCIÓN aunque venga con
+                                // doble negación ("no quiere nada que no sea nuevo" = quiere nuevo).
   },
   "resumen": string            // frase corta en español de lo que entendiste y vas a anular.
 }
@@ -408,7 +417,8 @@ def interpretar_afinacion(comentario: str, cliente: dict[str, Any] | None = None
 
     lim_in = datos.get("limites") or {}
     limites = {k: _num(lim_in.get(k)) for k in
-               ("area_max", "area_min", "precio_max", "habitaciones_min", "banos_min")}
+               ("area_max", "area_min", "precio_max", "habitaciones_min", "banos_min",
+                "antiguedad_max")}
     limites = {k: v for k, v in limites.items() if v is not None}
     return {
         "excluir_barrios": [str(b).strip() for b in datos.get("excluir_barrios", []) if str(b).strip()][:30],
