@@ -1195,6 +1195,17 @@ def guardar_inmuebles_manuales(lista):
     db.guardar_meta("inmuebles_manuales", json.dumps(lista, ensure_ascii=False))
 
 
+def _norm_link(u):
+    """Normaliza un link para comparar (sin http, sin www, sin / final ni parámetros)."""
+    u = (u or "").strip().lower()
+    for p in ("https://", "http://"):
+        if u.startswith(p):
+            u = u[len(p):]
+    if u.startswith("www."):
+        u = u[4:]
+    return u.split("?")[0].split("#")[0].rstrip("/")
+
+
 with tab_manual:
     st.subheader("🔎 Pega un inmueble y mira a qué clientes les sirve")
     st.caption("Ingresa la descripción de un inmueble que viste (y su link de referencia). "
@@ -1212,10 +1223,17 @@ with tab_manual:
                             "2 baños, $1.800 millones, remodelado, con vista y parqueadero.")
             link = st.text_input("Link (para tu referencia)", placeholder="https://…")
             if st.form_submit_button("🔎 ¿A qué clientes les sirve?", type="primary"):
+                dup_link = next(
+                    (x for x in cargar_inmuebles_manuales()
+                     if link.strip() and _norm_link(x.get("link", "")) == _norm_link(link)),
+                    None)
                 if not desc.strip():
                     st.warning("Escribe la descripción del inmueble.")
                 elif not config.ANTHROPIC_API_KEY:
                     st.error("Falta la llave de Claude. Revisa «🔑 Mis llaves».")
+                elif dup_link:
+                    st.warning(f"⚠️ Esa publicación **ya estaba incluida** (la agregaste el "
+                               f"{dup_link.get('fecha', '?')}). No la dupliqué; la ves abajo en la lista.")
                 else:
                     try:
                         from src import extractor
@@ -1236,10 +1254,29 @@ with tab_manual:
         manuales = cargar_inmuebles_manuales()
         if not manuales:
             st.caption("Aún no has ingresado inmuebles. Agrega el primero arriba. 👆")
+        else:
+            st.caption("ℹ️ Esto se recalcula solo: si agregas o editas un cliente, los inmuebles "
+                       "de abajo se reasignan automáticamente a quien les sirva.")
+        filtro_cli = st.selectbox(
+            "Ver solo los inmuebles que le sirven a:",
+            ["(todos los clientes)"] + [c["nombre"] for c in clientes_m],
+            key="manual_filtro_cli") if manuales else "(todos los clientes)"
+
+        mostrados = 0
         for item in manuales:
             datos = item.get("datos", {}) or {}
             post = {**datos, "caption": item.get("texto", ""),
                     "url": item.get("link", ""), "id": item.get("id")}
+            ms = []
+            for c in clientes_m:
+                ev = matcher.evaluar(c, post)
+                if ev:
+                    ms.append((c["nombre"], ev))
+            ms.sort(key=lambda x: x[1]["score"], reverse=True)
+            buenos = [m for m in ms if m[1]["score"] >= 50]
+            if filtro_cli != "(todos los clientes)" and filtro_cli not in [n for n, _ in buenos]:
+                continue
+            mostrados += 1
             with st.container(border=True):
                 resumen = datos.get("resumen") or (item.get("texto", "")[:80])
                 st.markdown(f"**{resumen}**")
@@ -1255,13 +1292,6 @@ with tab_manual:
                 if item.get("link"):
                     st.markdown(f"🔗 [Abrir inmueble (tu referencia)]({item['link']})")
 
-                ms = []
-                for c in clientes_m:
-                    ev = matcher.evaluar(c, post)
-                    if ev:
-                        ms.append((c["nombre"], ev))
-                ms.sort(key=lambda x: x[1]["score"], reverse=True)
-                buenos = [m for m in ms if m[1]["score"] >= 50]
                 if buenos:
                     st.markdown(f"**✅ Le sirve a {len(buenos)} cliente(s):**")
                     for nombre, ev in buenos:
@@ -1279,6 +1309,9 @@ with tab_manual:
                     guardar_inmuebles_manuales(
                         [x for x in cargar_inmuebles_manuales() if x.get("id") != item.get("id")])
                     st.rerun()
+
+        if manuales and filtro_cli != "(todos los clientes)" and mostrados == 0:
+            st.info(f"Ningún inmueble de tu lista le sirve a **{filtro_cli}** todavía.")
 
 
 # ===== 4. CRM (seguimiento) ==================================
