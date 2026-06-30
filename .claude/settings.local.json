@@ -22,7 +22,12 @@
       "Bash(unzip -oq gh.tar.gz)",
       "Bash(ls -d gh_2.95.0_macOS_arm64)",
       "Bash(break)",
-      "Bash(ls -la gh_2.95.0_macOS_arm64/bin/gh)"
+      "Bash(ls -la gh_2.95.0_macOS_arm64/bin/gh)",
+      "WebSearch",
+      "WebFetch(domain:apify.com)",
+      "WebFetch(domain:www.metrocuadrado.com)",
+      "WebFetch(domain:www.fincaraiz.com.co)",
+      "WebFetch(domain:api.apify.com)"
     ]
   }
 }

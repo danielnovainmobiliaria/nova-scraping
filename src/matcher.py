@@ -243,6 +243,26 @@ def _falla_obligatorio(cliente: dict[str, Any], post: dict[str, Any]) -> str | N
 _PALABRAS_VIEJO = ["para remodelar", "para remodelacion", "remodelacion total", "antiguo",
                    "clasico", "anticuado", "muy viejo", "para restaurar"]
 
+# Familias de tipo de inmueble: para no mezclar apartamentos con casas/locales.
+_FAMILIA_TIPO = {
+    "apartamento": "apto", "apartaestudio": "apto", "penthouse": "apto",
+    "duplex": "apto", "loft": "apto", "aparta estudio": "apto",
+    "casa": "casa", "casa campestre": "casa", "casa lote": "casa",
+    "local": "comercial", "oficina": "comercial", "bodega": "comercial",
+    "consultorio": "comercial", "lote": "lote", "finca": "finca",
+}
+
+
+def _familia_tipo(t: str | None) -> str:
+    return _FAMILIA_TIPO.get(_norm(t), _norm(t or ""))
+
+
+def _tipo_compatible(deseado: str | None, post_tipo: str | None) -> bool:
+    """¿El tipo del inmueble es de la misma familia que la que busca el cliente?"""
+    if not deseado or not post_tipo:
+        return True                       # si falta el dato, no descartamos
+    return _familia_tipo(deseado) == _familia_tipo(post_tipo)
+
 
 def _antiguedad_estimada(post: dict[str, Any]) -> tuple[float | None, bool]:
     """Estima (años de construido, es_viejo) del dato extraído o del texto del aviso.
@@ -302,6 +322,13 @@ def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | Non
     banos = post.get("banos")
     if exc.get("banos_min") and banos is not None and banos < exc["banos_min"]:
         return f"menos de {exc['banos_min']:g} baños"
+    # Tope de habitaciones (ej. "solo 2, nada de 3").
+    if exc.get("habitaciones_max") and habs is not None and habs > exc["habitaciones_max"]:
+        return f"{habs:g} habitaciones (pediste máx {exc['habitaciones_max']:g})"
+    # Tipo de inmueble (ej. busca apartamento → fuera casas/locales).
+    deseado_tipo = exc.get("tipo") or cliente.get("tipo")
+    if deseado_tipo and post.get("tipo") and not _tipo_compatible(deseado_tipo, post.get("tipo")):
+        return f"es {post.get('tipo')} (buscas {deseado_tipo})"
     # Antigüedad: pediste algo nuevo (tope de años de construido).
     amax = exc.get("antiguedad_max")
     if amax is not None:
@@ -383,8 +410,8 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
         puntaje += 30 * factor
         (razones_ok if ok else razones_no).append(razon)
     elif presupuesto and not precio:
-        puntaje += 30 * 0.5
-        razones_no.append("el post no indica precio")
+        puntaje += 30 * 0.35           # sin precio no se puede verificar el presupuesto
+        razones_no.append("⚠️ el aviso no indica precio (no se pudo verificar presupuesto)")
     else:
         puntaje += 30  # el cliente no puso presupuesto → no penaliza
 
@@ -393,9 +420,15 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
     habs = post.get("habitaciones")
     peso_total += 12
     if habs_min and habs is not None:
-        if habs >= habs_min:
+        if habs == habs_min:
             puntaje += 12
-            razones_ok.append(f"{habs:g} habitaciones (pedías {habs_min:g}+)")
+            razones_ok.append(f"{habs:g} habitaciones")
+        elif habs == habs_min + 1:
+            puntaje += 12 * 0.65          # 1 de más: aceptable, pero menos ideal
+            razones_no.append(f"{habs:g} habitaciones (1 más de lo pedido)")
+        elif habs > habs_min + 1:
+            puntaje += 12 * 0.2           # bastantes de más: suele ser otro segmento
+            razones_no.append(f"{habs:g} habitaciones (muchas más de las {habs_min:g} pedidas)")
         elif habs >= habs_min - 1:
             puntaje += 12 * 0.5
             razones_no.append(f"{habs:g} habitaciones (1 menos de lo pedido)")
@@ -412,6 +445,8 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
     puntaje += p_ubi * 25
     peso_total += 25
     (razones_ok if p_ubi >= 0.6 else razones_no).append(razon_ubi)
+    # Si pidió zonas concretas y el inmueble no pega NADA con ellas, es un mal match.
+    ubicacion_fallo = bool((cliente.get("barrios") or cliente.get("zona")) and p_ubi < 0.3)
 
     # ── Metraje (peso 20, flexible) ──────────────────────────
     area = post.get("area_m2")
@@ -459,6 +494,11 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
         puntaje += 15
 
     score = round(100 * puntaje / peso_total) if peso_total else 0
+
+    # Fuera de las zonas pedidas: castigo fuerte para que no se cuele (ej. Cota).
+    if ubicacion_fallo:
+        score = round(score * 0.4)
+        razones_no.append("⚠️ fuera de las zonas que pediste")
 
     # Aprendizaje: baja el puntaje si se parece a lo que el cliente ya descartó.
     pen, razones_pref = _ajuste_preferencias(cliente, post)

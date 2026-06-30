@@ -142,6 +142,7 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin texto extra, sin ```), con esta
   "nombre": string|null,            // nombre del cliente si aparece
   "telefono": string|null,          // teléfono/celular si aparece (solo dígitos)
   "operacion": "arriendo"|"venta"|null,
+  "tipo": "apartamento"|"casa"|"apartaestudio"|"penthouse"|"local"|"oficina"|null,  // tipo que busca
   "barrios": [string],              // barrios de interés mencionados
   "zona": string|null,              // localidad o sector (ej. Chapinero, Norte)
   "presupuesto_max": number|null,   // en pesos COP, número entero sin puntos
@@ -240,6 +241,7 @@ def interpretar_clientes(textos: list[str], log=print) -> list[dict[str, Any]]:
         datos["obligatorios"] = [o for o in (datos.get("obligatorios") or []) if o in OBLIGATORIOS_VALIDOS]
         _fx = str(datos.get("flexibilidad") or "medio").lower().strip()
         datos["flexibilidad"] = _fx if _fx in FLEX_VALIDOS else "medio"
+        datos["tipo"] = (str(datos.get("tipo") or "").lower().strip() or None)
         datos["barrios"] = datos.get("barrios") or []
         datos["perimetro"] = ""
         datos["telefono"] = "".join(ch for ch in str(datos.get("telefono") or "") if ch.isdigit())
@@ -261,6 +263,7 @@ cliente que encuentres, con estas claves:
 [{{
   "nombre": string|null, "telefono": string|null,
   "operacion": "arriendo"|"venta"|null,
+  "tipo": "apartamento"|"casa"|"apartaestudio"|"penthouse"|"local"|"oficina"|null,
   "barrios": [string], "zona": string|null,
   "presupuesto_max": number|null, "area_min": number|null, "area_max": number|null,
   "habitaciones_min": number|null, "banos_min": number|null,
@@ -312,6 +315,7 @@ def interpretar_texto_libre(texto: str, log=print) -> list[dict[str, Any]]:
         d["obligatorios"] = [o for o in (d.get("obligatorios") or []) if o in OBLIGATORIOS_VALIDOS]
         _fx = str(d.get("flexibilidad") or "medio").lower().strip()
         d["flexibilidad"] = _fx if _fx in FLEX_VALIDOS else "medio"
+        d["tipo"] = (str(d.get("tipo") or "").lower().strip() or None)
         d["barrios"] = d.get("barrios") or []
         d["perimetro"] = ""
         d["telefono"] = "".join(ch for ch in str(d.get("telefono") or "") if ch.isdigit())
@@ -368,12 +372,17 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin texto extra, sin ```), con esta
     "precio_max": number|null,  // tope de precio en pesos COP. "que no pase de 1.800 millones"
                                 //   -> 1800000000 ; "máx 12M" (arriendo) -> 12000000
     "habitaciones_min": number|null,  // "al menos 3 habitaciones" -> 3
+    "habitaciones_max": number|null,  // "solo 2 habitaciones"/"exactamente 2"/"nada de 3" -> 2
     "banos_min": number|null,   // "mínimo 2 baños" -> 2
     "antiguedad_max": number|null  // años máximos de construido. "quiere algo nuevo/a estrenar"
                                 // -> pocos años (ej. 5); "máximo 6 años de construido" -> 6;
                                 // "nada viejo" -> ~10. Interpreta la INTENCIÓN aunque venga con
                                 // doble negación ("no quiere nada que no sea nuevo" = quiere nuevo).
   },
+  "tipo": "apartamento"|"casa"|"apartaestudio"|"penthouse"|"local"|"oficina"|null,
+                                // tipo de inmueble que SÍ busca, si el broker lo aclara.
+                                // "solo apartamentos"/"nada de casas" -> "apartamento";
+                                // "solo casas" -> "casa". null si no lo menciona.
   "resumen": string            // frase corta en español de lo que entendiste y vas a anular.
 }
 Reglas: incluye SOLO exclusiones CLARAS que el broker pide quitar. Para "limites", llena solo
@@ -386,7 +395,7 @@ barrios que no existan. Usa nombres reales de barrios de Bogotá.
 
 def interpretar_afinacion(comentario: str, cliente: dict[str, Any] | None = None) -> dict[str, Any]:
     """Convierte una instrucción del broker en filtros DUROS (barrios/palabras a anular)."""
-    vacio = {"excluir_barrios": [], "excluir_palabras": [], "limites": {}, "resumen": ""}
+    vacio = {"excluir_barrios": [], "excluir_palabras": [], "limites": {}, "tipo": None, "resumen": ""}
     if not config.ANTHROPIC_API_KEY or not (comentario or "").strip():
         return vacio
     contexto = ""
@@ -417,13 +426,15 @@ def interpretar_afinacion(comentario: str, cliente: dict[str, Any] | None = None
 
     lim_in = datos.get("limites") or {}
     limites = {k: _num(lim_in.get(k)) for k in
-               ("area_max", "area_min", "precio_max", "habitaciones_min", "banos_min",
-                "antiguedad_max")}
+               ("area_max", "area_min", "precio_max", "habitaciones_min", "habitaciones_max",
+                "banos_min", "antiguedad_max")}
     limites = {k: v for k, v in limites.items() if v is not None}
+    tipo = str(datos.get("tipo") or "").lower().strip() or None
     return {
         "excluir_barrios": [str(b).strip() for b in datos.get("excluir_barrios", []) if str(b).strip()][:30],
         "excluir_palabras": [str(p).lower().strip() for p in datos.get("excluir_palabras", []) if str(p).strip()][:15],
         "limites": limites,
+        "tipo": tipo,
         "resumen": str(datos.get("resumen") or "").strip(),
     }
 

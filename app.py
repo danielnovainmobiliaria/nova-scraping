@@ -972,10 +972,14 @@ with tab_resultados:
                     caps_txt.append(f"máx {matcher.formato_cop(exc_cli['precio_max'])}")
                 if exc_cli.get("habitaciones_min"):
                     caps_txt.append(f"mín {exc_cli['habitaciones_min']:g} hab")
+                if exc_cli.get("habitaciones_max"):
+                    caps_txt.append(f"máx {exc_cli['habitaciones_max']:g} hab")
                 if exc_cli.get("banos_min"):
                     caps_txt.append(f"mín {exc_cli['banos_min']:g} baños")
                 if exc_cli.get("antiguedad_max"):
                     caps_txt.append(f"máx {exc_cli['antiguedad_max']:g} años de construido")
+                if exc_cli.get("tipo"):
+                    caps_txt.append(f"solo {exc_cli['tipo']}")
                 hay_exc = bool(exc_barrios or exc_palabras or caps_txt)
                 if hay_exc:
                     partes_x = []
@@ -989,9 +993,10 @@ with tab_resultados:
                 with st.popover("🤖 Afinar con IA — ¿los resultados no son buenos?",
                                 use_container_width=True):
                     st.caption("Escribe qué está mal o qué buscas. La IA **anula de una** lo que no "
-                               "cumpla y agrega criterios nuevos. Ej: *«nada después de la calle 100»*, "
-                               "*«no más de 160 m²»*, *«quiere algo nuevo, máx 6 años de construido»*, "
-                               "*«no quiero primer piso»*. Aplica solo a **este** cliente.")
+                               "cumpla y agrega criterios nuevos. Ej: *«solo apartamentos, nada de "
+                               "casas»*, *«exactamente 2 habitaciones»*, *«nada después de la calle "
+                               "100»*, *«no más de 160 m²»*, *«máx 6 años de construido»*. "
+                               "Aplica solo a **este** cliente.")
                     res_prev = st.session_state.get(f"afin_res_{nombre}")
                     if res_prev:
                         st.success("✨ " + res_prev)
@@ -1011,9 +1016,10 @@ with tab_resultados:
                             from src import extractor
                             af = extractor.interpretar_afinacion(txt.strip(), cli_map.get(nombre))
                             mod_clientes.agregar_comentario_ia(nombre, txt.strip())
-                            if af["excluir_barrios"] or af["excluir_palabras"] or af["limites"]:
+                            if af["excluir_barrios"] or af["excluir_palabras"] or af["limites"] or af.get("tipo"):
                                 mod_clientes.agregar_exclusiones(
-                                    nombre, af["excluir_barrios"], af["excluir_palabras"], af["limites"])
+                                    nombre, af["excluir_barrios"], af["excluir_palabras"],
+                                    af["limites"], af.get("tipo"))
                             recalcular_preferencias(nombre)   # ajuste suave (priorizar/penalizar)
                             st.session_state[f"afin_res_{nombre}"] = (
                                 af["resumen"] or "Lo tomé en cuenta para afinar la búsqueda.")
