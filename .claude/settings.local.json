@@ -27,7 +27,12 @@
       "WebFetch(domain:apify.com)",
       "WebFetch(domain:www.metrocuadrado.com)",
       "WebFetch(domain:www.fincaraiz.com.co)",
-      "WebFetch(domain:api.apify.com)"
+      "WebFetch(domain:api.apify.com)",
+      "Bash(curl -sL -o gh.zip \"https://github.com/cli/cli/releases/download/v2.95.0/gh_2.95.0_macOS_arm64.zip\")",
+      "Bash(unzip -oq gh.zip)",
+      "Bash(awk -F: '$1>=940 && $1<=1075')",
+      "Bash(awk -F: '$1>=945 && $1<=1045')",
+      "Bash(awk -F: '$1>=1040 && $1<=1110')"
     ]
   }
 }

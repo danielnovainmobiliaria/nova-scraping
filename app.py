@@ -945,7 +945,7 @@ with tab_resultados:
 
         for nombre, matches in resultados.items():
             with st.expander(f"👤 {nombre} — {len(matches)} coincidencia(s)",
-                             expanded=False):
+                             expanded=(nombre == st.session_state.get("cliente_abierto"))):
                 perfil = flex_map.get(nombre, "medio")
                 st.caption(f"Perfil de búsqueda: **{ETIQUETA_FLEX.get(perfil, perfil)}**"
                            + ("  ·  con este perfil solo verás inmuebles muy acertados."
@@ -1024,6 +1024,7 @@ with tab_resultados:
                             st.session_state[f"afin_res_{nombre}"] = (
                                 af["resumen"] or "Lo tomé en cuenta para afinar la búsqueda.")
                             st.toast(f"✨ Afiné la búsqueda de {nombre}")
+                            st.session_state["cliente_abierto"] = nombre
                             st.rerun()
                     if hay_exc and ccol2.button(
                             "♻️ Quitar exclusiones", key=f"afinar_clr_{nombre}",
@@ -1032,6 +1033,7 @@ with tab_resultados:
                         mod_clientes.limpiar_exclusiones(nombre)
                         st.session_state.pop(f"afin_res_{nombre}", None)
                         st.toast(f"♻️ Quité las exclusiones de {nombre}")
+                        st.session_state["cliente_abierto"] = nombre
                         st.rerun()
 
                 if not matches:
@@ -1101,6 +1103,7 @@ with tab_resultados:
                                      use_container_width=True):
                             mod_clientes.agregar_proceso(nombre, proceso_de(p, "enviado"))
                             st.toast(f"📤 En seguimiento de {nombre}")
+                            st.session_state["cliente_abierto"] = nombre
                             st.rerun()
                         with st.popover("🚫 Descartar", use_container_width=True):
                             obs = st.text_input(
@@ -1114,6 +1117,7 @@ with tab_resultados:
                                 if obs.strip():
                                     recalcular_preferencias(nombre)
                                 st.toast(f"🚫 Descartado para {nombre}")
+                                st.session_state["cliente_abierto"] = nombre
                                 st.rerun()
                     st.divider()
 
