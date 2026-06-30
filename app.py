@@ -963,12 +963,26 @@ with tab_resultados:
                 exc_cli = (cli_map.get(nombre, {}).get("exclusiones") or {})
                 exc_barrios = exc_cli.get("barrios") or []
                 exc_palabras = exc_cli.get("palabras") or []
-                if exc_barrios or exc_palabras:
+                caps_txt = []
+                if exc_cli.get("area_max"):
+                    caps_txt.append(f"máx {exc_cli['area_max']:g} m²")
+                if exc_cli.get("area_min"):
+                    caps_txt.append(f"mín {exc_cli['area_min']:g} m²")
+                if exc_cli.get("precio_max"):
+                    caps_txt.append(f"máx {matcher.formato_cop(exc_cli['precio_max'])}")
+                if exc_cli.get("habitaciones_min"):
+                    caps_txt.append(f"mín {exc_cli['habitaciones_min']:g} hab")
+                if exc_cli.get("banos_min"):
+                    caps_txt.append(f"mín {exc_cli['banos_min']:g} baños")
+                hay_exc = bool(exc_barrios or exc_palabras or caps_txt)
+                if hay_exc:
                     partes_x = []
                     if exc_barrios:
                         partes_x.append("barrios: " + ", ".join(exc_barrios))
                     if exc_palabras:
                         partes_x.append("palabras: " + ", ".join(exc_palabras))
+                    if caps_txt:
+                        partes_x.append("topes: " + ", ".join(caps_txt))
                     st.error("🚫 Anulando (filtro duro) — " + "  ·  ".join(partes_x))
                 with st.popover("🤖 Afinar con IA — ¿los resultados no son buenos?",
                                 use_container_width=True):
@@ -995,15 +1009,15 @@ with tab_resultados:
                             from src import extractor
                             af = extractor.interpretar_afinacion(txt.strip(), cli_map.get(nombre))
                             mod_clientes.agregar_comentario_ia(nombre, txt.strip())
-                            if af["excluir_barrios"] or af["excluir_palabras"]:
+                            if af["excluir_barrios"] or af["excluir_palabras"] or af["limites"]:
                                 mod_clientes.agregar_exclusiones(
-                                    nombre, af["excluir_barrios"], af["excluir_palabras"])
+                                    nombre, af["excluir_barrios"], af["excluir_palabras"], af["limites"])
                             recalcular_preferencias(nombre)   # ajuste suave (priorizar/penalizar)
                             st.session_state[f"afin_res_{nombre}"] = (
                                 af["resumen"] or "Lo tomé en cuenta para afinar la búsqueda.")
                             st.toast(f"✨ Afiné la búsqueda de {nombre}")
                             st.rerun()
-                    if (exc_barrios or exc_palabras) and ccol2.button(
+                    if hay_exc and ccol2.button(
                             "♻️ Quitar exclusiones", key=f"afinar_clr_{nombre}",
                             use_container_width=True,
                             help="Vuelve a mostrar los inmuebles que habías anulado."):

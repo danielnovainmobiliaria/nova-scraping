@@ -357,17 +357,27 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin texto extra, sin ```), con esta
                                 // "solo del Chicó hacia el sur" -> excluye lo que esté al norte.
   "excluir_palabras": [string], // frases que, si aparecen en el aviso, lo anulan por completo
                                 // (ej. "primer piso", "para remodelar", "remate", "permuta").
+  "limites": {                  // TOPES numéricos que anulan lo que se pase. null si no aplica.
+    "area_max": number|null,    // "nada por encima de 160 m2" / "máx 160 metros" -> 160
+    "area_min": number|null,    // "mínimo 80 m2" / "nada menor a 80" -> 80
+    "precio_max": number|null,  // tope de precio en pesos COP. "que no pase de 1.800 millones"
+                                //   -> 1800000000 ; "máx 12M" (arriendo) -> 12000000
+    "habitaciones_min": number|null,  // "al menos 3 habitaciones" -> 3
+    "banos_min": number|null    // "mínimo 2 baños" -> 2
+  },
   "resumen": string            // frase corta en español de lo que entendiste y vas a anular.
 }
-Reglas: incluye SOLO exclusiones CLARAS que el broker pide quitar. Si el comentario es una
-preferencia suave (no una orden de excluir), deja las listas vacías. No inventes barrios que
-no existan. Usa nombres reales de barrios de Bogotá.
+Reglas: incluye SOLO exclusiones CLARAS que el broker pide quitar. Para "limites", llena solo
+los topes que el broker mencione y deja el resto en null. "metros"/"m2"/"mts" = área;
+distingue área (decenas/cientos) de precio (millones/miles de millones). Si el comentario es una
+preferencia suave (no una orden de excluir), deja listas vacías y límites en null. No inventes
+barrios que no existan. Usa nombres reales de barrios de Bogotá.
 """
 
 
 def interpretar_afinacion(comentario: str, cliente: dict[str, Any] | None = None) -> dict[str, Any]:
     """Convierte una instrucción del broker en filtros DUROS (barrios/palabras a anular)."""
-    vacio = {"excluir_barrios": [], "excluir_palabras": [], "resumen": ""}
+    vacio = {"excluir_barrios": [], "excluir_palabras": [], "limites": {}, "resumen": ""}
     if not config.ANTHROPIC_API_KEY or not (comentario or "").strip():
         return vacio
     contexto = ""
@@ -388,9 +398,22 @@ def interpretar_afinacion(comentario: str, cliente: dict[str, Any] | None = None
         datos = json.loads(t)
     except Exception:  # noqa: BLE001
         return vacio
+
+    def _num(v):
+        try:
+            n = float(v)
+            return n if n > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    lim_in = datos.get("limites") or {}
+    limites = {k: _num(lim_in.get(k)) for k in
+               ("area_max", "area_min", "precio_max", "habitaciones_min", "banos_min")}
+    limites = {k: v for k, v in limites.items() if v is not None}
     return {
         "excluir_barrios": [str(b).strip() for b in datos.get("excluir_barrios", []) if str(b).strip()][:30],
         "excluir_palabras": [str(p).lower().strip() for p in datos.get("excluir_palabras", []) if str(p).strip()][:15],
+        "limites": limites,
         "resumen": str(datos.get("resumen") or "").strip(),
     }
 

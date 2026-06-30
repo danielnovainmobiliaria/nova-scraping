@@ -262,6 +262,21 @@ def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | Non
             nw = _norm(w)
             if nw and nw in texto:
                 return f"contiene «{w}» (excluido por ti)"
+    # Topes numéricos duros pedidos por el broker.
+    area = post.get("area_m2")
+    if exc.get("area_max") and area and area > exc["area_max"]:
+        return f"{area:g} m²: por encima del tope ({exc['area_max']:g} m²)"
+    if exc.get("area_min") and area and area < exc["area_min"]:
+        return f"{area:g} m²: por debajo del mínimo ({exc['area_min']:g} m²)"
+    precio = post.get("precio")
+    if exc.get("precio_max") and precio and precio > exc["precio_max"]:
+        return f"precio por encima del tope ({formato_cop(exc['precio_max'])})"
+    habs = post.get("habitaciones")
+    if exc.get("habitaciones_min") and habs is not None and habs < exc["habitaciones_min"]:
+        return f"menos de {exc['habitaciones_min']:g} habitaciones"
+    banos = post.get("banos")
+    if exc.get("banos_min") and banos is not None and banos < exc["banos_min"]:
+        return f"menos de {exc['banos_min']:g} baños"
     return None
 
 

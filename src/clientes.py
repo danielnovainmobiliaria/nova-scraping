@@ -246,16 +246,20 @@ def agregar_comentario_ia(nombre: str, comentario: str) -> None:
     guardar_lista(lista)
 
 
-def agregar_exclusiones(nombre: str, barrios=None, palabras=None) -> None:
-    """Suma filtros DUROS (barrios/palabras a anular) a un cliente, sin duplicar."""
+def agregar_exclusiones(nombre: str, barrios=None, palabras=None, limites=None) -> None:
+    """Suma filtros DUROS (barrios, palabras y topes numéricos) a un cliente, sin duplicar."""
     barrios = barrios or []
     palabras = palabras or []
+    limites = limites or {}
     lista = cargar_guardados()
     for c in lista:
         if c.get("nombre", "").lower() == nombre.lower():
             exc = c.get("exclusiones") or {}
             exc["barrios"] = list(dict.fromkeys((exc.get("barrios") or []) + barrios))
             exc["palabras"] = list(dict.fromkeys((exc.get("palabras") or []) + palabras))
+            for k, v in limites.items():            # topes: gana el último valor indicado
+                if v is not None:
+                    exc[k] = v
             c["exclusiones"] = exc
     guardar_lista(lista)
 
