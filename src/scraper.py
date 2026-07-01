@@ -155,7 +155,9 @@ def _normalizar(item: dict[str, Any]) -> dict[str, Any] | None:
         "cuenta": item.get("ownerUsername", ""),
         "url": item.get("url", ""),
         "caption": caption,
-        "fecha": (item.get("timestamp") or "")[:10],  # YYYY-MM-DD
+        # YYYY-MM-DD; si Apify no trae la fecha, usa hoy (antes quedaba '' e invisible).
+        "fecha": (item.get("timestamp") or "")[:10]
+                 or datetime.now(timezone.utc).date().isoformat(),
         "imagen": item.get("displayUrl", ""),
         "media": _media(item),
     }

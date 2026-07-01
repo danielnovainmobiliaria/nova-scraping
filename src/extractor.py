@@ -67,7 +67,9 @@ Reglas:
 - Interpreta abreviaturas: "alcobas"/"hab"/"habs" = habitaciones; "mts2"/"m2"/"mtrs" = area_m2;
   "parq"/"gj" = parqueaderos; "admin" = administracion.
 - Precios: "1.500" o "1500" en contexto de arriendo suele ser millones → conviértelo a pesos
-  (1.500.000). "$450M" o "450 millones" en venta = 450000000. Usa tu criterio del mercado bogotano.
+  (1.500.000). "$450M" o "450 millones" en venta = 450000000. En contexto de VENTA, un "$1.900"
+  o "2.300" abreviado suele ser MILES de millones (1.900 = 1900000000). El apóstrofo es separador
+  ("1'900.000.000" = 1900000000). "MM" = millones. Usa tu criterio del mercado bogotano.
 - "operacion": si el texto no lo dice explícito, dedúcelo por el precio. Un canon MENSUAL
   (millones: ej. $3 a $40 millones) es "arriendo"; un precio de cientos o miles de millones
   (ej. $450M, $1.800.000.000) es "venta". Deja null SOLO si no hay ninguna pista.
@@ -157,12 +159,19 @@ Devuelve ÚNICAMENTE un ARRAY JSON válido (sin texto extra, sin ```), un objeto
   "estrato": number|null, "antiguedad_anos": number|null,
   "extras": [string],               // SOLO de: {EXTRAS_VALIDOS}
   "url": string|null,               // link directo al inmueble si aparece en el texto
+  "publicado_hace_dias": number|null, // SI la página dice hace cuánto se publicó el aviso:
+                                    // "Publicado hoy"=0; "ayer"=1; "hace 3 días"=3;
+                                    // "hace 2 semanas"=14; "hace 3 meses"=90. Si no aparece, null.
   "resumen": string                 // una frase corta describiendo el inmueble
 }}]
 
 Reglas:
 - Precios en pesos COP como número entero sin puntos. "$450M"/"450 millones"=450000000;
   "1.900.000.000" tal cual; canon de arriendo en millones (ej. 3.500.000).
+  En VENTA, abreviaturas sin sufijo tipo "$1.900" o "2.300" suelen ser MILES de millones
+  (1.900 = 1900000000); "$1.900M"/"1900 millones" = 1900000000. El apóstrofo es separador
+  ("1'900.000.000" = 1900000000). "MM" = millones.
+- "publicado_hace_dias": SOLO si el texto lo dice explícitamente; NO lo inventes.
 - "operacion": si no es explícita, dedúcela por el precio (millones = arriendo; cientos/miles
   de millones = venta).
 - "antiguedad_anos": "para estrenar"/"sobre planos"/"obra nueva"=0; "X años"=X; si no, null.

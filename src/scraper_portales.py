@@ -8,7 +8,7 @@ cualquier sitio (Metrocuadrado, Fincaraíz, webs de agencias, etc.).
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 from apify_client import ApifyClient
@@ -26,13 +26,34 @@ def _dominio(url: str) -> str:
 
 
 def _id_inmueble(d: dict, pagina_url: str) -> str:
-    """ID estable: por el link del inmueble, o por su 'huella' (barrio+precio+área)."""
+    """ID estable del inmueble.
+
+    - Con link propio: el link normalizado (sin parámetros ni / final).
+    - Sin link: huella por dominio + barrio + área + habitaciones + baños + dirección.
+      OJO: sin precio ni página, para que una rebaja o el cambio de página NO lo
+      dupliquen (el registro existente se actualiza en vez de crear otro).
+    """
     link = (d.get("url") or "").strip()
     if link:
-        base = link
+        base = link.split("?")[0].split("#")[0].rstrip("/").lower()
     else:
-        base = f"{pagina_url}|{d.get('barrio')}|{d.get('precio')}|{d.get('area_m2')}|{d.get('habitaciones')}"
+        barrio = str(d.get("barrio") or "").strip().lower()
+        base = (f"{_dominio(pagina_url)}|{barrio}|{d.get('area_m2')}|"
+                f"{d.get('habitaciones')}|{d.get('banos')}|{d.get('direccion')}")
     return "portal_" + hashlib.md5(base.encode("utf-8")).hexdigest()[:18]
+
+
+def _fecha_publicacion(d: dict, hoy) -> tuple[str, bool]:
+    """(fecha, es_estimada): la fecha real si el portal dice 'publicado hace X días';
+    si no la dice, el día en que lo vimos por primera vez (estimada)."""
+    dias = d.get("publicado_hace_dias")
+    try:
+        dias = int(dias) if dias is not None else None
+    except (TypeError, ValueError):
+        dias = None
+    if dias is not None and 0 <= dias <= 3650:
+        return (hoy - timedelta(days=dias)).isoformat(), False
+    return hoy.isoformat(), True
 
 
 def scrapear_portales(urls: list[str], log=print, max_paginas: int | None = None) -> int:
@@ -65,7 +86,8 @@ def scrapear_portales(urls: list[str], log=print, max_paginas: int | None = None
     if run is None or not run.default_dataset_id:
         raise RuntimeError("El lector de portales no devolvió resultados.")
 
-    hoy = datetime.now(timezone.utc).date().isoformat()
+    hoy_dt = datetime.now(timezone.utc).date()
+    hoy = hoy_dt.isoformat()
     nuevos = 0
     for item in cliente.dataset(run.default_dataset_id).iterate_items():
         pagina_url = item.get("url", "")
@@ -78,13 +100,17 @@ def scrapear_portales(urls: list[str], log=print, max_paginas: int | None = None
         for d in inmuebles:
             link = (d.get("url") or "").strip() or pagina_url
             pid = _id_inmueble(d, pagina_url)
+            fecha, estimada = _fecha_publicacion(d, hoy_dt)
+            d["fecha_estimada"] = estimada   # la UI lo muestra como "visto el", no "publicado"
             antes = db.contar_posts()
             db.guardar_post({
                 "id": pid, "cuenta": fuente, "url": link,
                 "caption": (d.get("resumen") or "")[:500],
-                "fecha": hoy, "imagen": "", "media": [],
+                "fecha": fecha, "imagen": "", "media": [],
             })
-            db.guardar_extraccion(pid, d)
+            db.guardar_extraccion(pid, d)   # actualiza datos (ej. precio rebajado) sin duplicar
+            if not estimada:
+                db.actualizar_fecha(pid, fecha)  # corrige la fecha si ahora sí la conocemos
             if db.contar_posts() > antes:
                 nuevos += 1
 

@@ -47,11 +47,19 @@ def cargar_clientes(ruta: str | Path) -> list[dict[str, Any]]:
     df = pd.read_excel(ruta)
     df.columns = [str(c).strip().lower() for c in df.columns]
 
+    def _vacio(v: Any) -> bool:
+        return v is None or (isinstance(v, float) and pd.isna(v)) or str(v).strip() in ("", "nan")
+
     clientes: list[dict[str, Any]] = []
     for _, fila in df.iterrows():
         nombre = str(fila.get("nombre", "")).strip()
         if not nombre or nombre.lower() == "nan":
             continue
+        # El backup de la app exporta la columna 'presupuesto' (texto formateado);
+        # acéptala como respaldo de 'presupuesto_max' para que restaurar no lo pierda.
+        presupuesto = fila.get("presupuesto_max")
+        if _vacio(presupuesto):
+            presupuesto = fila.get("presupuesto")
         clientes.append(
             {
                 "nombre": nombre,
@@ -69,7 +77,7 @@ def cargar_clientes(ruta: str | Path) -> list[dict[str, Any]]:
                 "zona": str(fila.get("zona", "")).strip(),
                 "area_min": _numero(fila.get("area_min")),
                 "area_max": _numero(fila.get("area_max")),
-                "presupuesto_max": _numero(fila.get("presupuesto_max")),
+                "presupuesto_max": _numero(presupuesto),
                 "habitaciones_min": _numero(fila.get("habitaciones_min")),
                 "banos_min": _numero(fila.get("banos_min")),
                 "extras": [e.lower() for e in _lista(fila.get("extras"))],

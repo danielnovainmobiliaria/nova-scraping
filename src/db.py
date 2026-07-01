@@ -112,6 +112,13 @@ def actualizar_media(post_id: str, media: list) -> None:
         )
 
 
+def actualizar_fecha(post_id: str, fecha: str) -> None:
+    """Corrige la fecha de un post (ej. cuando el portal sí dice cuándo se publicó)."""
+    with _conn() as con:
+        con.execute(text("UPDATE posts SET fecha = :f WHERE id = :id"),
+                    {"f": fecha, "id": post_id})
+
+
 def eliminar_post(post_id: str) -> None:
     """Borra un inmueble de la base (p.ej. uno ingresado manualmente)."""
     with _conn() as con:
@@ -201,11 +208,21 @@ def leer_clientes() -> list[dict[str, Any]]:
 
 
 def guardar_clientes(lista: list[dict[str, Any]]) -> None:
-    """Reemplaza toda la lista de clientes (de forma atómica)."""
-    # Quita duplicados por nombre conservando el último.
+    """Reemplaza toda la lista de clientes (de forma atómica).
+
+    Si dos entradas comparten nombre, se FUSIONAN (antes se pisaban y una
+    desaparecía en silencio con todo su seguimiento).
+    """
     unicos: dict[str, dict[str, Any]] = {}
     for c in lista:
-        unicos[c.get("nombre", "").strip().lower()] = c
+        k = c.get("nombre", "").strip().lower()
+        if k in unicos:
+            from . import clientes as _cl   # import perezoso (evita ciclo)
+            base, otro = ((unicos[k], c) if _cl._completitud(unicos[k]) >= _cl._completitud(c)
+                          else (c, unicos[k]))
+            unicos[k] = _cl._fusionar_dos(dict(base), otro)
+        else:
+            unicos[k] = c
     with _conn() as con:
         con.execute(text("DELETE FROM clientes"))
         for c in unicos.values():

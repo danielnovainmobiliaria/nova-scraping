@@ -69,6 +69,48 @@ def es_portal_post(p) -> bool:
     return str(p.get("id", "")).startswith("portal_")
 
 
+def huella_inmueble(p) -> str | None:
+    """'Huella' del inmueble (barrio+área+hab+precio) para reconocer el MISMO
+    apartamento visto en varias fuentes (Instagram y un portal, por ejemplo)."""
+    barrio = mod_clientes._norm_nombre(str(p.get("barrio") or ""))
+    area, precio = p.get("area_m2"), p.get("precio")
+    if not barrio or not area or not precio:
+        return None            # sin datos suficientes no se puede agrupar con confianza
+    habs = p.get("habitaciones")
+    return f"{barrio}|{round(float(area))}|{habs if habs is not None else '?'}|{int(precio)}"
+
+
+def dedup_posts(posts):
+    """Colapsa copias del mismo inmueble (misma huella) en una sola tarjeta.
+
+    Se queda con la mejor copia (con fotos/videos > con más datos > más reciente) y
+    recuerda los ids gemelos para que un descarte oculte TODAS las copias.
+    """
+    grupos: dict = {}
+    orden: list = []
+    for i, p in enumerate(posts):
+        h = huella_inmueble(p) or f"__unico_{i}"
+        if h not in grupos:
+            grupos[h] = []
+            orden.append(h)
+        grupos[h].append(p)
+    out = []
+    for h in orden:
+        g = grupos[h]
+        if len(g) == 1:
+            p = g[0]
+        else:
+            p = dict(max(g, key=lambda x: (bool(x.get("media")),
+                                           sum(1 for v in x.values() if v not in (None, "", [])),
+                                           str(x.get("fecha") or ""))))
+            otras = sorted({x.get("cuenta", "") for x in g if x.get("cuenta")} - {p.get("cuenta", "")})
+            if otras:
+                p["otras_fuentes"] = otras
+        p["ids_gemelos"] = [x.get("id") for x in g]
+        out.append(p)
+    return out
+
+
 def fuente_post(p) -> str:
     """Etiqueta de la fuente del inmueble (con ícono según sea red o portal)."""
     if es_portal_post(p):
@@ -105,6 +147,8 @@ def proceso_de(p: dict, estado: str, observaciones: str = "") -> dict:
     """Crea la ficha de seguimiento de un inmueble que se mueve para un cliente."""
     return {
         "post_id": p.get("id"),
+        "ids_gemelos": p.get("ids_gemelos") or [p.get("id")],
+        "huella": huella_inmueble(p),   # para ocultar también las copias en otras fuentes
         "resumen": p.get("resumen") or (p.get("caption", "")[:60]),
         "barrio": p.get("barrio", ""),
         "precio": p.get("precio"),
@@ -842,6 +886,15 @@ with tab_clientes:
                 e_notas = st.text_input("Notas", value=cliente_e.get("notas", ""))
                 if st.form_submit_button("💾 Guardar cambios", type="primary"):
                     clientes = mod_clientes.cargar_guardados()
+                    colision = any(
+                        c.get("nombre") != sel and
+                        mod_clientes._norm_nombre(c.get("nombre", "")) ==
+                        mod_clientes._norm_nombre(e_nombre)
+                        for c in clientes)
+                    if colision:
+                        st.error(f"Ya existe otro cliente llamado «{e_nombre.strip()}». "
+                                 "Usa un nombre distinto (ej. agrega el apellido) para no mezclarlos.")
+                        st.stop()
                     for c in clientes:
                         if c.get("nombre") == sel:
                             c["nombre"] = e_nombre.strip()
@@ -942,8 +995,11 @@ with tab_clientes:
         archivo = st.file_uploader("Sube tu copia (.xlsx)", type=["xlsx"])
         if archivo is not None and st.button("Restaurar ahora"):
             try:
-                mod_clientes.guardar_lista(mod_clientes.cargar_clientes(archivo))
-                st.success("¡Restaurado!")
+                # Conserva el seguimiento CRM (procesos, exclusiones, comisiones) de los
+                # clientes que ya existían: el Excel solo trae los requerimientos.
+                mod_clientes.guardar_lista(
+                    mod_clientes.fusionar_crm(mod_clientes.cargar_clientes(archivo)))
+                st.success("¡Restaurado! (El seguimiento CRM de tus clientes se conservó.)")
                 refrescar_hoja_clientes()
                 st.rerun()
             except Exception as e:  # noqa: BLE001
@@ -994,6 +1050,10 @@ with tab_resultados:
             return d <= limite
 
         posts = [p for p in posts if _pasa_frescura(p)]
+        # El mismo inmueble visto en varias fuentes (IG + portal) se muestra UNA vez.
+        n_antes = len(posts)
+        posts = dedup_posts(posts)
+        n_duplicados = n_antes - len(posts)
         c1, c2, c3, c4 = st.columns(4)
         score_min = c1.slider("Coincidencia mínima (%)", 0, 100, 50, 5,
                               help="Sube el valor para ver solo los matches más fuertes.")
@@ -1012,21 +1072,30 @@ with tab_resultados:
             piso_precio=piso_precio / 100,
         )
 
-        # Ocultar inmuebles que ya están en el embudo de seguimiento del cliente.
+        # Ocultar inmuebles que ya están en el embudo de seguimiento del cliente
+        # (por id, por sus copias gemelas en otras fuentes, y por huella).
         ocultos = {c["nombre"]: mod_clientes.ids_en_proceso(c) for c in clientes}
+        huellas_oc = {c["nombre"]: {pr.get("huella") for pr in (c.get("procesos") or [])
+                                    if pr.get("huella")} for c in clientes}
         aprendizajes = {c["nombre"]: mod_clientes.aprendizajes_cliente(c) for c in clientes}
         oblig_map = {c["nombre"]: (c.get("obligatorios") or []) for c in clientes}
         flex_map = {c["nombre"]: (c.get("flexibilidad") or "medio") for c in clientes}
         com_map = {c["nombre"]: (c.get("comentarios_ia") or []) for c in clientes}
         cli_map = {c["nombre"]: c for c in clientes}
         for nombre in list(resultados):
+            ids_oc = ocultos.get(nombre, set())
+            h_oc = huellas_oc.get(nombre, set())
             resultados[nombre] = [
                 m for m in resultados[nombre]
-                if m["post"].get("id") not in ocultos.get(nombre, set())
+                if not (set(m["post"].get("ids_gemelos") or [m["post"].get("id")]) & ids_oc)
+                and (huella_inmueble(m["post"]) not in h_oc
+                     if huella_inmueble(m["post"]) else True)
             ]
 
         total = sum(len(v) for v in resultados.values())
-        st.caption(f"{len(posts)} publicaciones analizadas · {total} coincidencias pendientes "
+        st.caption(f"{len(posts)} publicaciones analizadas"
+                   + (f" · {n_duplicados} duplicado(s) entre fuentes unificados" if n_duplicados else "")
+                   + f" · {total} coincidencias pendientes "
                    "(los que marcas como enviados o descartados desaparecen).")
         st.caption(f"Ventana de frescura: 🏷️ venta = {dias_venta} días · 🔑 arriendo = "
                    f"{dias_arriendo} días (los arriendos se toman más rápido). "
@@ -1168,14 +1237,24 @@ with tab_resultados:
                         if p.get("habitaciones") is not None: info.append(f"{p['habitaciones']:g} hab")
                         if p.get("banos") is not None: info.append(f"{p['banos']:g} baños")
                         st.caption(" · ".join(info))
-                        frescura = badge_frescura(p.get("fecha"))
-                        if frescura:
-                            st.markdown(f"**{frescura}**")
+                        if p.get("fecha_estimada"):
+                            d_visto = dias_publicado(p.get("fecha"))
+                            st.markdown(f"**👁️ En el portal, visto hace "
+                                        f"{d_visto if d_visto is not None else '?'} día(s)** "
+                                        "· el aviso no muestra su fecha real de publicación")
+                        else:
+                            frescura = badge_frescura(p.get("fecha"))
+                            if frescura:
+                                st.markdown(f"**{frescura}**")
+                        if p.get("otras_fuentes"):
+                            st.caption("♻️ También publicado en: " + ", ".join(p["otras_fuentes"]))
                         if m["razones_ok"]:
                             st.markdown("✅ " + " · ".join(m["razones_ok"]))
                         if m["razones_no"]:
                             st.markdown("⚠️ " + " · ".join(m["razones_no"]))
-                        st.caption(f"Fuente (solo tú): {fuente_post(p)} · publicado {p.get('fecha', '')}")
+                        st.caption(f"Fuente (solo tú): {fuente_post(p)} · "
+                                   + ("visto el " if p.get("fecha_estimada") else "publicado ")
+                                   + str(p.get("fecha", "")))
                         # Foto de portada (vista previa)
                         if p.get("imagen"):
                             st.image(p["imagen"], width=260)
