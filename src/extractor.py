@@ -178,15 +178,23 @@ def extraer_inmuebles_pagina(texto: str, fuente: str = "", log=print) -> list[di
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     try:
         msg = client.messages.create(
-            model=config.ANTHROPIC_MODEL, max_tokens=4000,
+            model=config.ANTHROPIC_MODEL, max_tokens=8000,
             system=SYSTEM_PORTAL,
-            messages=[{"role": "user", "content": texto.strip()[:14000]}],
+            messages=[{"role": "user", "content": texto.strip()[:16000]}],
         )
         t = msg.content[0].text.strip()
         if t.startswith("```"):
             t = t.strip("`")
-            t = t[t.find("["): t.rfind("]") + 1]
-        datos = json.loads(t)
+        if "[" in t:
+            t = t[t.find("["):]
+        try:
+            datos = json.loads(t if t.rstrip().endswith("]") else t[:t.rfind("]") + 1])
+        except json.JSONDecodeError:
+            # Rescate: si la respuesta se cortó, conserva los inmuebles completos.
+            corte = t.rfind("},")
+            if corte <= 0:
+                raise
+            datos = json.loads(t[:corte + 1] + "]")
     except Exception as e:  # noqa: BLE001
         log(f"  ⚠️ No se pudo leer una página de {fuente}: {e}")
         return []
