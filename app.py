@@ -1225,7 +1225,14 @@ with tab_resultados:
                                 mod_clientes.agregar_proceso(
                                     nombre, proceso_de(p, "descartado", obs))
                                 if obs.strip():
-                                    af = aplicar_exclusiones_de_texto(nombre, obs, cli_map.get(nombre))
+                                    # Le damos a la IA los datos del inmueble descartado como
+                                    # referencia (así "muy grande/pequeño/caro" se vuelve un tope).
+                                    ctx = (f"El inmueble que descartó tenía: "
+                                           f"{p.get('area_m2') or '?'} m², {p.get('habitaciones') or '?'} hab, "
+                                           f"{matcher.formato_cop(p.get('precio')) or 'precio n/d'}, "
+                                           f"barrio {p.get('barrio') or '?'}. "
+                                           f"Motivo por el que NO le sirvió: {obs.strip()}")
+                                    af = aplicar_exclusiones_de_texto(nombre, ctx, cli_map.get(nombre))
                                     recalcular_preferencias(nombre)
                                     dur = []
                                     if af["excluir_barrios"]:

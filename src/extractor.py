@@ -465,6 +465,10 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin texto extra, sin ```), con esta
                                 // "solo casas" -> "casa". null si no lo menciona.
   "resumen": string            // frase corta en español de lo que entendiste y vas a anular.
 }
+Si el broker DESCARTA un inmueble de referencia por ser "muy grande/pequeño/caro/barato", usa
+los datos de ese inmueble como límite, pero PON EL TOPE UN POCO POR DENTRO para que ese mismo
+inmueble y los similares queden fuera. Ej: descartó uno de 300 m² por muy grande -> area_max 290;
+descartó uno de $2.500M por muy caro -> precio_max ~2.400.000.000.
 Reglas: incluye SOLO exclusiones CLARAS que el broker pide quitar. Para "limites", llena solo
 los topes que el broker mencione y deja el resto en null. "metros"/"m2"/"mts" = área;
 distingue área (decenas/cientos) de precio (millones/miles de millones). Si el comentario es una

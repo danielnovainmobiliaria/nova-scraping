@@ -187,11 +187,23 @@ def _factor_precio(precio: float, presupuesto: float, flex: float, piso: float
     return 1.0, f"{formato_cop(precio)} acorde al presupuesto", True
 
 
-def _factor_area(area: float, a_min: float | None, a_max: float | None, flex: float
+# Si el cliente da solo un mínimo de área, este factor fija un techo razonable
+# (evita que "sobre los 120 m²" muestre inmuebles de 400 m²).
+AREA_TECHO_IMPLICITO = 1.6
+
+
+def _rango_area(cliente: dict[str, Any]) -> tuple[float, float]:
+    """Rango [lo, hi] de metraje deseado, con techo sensato si falta el máximo."""
+    amin = cliente.get("area_min")
+    amax = cliente.get("area_max")
+    lo = amin if amin else (amax * 0.6 if amax else 0.0)
+    hi = amax if amax else (amin * AREA_TECHO_IMPLICITO if amin else 1e9)
+    return lo, hi
+
+
+def _factor_area(area: float, lo: float, hi: float, flex: float
                  ) -> tuple[float, str, bool]:
-    """Compara metraje vs rango pedido de forma flexible."""
-    lo = a_min if a_min else 0.0
-    hi = a_max if a_max else 1e9
+    """Compara metraje vs rango [lo, hi] deseado de forma flexible."""
     if lo <= area <= hi:
         return 1.0, f"{area:g} m² dentro del rango", True
     # Distancia relativa por fuera del rango.
@@ -227,9 +239,11 @@ def _falla_obligatorio(cliente: dict[str, Any], post: dict[str, Any]) -> str | N
         if pr and pc and pc > pr:
             return "presupuesto"
     if "metraje" in oblig:
-        a, amin, amax = post.get("area_m2"), cliente.get("area_min"), cliente.get("area_max")
-        if a and (amin or amax) and not ((amin or 0) <= a <= (amax or 1e9)):
-            return "metraje"
+        a = post.get("area_m2")
+        if a and (cliente.get("area_min") or cliente.get("area_max")):
+            lo, hi = _rango_area(cliente)
+            if not (lo <= a <= hi):
+                return "metraje"
     if "barrio" in oblig:
         p_ubi, _ = _match_ubicacion(cliente, post)
         if p_ubi < 0.8:
@@ -454,7 +468,11 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
     a_max = cliente.get("area_max")
     peso_total += 20
     if area and (a_min or a_max):
-        factor, razon, ok = _factor_area(area, a_min, a_max, flex_area)
+        lo, hi = _rango_area(cliente)
+        # Metraje desproporcionado (ej. 400 m² para quien pide ~120): otro producto.
+        if hi < 1e9 and area > hi * 1.5:
+            return None
+        factor, razon, ok = _factor_area(area, lo, hi, flex_area)
         puntaje += 20 * factor
         (razones_ok if ok else razones_no).append(razon)
     else:
