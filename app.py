@@ -974,11 +974,21 @@ with tab_resultados:
     else:
         st.caption("Ajusta qué tan flexible quieres ser. La búsqueda muestra "
                    "opciones **similares**, no solo idénticas.")
-        dias_max = st.slider("📅 Frescura máxima (días desde publicado)", 7, 180, 30, 1,
-                             help="Solo muestra inmuebles publicados en los últimos N días. "
-                                  "Por defecto 30 (lo acordado). Súbelo solo si quieres ver más antiguos.")
-        posts = [p for p in posts
-                 if (dias_publicado(p.get("fecha")) is None or dias_publicado(p.get("fecha")) <= dias_max)]
+        fcol1, fcol2 = st.columns(2)
+        dias_venta = fcol1.slider("📅 Frescura VENTA (días)", 7, 180, 30, 1,
+                                  help="Muestra inmuebles EN VENTA publicados en los últimos N días.")
+        dias_arriendo = fcol2.slider("📅 Frescura ARRIENDO (días)", 3, 90, 20, 1,
+                                     help="Los arriendos se toman más rápido: por defecto 20 días.")
+
+        def _pasa_frescura(p):
+            d = dias_publicado(p.get("fecha"))
+            if d is None:
+                return True
+            op = matcher._inferir_operacion(p)      # explícita o deducida por precio
+            limite = dias_arriendo if op == "arriendo" else dias_venta
+            return d <= limite
+
+        posts = [p for p in posts if _pasa_frescura(p)]
         c1, c2, c3, c4 = st.columns(4)
         score_min = c1.slider("Coincidencia mínima (%)", 0, 100, 50, 5,
                               help="Sube el valor para ver solo los matches más fuertes.")
@@ -1013,8 +1023,9 @@ with tab_resultados:
         total = sum(len(v) for v in resultados.values())
         st.caption(f"{len(posts)} publicaciones analizadas · {total} coincidencias pendientes "
                    "(los que marcas como enviados o descartados desaparecen).")
-        st.caption("Frescura del aviso: 🟢 reciente (≤7 días, más fácil de conseguir) · "
-                   "🟡 unas semanas · 🔴 más viejo (puede estar ya tomado).")
+        st.caption(f"Ventana de frescura: 🏷️ venta = {dias_venta} días · 🔑 arriendo = "
+                   f"{dias_arriendo} días (los arriendos se toman más rápido). "
+                   "Semáforo: 🟢 reciente (≤7 días) · 🟡 unas semanas · 🔴 más viejo.")
         st.caption("Cada cliente muestra primero lo MÁS afín a su requerimiento. Afinidad: "
                    "🟢 muy afín (≥85%) · 🟡 afín (≥70%) · 🟠 menos afín (más lejos de lo pedido).")
 
