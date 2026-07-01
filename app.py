@@ -64,6 +64,18 @@ def badge_frescura(fecha_iso: str) -> str:
 UMBRAL_AFIN = 70
 
 
+def es_portal_post(p) -> bool:
+    """True si el inmueble vino de un portal/sitio web (no de Instagram)."""
+    return str(p.get("id", "")).startswith("portal_")
+
+
+def fuente_post(p) -> str:
+    """Etiqueta de la fuente del inmueble (con ícono según sea red o portal)."""
+    if es_portal_post(p):
+        return f"🏠 {p.get('cuenta', 'portal')}"
+    return f"📷 @{p.get('cuenta', '')}"
+
+
 def badge_afinidad(score: int) -> str:
     """Etiqueta de qué tan cerca está el inmueble del requerimiento del cliente."""
     if score >= 85:
@@ -987,13 +999,17 @@ with tab_resultados:
         resumen = []
         for nombre, matches in resultados.items():
             n = len(matches)
+            n_portal = sum(1 for m in matches if es_portal_post(m["post"]))
+            n_ig = n - n_portal
             resumen.append({
                 "Cliente": nombre,
                 "Perfil": BADGE_FLEX.get(flex_map.get(nombre, "medio"), "⚖️ Medio"),
-                "Inmuebles potenciales": n,
+                "📷 Instagram": n_ig,
+                "🏠 Portales": n_portal,
+                "Total": n,
                 "Cobertura": "🔴 Buscar más" if n == 0 else ("🟡 Pocos" if n <= 2 else "🟢 Bien cubierto"),
             })
-        resumen.sort(key=lambda r: r["Inmuebles potenciales"])  # los más flojos primero
+        resumen.sort(key=lambda r: r["Total"])  # los más flojos primero
         with st.expander("📋 Cobertura por cliente (cuántos inmuebles potenciales hay)", expanded=True):
             st.dataframe(pd.DataFrame(resumen), hide_index=True, use_container_width=True)
             st.caption("Ordenado de menos a más. Los 🔴/🟡 son a quienes conviene "
@@ -1006,6 +1022,10 @@ with tab_resultados:
                 st.caption(f"Perfil de búsqueda: **{ETIQUETA_FLEX.get(perfil, perfil)}**"
                            + ("  ·  con este perfil solo verás inmuebles muy acertados."
                               if perfil == "estricto" else ""))
+                _n_portal = sum(1 for m in matches if es_portal_post(m["post"]))
+                _n_ig = len(matches) - _n_portal
+                st.markdown(f"**Scraping para este cliente:** 📷 Instagram: **{_n_ig}**  ·  "
+                            f"🏠 Portales: **{_n_portal}**")
                 oblig = oblig_map.get(nombre, [])
                 if oblig:
                     st.info("🔒 No negociable (filtra duro): "
@@ -1121,7 +1141,7 @@ with tab_resultados:
                             st.markdown("✅ " + " · ".join(m["razones_ok"]))
                         if m["razones_no"]:
                             st.markdown("⚠️ " + " · ".join(m["razones_no"]))
-                        st.caption(f"Fuente (solo tú): @{p.get('cuenta', '')} · publicado {p.get('fecha', '')}")
+                        st.caption(f"Fuente (solo tú): {fuente_post(p)} · publicado {p.get('fecha', '')}")
                         # Foto de portada (vista previa)
                         if p.get("imagen"):
                             st.image(p["imagen"], width=260)
