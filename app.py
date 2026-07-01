@@ -333,12 +333,24 @@ with tab_fuentes:
         st.success(f"Guardadas {len(cuentas)} cuenta(s).")
 
     cuentas_guardadas = config.leer_cuentas()
-    if cuentas_guardadas:
-        with st.expander(f"🔗 Abrir perfiles ({len(cuentas_guardadas)}) para revisar a mano",
+    try:
+        _restr_urls = json.loads(db.leer_meta("cuentas_restringidas") or "[]")
+    except json.JSONDecodeError:
+        _restr_urls = []
+    restringidas_us = {config._solo_usuario(u) for u in _restr_urls if u}
+    # Incluye los perfiles restringidos aunque ya no estén en la lista configurada.
+    perfiles_abrir = list(dict.fromkeys(
+        list(cuentas_guardadas) + [u for u in restringidas_us if u and u not in cuentas_guardadas]))
+    if perfiles_abrir:
+        n_restr = sum(1 for c in perfiles_abrir if c in restringidas_us)
+        with st.expander(f"🔗 Abrir perfiles ({len(perfiles_abrir)}) para revisar a mano",
                          expanded=False):
-            st.caption("Clic en un perfil para abrirlo en Instagram y buscar manualmente.")
+            st.caption("Clic en un perfil para abrirlo en Instagram y buscar manualmente."
+                       + (f"  ·  ⚠️ = Instagram no lo dejó leer ({n_restr}); estos son los que más "
+                          "conviene revisar aquí." if n_restr else ""))
             st.markdown(" · ".join(
-                f"[@{c}](https://www.instagram.com/{c}/)" for c in cuentas_guardadas))
+                f"[@{c}{' ⚠️' if c in restringidas_us else ''}](https://www.instagram.com/{c}/)"
+                for c in perfiles_abrir))
 
     st.divider()
     st.subheader("🏠 Portales y sitios web")
