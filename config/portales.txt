@@ -1,7 +1,10 @@
 # Portales / sitios web a leer (una URL por línea)
-# Ideal: pega la URL de una BÚSQUEDA filtrada (ej. apartamentos en venta, zona norte),
-# no solo la página principal. Edítalas desde la app en la pestaña 1️⃣ Fuentes.
-https://www.metrocuadrado.com/
+# Pega URLs de BÚSQUEDA filtrada (no la página principal). En el portal filtras
+# lo que buscas (tipo, zona, precio) y copias el link de esa búsqueda.
+# ── Metrocuadrado (probado, funciona muy bien) ──
+https://www.metrocuadrado.com/apartamentos/venta/bogota/
+https://www.metrocuadrado.com/apartamentos/arriendo/bogota/
+# ── Otros sitios (mejor si pegas una búsqueda concreta) ──
 https://www.fincaraiz.com.co/
 https://inmobiliariaaldana.com/
 https://www.myhome.com.co/

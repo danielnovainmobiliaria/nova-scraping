@@ -57,6 +57,7 @@ def scrapear_portales(urls: list[str], log=print, max_paginas: int | None = None
         "maxCrawlDepth": 0,                    # solo las páginas pegadas (predecible y barato)
         "crawlerType": "playwright:firefox",   # navegador real (portales con JavaScript)
         "saveMarkdown": True,
+        "dynamicContentWaitSecs": 20,          # espera a que carguen los avisos (JS)
         "proxyConfiguration": {"useApifyProxy": True},
     }
     log(f"Abriendo {len(urls)} portal(es) con navegador… (tope {max_paginas} páginas)")
