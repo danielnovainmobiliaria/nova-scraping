@@ -132,6 +132,29 @@ def recalcular_preferencias(nombre: str) -> None:
         pass
 
 
+def aplicar_exclusiones_de_texto(nombre: str, texto: str, cliente=None) -> dict:
+    """Interpreta un texto (comentario o motivo de descarte) y aplica sus FILTROS DUROS
+    (barrios, palabras, topes numéricos, antigüedad) al cliente. Devuelve lo que entendió.
+
+    Así, lo que el broker escribe al descartar o afinar ANULA inmuebles similares —los
+    actuales y los que lleguen— no solo les baja el puntaje.
+    """
+    vacio = {"excluir_barrios": [], "excluir_palabras": [], "limites": {},
+             "tipo": None, "resumen": ""}
+    if not config.ANTHROPIC_API_KEY or not (texto or "").strip():
+        return vacio
+    try:
+        from src import extractor
+        af = extractor.interpretar_afinacion(texto.strip(), cliente)
+        if af["excluir_barrios"] or af["excluir_palabras"] or af["limites"] or af.get("tipo"):
+            mod_clientes.agregar_exclusiones(
+                nombre, af["excluir_barrios"], af["excluir_palabras"],
+                af["limites"], af.get("tipo"))
+        return af
+    except Exception:  # noqa: BLE001
+        return vacio
+
+
 # Etiquetas visuales de los estados del embudo de seguimiento.
 ESTADO_PROCESO_EMOJI = {
     "enviado": "📤 Enviado", "agendado": "📅 Agendado", "visitado": "👀 Visitado",
@@ -1089,13 +1112,8 @@ with tab_resultados:
                         elif not txt.strip():
                             st.warning("Escribe un comentario primero.")
                         else:
-                            from src import extractor
-                            af = extractor.interpretar_afinacion(txt.strip(), cli_map.get(nombre))
                             mod_clientes.agregar_comentario_ia(nombre, txt.strip())
-                            if af["excluir_barrios"] or af["excluir_palabras"] or af["limites"] or af.get("tipo"):
-                                mod_clientes.agregar_exclusiones(
-                                    nombre, af["excluir_barrios"], af["excluir_palabras"],
-                                    af["limites"], af.get("tipo"))
+                            af = aplicar_exclusiones_de_texto(nombre, txt, cli_map.get(nombre))
                             recalcular_preferencias(nombre)   # ajuste suave (priorizar/penalizar)
                             st.session_state[f"afin_res_{nombre}"] = (
                                 af["resumen"] or "Lo tomé en cuenta para afinar la búsqueda.")
@@ -1182,17 +1200,35 @@ with tab_resultados:
                             st.session_state["cliente_abierto"] = nombre
                             st.rerun()
                         with st.popover("🚫 Descartar", use_container_width=True):
+                            st.caption("Escribe **por qué** no le sirvió. La IA lo convierte en filtro "
+                                       "para este cliente y **anula inmuebles parecidos** (los de "
+                                       "ahora y los que lleguen). Ej: *«primer piso»*, *«nada después "
+                                       "de la 100»*, *«muy pequeño, menos de 100 m²»*, *«es casa, "
+                                       "busca apto»*.")
                             obs = st.text_input(
-                                "¿Por qué no le sirvió? (opcional)",
+                                "¿Por qué no le sirvió?",
                                 key=f"obsdesc_{nombre}_{p.get('id','x')}",
-                                placeholder="ej: muy oscuro, sin parqueadero, piso bajo…")
+                                placeholder="ej: primer piso · sin parqueadero · muy lejos · muy pequeño")
                             if st.button("Confirmar descarte",
                                          key=f"cdesc_{nombre}_{p.get('id','x')}"):
                                 mod_clientes.agregar_proceso(
                                     nombre, proceso_de(p, "descartado", obs))
                                 if obs.strip():
+                                    af = aplicar_exclusiones_de_texto(nombre, obs, cli_map.get(nombre))
                                     recalcular_preferencias(nombre)
-                                st.toast(f"🚫 Descartado para {nombre}")
+                                    dur = []
+                                    if af["excluir_barrios"]:
+                                        dur.append("barrios: " + ", ".join(af["excluir_barrios"]))
+                                    if af["excluir_palabras"]:
+                                        dur.append("palabras: " + ", ".join(af["excluir_palabras"]))
+                                    if af["limites"]:
+                                        dur.append("topes")
+                                    if af.get("tipo"):
+                                        dur.append(f"solo {af['tipo']}")
+                                    st.toast("🚫 Descartado. " + ("🔒 Filtro aplicado — "
+                                             + " · ".join(dur) if dur else "Lo tendré en cuenta."))
+                                else:
+                                    st.toast(f"🚫 Descartado para {nombre}")
                                 st.session_state["cliente_abierto"] = nombre
                                 st.rerun()
                     st.divider()
