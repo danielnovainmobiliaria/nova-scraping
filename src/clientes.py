@@ -5,6 +5,7 @@ requerimientos del cliente, listo para el motor de cruce.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -55,7 +56,12 @@ def cargar_clientes(ruta: str | Path) -> list[dict[str, Any]]:
             {
                 "nombre": nombre,
                 "telefono": "".join(ch for ch in str(fila.get("telefono", "")) if ch.isdigit()),
-                "operacion": str(fila.get("operacion", "")).strip().lower(),
+                # 'compra' → 'venta', 'alquiler' → 'arriendo' (como venga de Zoho).
+                "operacion": {"compra": "venta", "comprar": "venta", "alquiler": "arriendo",
+                              "alquilar": "arriendo", "renta": "arriendo",
+                              "arrendar": "arriendo"}.get(
+                    str(fila.get("operacion", "")).strip().lower(),
+                    str(fila.get("operacion", "")).strip().lower()),
                 "flexibilidad": (str(fila.get("flexibilidad", "")).strip().lower()
                                  if str(fila.get("flexibilidad", "")).strip().lower()
                                  in ("estricto", "medio", "flexible") else "medio"),
@@ -290,6 +296,22 @@ def _completitud(c: dict[str, Any]) -> int:
     return n
 
 
+def _unir_listas(la: list, lb: list) -> list:
+    """Une dos listas sin duplicar, soportando listas de fichas (dicts).
+
+    'procesos' es una lista de dicts (no hashables): se une por post_id.
+    Las listas de textos/números se unen conservando el orden.
+    """
+    if any(isinstance(x, dict) for x in [*la, *lb]):
+        vistos: dict[str, Any] = {}
+        for x in [*la, *lb]:
+            clave = (x.get("post_id") or json.dumps(x, sort_keys=True, ensure_ascii=False)
+                     if isinstance(x, dict) else str(x))
+            vistos.setdefault(clave, x)
+        return list(vistos.values())
+    return list(dict.fromkeys([*la, *lb]))
+
+
 def _fusionar_dos(base: dict[str, Any], otro: dict[str, Any]) -> dict[str, Any]:
     """Fusiona 'otro' dentro de 'base' (base es el más completo y manda en empates)."""
     out = dict(base)
@@ -298,10 +320,14 @@ def _fusionar_dos(base: dict[str, Any], otro: dict[str, Any]) -> dict[str, Any]:
         if isinstance(actual, list) or isinstance(v, list):
             la = actual if isinstance(actual, list) else ([] if actual in (None, "") else [actual])
             lb = v if isinstance(v, list) else ([] if v in (None, "") else [v])
-            out[k] = list(dict.fromkeys([*la, *lb]))   # une sin duplicar, conserva orden
+            out[k] = _unir_listas(la, lb)              # une sin duplicar (soporta fichas CRM)
         elif k in ("notas", "notas_crm"):
             partes = [str(x).strip() for x in (actual, v) if x and str(x).strip()]
             out[k] = " | ".join(dict.fromkeys(partes))
+        elif isinstance(actual, dict) or isinstance(v, dict):
+            da = actual if isinstance(actual, dict) else {}
+            dv = v if isinstance(v, dict) else {}
+            out[k] = {**dv, **da}                       # base manda en empates
         elif actual in (None, "", 0) and v not in (None, "", 0):
             out[k] = v                                  # base no tenía el dato → lo toma de otro
     return out

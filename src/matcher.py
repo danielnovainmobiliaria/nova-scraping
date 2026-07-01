@@ -115,14 +115,52 @@ def _inferir_operacion(post: dict[str, Any]) -> str:
     return ""                  # sin operación ni precio → no hay pista
 
 
-def _operacion_compatible(cliente_op: str, post: dict[str, Any]) -> bool:
+# Sinónimos que usa la gente (y Zoho) para cada operación.
+_OP_SINONIMOS = {
+    "compra": "venta", "comprar": "venta", "compra vivienda": "venta", "venta": "venta",
+    "alquiler": "arriendo", "alquilar": "arriendo", "renta": "arriendo",
+    "rentar": "arriendo", "arriendo": "arriendo", "arrendar": "arriendo",
+}
+
+
+def _op_cliente(cliente_op: str) -> str:
+    """Normaliza la operación del cliente ('compra' → 'venta', 'alquiler' → 'arriendo')."""
     cli = _norm(cliente_op)
+    return _OP_SINONIMOS.get(cli, cli)
+
+
+def _operacion_compatible(cliente_op: str, post: dict[str, Any]) -> bool:
+    cli = _op_cliente(cliente_op)
     if not cli:
         return True            # el cliente no especificó → todo sirve
     pos = _inferir_operacion(post)
     if not pos or pos == "ambos":
         return True            # el post no dice (ni por precio) o sirve para ambas
     return cli == pos
+
+
+# Palabras "genéricas" de zona: solas NO identifican un barrio (evita que un aviso
+# con zona 'Norte' marque 100% de barrio para cualquier cliente del norte).
+_ZONAS_GENERICAS = {"norte", "sur", "centro", "occidente", "oriente", "noroccidente",
+                    "nororiente", "bogota", "el", "la", "los", "las", "de", "del", "alto"}
+
+
+def _tokens_lugar(texto: str) -> set[str]:
+    """Palabras significativas de un nombre de lugar (sin genéricas ni muy cortas)."""
+    return {t for t in _norm(texto).split() if len(t) >= 3 and t not in _ZONAS_GENERICAS}
+
+
+def _mismo_lugar(a: str, b: str) -> bool:
+    """¿'a' y 'b' nombran el mismo lugar? Compara por PALABRAS completas.
+
+    'Chicó' vs 'Chicó Reservado' → sí (chico ⊆ {chico, reservado}).
+    'Chía' vs 'Chicó' → no (palabras distintas; antes el fuzzy los confundía).
+    'Chicó Norte' vs 'Norte' → no ('norte' solo es genérico).
+    """
+    ta, tb = _tokens_lugar(a), _tokens_lugar(b)
+    if not ta or not tb:
+        return False
+    return ta <= tb or tb <= ta
 
 
 def _match_ubicacion(cliente: dict[str, Any], post: dict[str, Any]) -> tuple[float, str]:
@@ -137,7 +175,7 @@ def _match_ubicacion(cliente: dict[str, Any], post: dict[str, Any]) -> tuple[flo
     post_dir = post.get("direccion") or ""
     candidatos_post = [post_barrio, post_zona, post_dir, _zona_de(post_barrio)]
 
-    # 1) ¿coincide algún barrio pedido con lo que dice el post?
+    # 1) ¿coincide algún barrio pedido con lo que dice el post? (palabras completas)
     mejor = 0.0
     for b in barrios_cliente:
         nb = _norm(b)
@@ -147,22 +185,27 @@ def _match_ubicacion(cliente: dict[str, Any], post: dict[str, Any]) -> tuple[flo
             nc = _norm(c)
             if not nc:
                 continue
-            if nb in nc or nc in nb:
+            if _mismo_lugar(nb, nc):
                 return 1.0, f"barrio coincide: {b}"
-            mejor = max(mejor, fuzz.partial_ratio(nb, nc) / 100.0)
+            # La dirección puede CONTENER el barrio ("Calle 94 con 11, El Chicó").
+            if c is post_dir and _tokens_lugar(nb) and _tokens_lugar(nb) <= _tokens_lugar(nc):
+                return 1.0, f"barrio coincide: {b}"
+            mejor = max(mejor, fuzz.token_sort_ratio(nb, nc) / 100.0)
         # ¿el barrio pedido cae en la misma zona que el post?
         if _zona_de(b) and _zona_de(b) == _norm(post_zona):
             return 0.8, f"misma zona ({post_zona})"
 
-    # 2) coincidencia por zona pedida
+    # 2) coincidencia por zona pedida (nivel zona: nunca cuenta como barrio exacto)
     if zona_cliente:
-        nz = _norm(zona_cliente)
+        nz_tokens = _tokens_lugar(zona_cliente) or {_norm(zona_cliente)}
         for c in [post_zona, _zona_de(post_barrio), post_barrio]:
-            if nz and nz in _norm(c):
+            nc = _norm(c)
+            if nc and (nz_tokens & (_tokens_lugar(nc) or {nc}) or _norm(zona_cliente) == nc):
                 return 0.85, f"zona coincide: {zona_cliente}"
 
-    if mejor >= 0.75:
-        return mejor * 0.7, "ubicación parecida"
+    # 3) Parecido de escritura (typos): umbral alto para no confundir lugares distintos.
+    if mejor >= 0.88:
+        return mejor * 0.7, "ubicación parecida (verifícala)"
     return 0.0, "ubicación no coincide"
 
 
@@ -236,8 +279,12 @@ def _falla_obligatorio(cliente: dict[str, Any], post: dict[str, Any]) -> str | N
             return "baños"
     if "presupuesto" in oblig:
         pr, pc = cliente.get("presupuesto_max"), post.get("precio")
-        if pr and pc and pc > pr:
-            return "presupuesto"
+        if pr and pc:
+            # En arriendo, el costo real incluye la administración.
+            if _inferir_operacion(post) == "arriendo":
+                pc += post.get("administracion") or 0
+            if pc > pr:
+                return "presupuesto"
     if "metraje" in oblig:
         a = post.get("area_m2")
         if a and (cliente.get("area_min") or cliente.get("area_max")):
@@ -416,18 +463,31 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
     # ── Presupuesto (peso 30, flexible) ──────────────────────
     presupuesto = cliente.get("presupuesto_max")
     precio = post.get("precio")
+    es_estricto = str(cliente.get("flexibilidad") or "medio").lower().strip() == "estricto"
+    # En ARRIENDO el costo real del cliente es canon + administración.
+    admin = post.get("administracion") or 0
+    precio_total = precio
+    if precio and admin and _inferir_operacion(post) == "arriendo":
+        precio_total = precio + admin
     peso_total += 30
     if presupuesto and precio:
-        factor, razon, ok = _factor_precio(precio, presupuesto, flex_precio, piso_precio)
+        factor, razon, ok = _factor_precio(precio_total, presupuesto, flex_precio, piso_precio)
         if factor < 0:
             return None  # fuera del rango (muy caro o muy barato)
+        if precio_total != precio:
+            razon = (f"{formato_cop(precio)} + {formato_cop(admin)} admin = "
+                     f"{formato_cop(precio_total)} — " + razon.split(": ")[-1])
         puntaje += 30 * factor
         (razones_ok if ok else razones_no).append(razon)
     elif presupuesto and not precio:
+        if es_estricto:
+            return None                # estricto: sin precio no hay cómo confiar
         puntaje += 30 * 0.35           # sin precio no se puede verificar el presupuesto
         razones_no.append("⚠️ el aviso no indica precio (no se pudo verificar presupuesto)")
     else:
         puntaje += 30  # el cliente no puso presupuesto → no penaliza
+    if presupuesto and precio and not admin and _inferir_operacion(post) == "arriendo":
+        razones_no.append("sin dato de administración (confírmala)")
 
     # ── Habitaciones (peso 12, permite 1 menos) ──────────────
     habs_min = cliente.get("habitaciones_min")
@@ -443,11 +503,12 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
         elif habs > habs_min + 1:
             puntaje += 12 * 0.2           # bastantes de más: suele ser otro segmento
             razones_no.append(f"{habs:g} habitaciones (muchas más de las {habs_min:g} pedidas)")
-        elif habs >= habs_min - 1:
+        elif habs == habs_min - 1 and perfil["mult"] > 1.0:
+            # Solo el perfil FLEXIBLE acepta una habitación menos del mínimo.
             puntaje += 12 * 0.5
             razones_no.append(f"{habs:g} habitaciones (1 menos de lo pedido)")
         else:
-            return None  # muchas menos habitaciones: no es similar
+            return None  # por debajo del mínimo pedido: no se muestra
     elif habs_min and habs is None:
         puntaje += 12 * 0.5
         razones_no.append("el post no indica habitaciones")
@@ -475,10 +536,13 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
         factor, razon, ok = _factor_area(area, lo, hi, flex_area)
         puntaje += 20 * factor
         (razones_ok if ok else razones_no).append(razon)
+    elif (a_min or a_max) and not area:
+        if es_estricto:
+            return None                # estricto: sin metraje no hay cómo confiar
+        puntaje += 20 * 0.4            # sin dato: crédito parcial, no completo
+        razones_no.append("⚠️ el aviso no indica metraje (no se pudo verificar)")
     else:
         puntaje += 20
-        if (a_min or a_max) and not area:
-            razones_no.append("el post no indica metraje")
 
     # ── Baños (peso 8, permite 1 menos) ──────────────────────
     banos = post.get("banos")
@@ -493,6 +557,9 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
             razones_no.append(f"{banos:g} baños (1 menos de lo pedido)")
         else:
             razones_no.append(f"solo {banos:g} baños (pedías {banos_min:g}+)")
+    elif banos_min and banos is None:
+        puntaje += 8 * 0.5             # sin dato: crédito parcial, no completo
+        razones_no.append("el aviso no indica baños")
     else:
         puntaje += 8
 
@@ -512,6 +579,17 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
         puntaje += 15
 
     score = round(100 * puntaje / peso_total) if peso_total else 0
+
+    # Datos incompletos: un aviso que no dice ni precio, ni metraje, ni habitaciones
+    # no puede rankear como uno completo. Tope al puntaje + etiqueta para verificar.
+    faltantes_nucleo = sum([
+        1 if (presupuesto and not precio) else 0,
+        1 if ((a_min or a_max) and not area) else 0,
+        1 if (habs_min and habs is None) else 0,
+    ])
+    if faltantes_nucleo >= 2:
+        score = min(score, 60)
+        razones_no.append("⚠️ datos incompletos: verifícalo antes de enviarlo")
 
     # Fuera de las zonas pedidas: castigo fuerte para que no se cuele (ej. Cota).
     if ubicacion_fallo:

@@ -32,7 +32,13 @@
       "Bash(unzip -oq gh.zip)",
       "Bash(awk -F: '$1>=940 && $1<=1075')",
       "Bash(awk -F: '$1>=945 && $1<=1045')",
-      "Bash(awk -F: '$1>=1040 && $1<=1110')"
+      "Bash(awk -F: '$1>=1040 && $1<=1110')",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)",
+      "Bash(python3 -c ' *)",
+      "Bash(ls \"/Users/danielmejianauffal/Documents/Nova Scraping\" | head -20; ls \"/Users/danielmejianauffal/Documents/Nova Scraping/.venv/bin/python\" 2>/dev/null || echo \"no venv\")",
+      "Bash(python3 -)",
+      "Bash(grep -vE \"ScriptRunContext|Warning:|streamlit run|^\\\\s*$|^2026-\" \"/Users/danielmejianauffal/.claude/projects/-Users-danielmejianauffal-Documents-Nova-Scraping/e13bacb8-616b-476b-a422-589bb92b1ae2/tool-results/brircf51b.txt\")"
     ]
   }
 }

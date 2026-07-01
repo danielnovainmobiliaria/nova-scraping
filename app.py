@@ -506,7 +506,12 @@ def parse_cop(texto):
         return max(vals) if vals else None
     m = re.match(r"^([\d.,']+)(mm|m)$", s)  # abreviatura de millones: 12m, 1.700m
     if m:
-        num = m.group(1).replace("'", "").replace(".", "").replace(",", "")
+        num = m.group(1).replace("'", "")
+        # Decimal de millón: "1,5M" o "2.5M" = 1.5 / 2.5 millones (1-2 dígitos tras el separador).
+        md = re.match(r"^(\d+)[.,](\d{1,2})$", num)
+        if md:
+            return int(float(f"{md.group(1)}.{md.group(2)}") * 1_000_000)
+        num = num.replace(".", "").replace(",", "")
         return int(num) * 1_000_000 if num.isdigit() else None
     digitos = "".join(ch for ch in s if ch.isdigit())
     return int(digitos) if digitos else None

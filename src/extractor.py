@@ -96,7 +96,7 @@ def _extraer_uno(client: anthropic.Anthropic, caption: str) -> dict[str, Any]:
         texto = texto[texto.find("{") : texto.rfind("}") + 1]
     datos = json.loads(texto)
     # Filtra extras a la lista válida por seguridad.
-    datos["extras"] = [e for e in datos.get("extras", []) if e in EXTRAS_VALIDOS]
+    datos["extras"] = [e for e in (datos.get("extras") or []) if e in EXTRAS_VALIDOS]
     return datos
 
 
@@ -317,7 +317,7 @@ def interpretar_clientes(textos: list[str], log=print) -> list[dict[str, Any]]:
             continue
 
         # Normalización al formato de la app.
-        datos["extras"] = [e for e in datos.get("extras", []) if e in EXTRAS_VALIDOS]
+        datos["extras"] = [e for e in (datos.get("extras") or []) if e in EXTRAS_VALIDOS]
         datos["obligatorios"] = [o for o in (datos.get("obligatorios") or []) if o in OBLIGATORIOS_VALIDOS]
         _fx = str(datos.get("flexibilidad") or "medio").lower().strip()
         datos["flexibilidad"] = _fx if _fx in FLEX_VALIDOS else "medio"
@@ -544,5 +544,5 @@ def aprender_preferencias(observaciones: list[str]) -> dict[str, Any]:
         return {"palabras": [], "extras": []}
     return {
         "palabras": [str(p).lower().strip() for p in datos.get("palabras", []) if str(p).strip()][:8],
-        "extras": [e for e in datos.get("extras", []) if e in EXTRAS_VALIDOS],
+        "extras": [e for e in (datos.get("extras") or []) if e in EXTRAS_VALIDOS],
     }
