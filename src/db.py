@@ -73,7 +73,7 @@ def init_db() -> None:
 
     # Migración: agrega columnas nuevas a tablas que ya existían (cada una en su
     # propia transacción, porque un ALTER que falla aborta la transacción).
-    for columna in ["media_json TEXT"]:
+    for columna in ["media_json TEXT", "agregado TEXT"]:
         try:
             with _conn() as con:
                 con.execute(text(f"ALTER TABLE posts ADD COLUMN {columna}"))
@@ -83,13 +83,18 @@ def init_db() -> None:
 
 # ── Publicaciones (posts) ─────────────────────────────────────
 
-def guardar_post(post: dict[str, Any]) -> None:
-    """Inserta un post nuevo. Si ya existe (mismo id), no lo toca."""
+def guardar_post(post: dict[str, Any]) -> bool:
+    """Inserta un post nuevo. Devuelve True si se insertó, False si ya existía.
+
+    (Antes había que contar toda la tabla antes y después para saberlo: dos
+    viajes extra a la base POR CADA inmueble guardado.)
+    """
+    from datetime import date
     with _conn() as con:
-        con.execute(text(
+        res = con.execute(text(
             """
-            INSERT INTO posts (id, cuenta, url, caption, fecha, imagen, media_json)
-            VALUES (:id, :cuenta, :url, :caption, :fecha, :imagen, :media_json)
+            INSERT INTO posts (id, cuenta, url, caption, fecha, imagen, media_json, agregado)
+            VALUES (:id, :cuenta, :url, :caption, :fecha, :imagen, :media_json, :agregado)
             ON CONFLICT (id) DO NOTHING
             """
         ), {
@@ -100,7 +105,9 @@ def guardar_post(post: dict[str, Any]) -> None:
             "fecha": post.get("fecha", ""),
             "imagen": post.get("imagen", ""),
             "media_json": json.dumps(post.get("media") or [], ensure_ascii=False),
+            "agregado": date.today().isoformat(),   # cuándo ENTRÓ a la herramienta
         })
+        return bool(res.rowcount)
 
 
 def actualizar_media(post_id: str, media: list) -> None:
@@ -159,6 +166,7 @@ def posts_recientes(desde_iso: str) -> list[dict[str, Any]]:
         resultado.append({
             "id": fila["id"], "cuenta": fila["cuenta"], "url": fila["url"],
             "caption": fila["caption"], "fecha": fila["fecha"], "imagen": fila["imagen"],
+            "agregado": fila.get("agregado") or "",
             **datos,
             "media": media,
         })
@@ -223,10 +231,9 @@ def guardar_clientes(lista: list[dict[str, Any]]) -> None:
             unicos[k] = _cl._fusionar_dos(dict(base), otro)
         else:
             unicos[k] = c
+    filas = [{"n": c.get("nombre", ""), "d": json.dumps(c, ensure_ascii=False)}
+             for c in unicos.values()]
     with _conn() as con:
         con.execute(text("DELETE FROM clientes"))
-        for c in unicos.values():
-            con.execute(
-                text("INSERT INTO clientes (nombre, datos_json) VALUES (:n, :d)"),
-                {"n": c.get("nombre", ""), "d": json.dumps(c, ensure_ascii=False)},
-            )
+        if filas:   # inserción masiva: un solo viaje a la base, no uno por cliente
+            con.execute(text("INSERT INTO clientes (nombre, datos_json) VALUES (:n, :d)"), filas)

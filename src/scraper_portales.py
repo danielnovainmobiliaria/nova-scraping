@@ -111,21 +111,34 @@ def scrapear_portales(urls: list[str], log=print, max_paginas: int | None = None
     hoy_dt = datetime.now(timezone.utc).date()
     hoy = hoy_dt.isoformat()
     nuevos = 0
-    for item in cliente.dataset(run.default_dataset_id).iterate_items():
+
+    # Baja primero todas las páginas y léelas con IA EN PARALELO (4 a la vez).
+    items = [it for it in cliente.dataset(run.default_dataset_id).iterate_items()
+             if (it.get("markdown") or it.get("text") or "").strip()]
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _leer_pagina(item):
         pagina_url = item.get("url", "")
         texto = item.get("markdown") or item.get("text") or ""
-        if not texto.strip():
-            continue
         fuente = _dominio(pagina_url)
-        inmuebles = extractor.extraer_inmuebles_pagina(texto, fuente=fuente, log=log)
+        avisos: list[str] = []
+        inmuebles = extractor.extraer_inmuebles_pagina(texto, fuente=fuente, log=avisos.append)
+        return pagina_url, fuente, inmuebles, avisos
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        paginas_leidas = list(pool.map(_leer_pagina, items))
+
+    for pagina_url, fuente, inmuebles, avisos in paginas_leidas:
+        for a in avisos:
+            log(a)
         log(f"@{fuente}: {len(inmuebles)} inmueble(s) leído(s).")
         for d in inmuebles:
             link = (d.get("url") or "").strip() or pagina_url
             pid = _id_inmueble(d, pagina_url)
             fecha, estimada = _fecha_publicacion(d, hoy_dt)
             d["fecha_estimada"] = estimada   # la UI lo muestra como "visto el", no "publicado"
-            antes = db.contar_posts()
-            db.guardar_post({
+            insertado = db.guardar_post({
                 "id": pid, "cuenta": fuente, "url": link,
                 "caption": (d.get("resumen") or "")[:500],
                 "fecha": fecha, "imagen": "", "media": [],
@@ -133,7 +146,7 @@ def scrapear_portales(urls: list[str], log=print, max_paginas: int | None = None
             db.guardar_extraccion(pid, d)   # actualiza datos (ej. precio rebajado) sin duplicar
             if not estimada:
                 db.actualizar_fecha(pid, fecha)  # corrige la fecha si ahora sí la conocemos
-            if db.contar_posts() > antes:
+            if insertado:
                 nuevos += 1
 
     db.guardar_meta("ultimo_scrape_portales", hoy)

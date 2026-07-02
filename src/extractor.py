@@ -129,16 +129,23 @@ def extraer_pendientes(log=print) -> int:
         log("No hay captions nuevos por leer.")
         return 0
 
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     procesados = 0
-    for fila in pendientes:
-        try:
-            datos = _extraer_uno(client, fila["caption"])
-            db.guardar_extraccion(fila["id"], datos)
-            procesados += 1
-            log(f"Leído post de @{fila['cuenta']} ({procesados}/{len(pendientes)})")
-        except Exception as e:  # noqa: BLE001 - no queremos que un post tumbe todo
-            log(f"  ⚠️ No se pudo leer un post de @{fila['cuenta']}: {e}")
+    # Varios captions a la vez (antes iba uno por uno: 5-6x más lento).
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futuros = {pool.submit(_extraer_uno, client, fila["caption"]): fila
+                   for fila in pendientes}
+        for fut in as_completed(futuros):
+            fila = futuros[fut]
+            try:
+                datos = fut.result()
+                db.guardar_extraccion(fila["id"], datos)
+                procesados += 1
+                log(f"Leído post de @{fila['cuenta']} ({procesados}/{len(pendientes)})")
+            except Exception as e:  # noqa: BLE001 - no queremos que un post tumbe todo
+                log(f"  ⚠️ No se pudo leer un post de @{fila['cuenta']}: {e}")
     log(f"Listo. Se leyeron {procesados} captions.")
     return procesados
 

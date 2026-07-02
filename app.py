@@ -1012,6 +1012,18 @@ with tab_resultados:
         n_antes = len(posts)
         posts = dedup_posts(posts)
         n_duplicados = n_antes - len(posts)
+
+        # 🆕 Qué entró a la herramienta en las últimas 24 horas.
+        _hoy_dt = datetime.now(timezone.utc).date()
+        _fechas_nuevo = {_hoy_dt.isoformat(), (_hoy_dt - timedelta(days=1)).isoformat()}
+
+        def es_nuevo(p) -> bool:
+            return (p.get("agregado") or "") in _fechas_nuevo
+
+        n_nuevos = sum(1 for p in posts if es_nuevo(p))
+        if n_nuevos:
+            st.success(f"🆕 **{n_nuevos} inmueble(s) entraron en las últimas 24 horas.** "
+                       "En las tarjetas los reconoces por la insignia 🆕.")
         c1, c2, c3, c4 = st.columns(4)
         score_min = c1.slider("Coincidencia mínima (%)", 0, 100, 50, 5,
                               help="Sube el valor para ver solo los matches más fuertes.")
@@ -1201,15 +1213,16 @@ with tab_resultados:
                         if p.get("habitaciones") is not None: info.append(f"{p['habitaciones']:g} hab")
                         if p.get("banos") is not None: info.append(f"{p['banos']:g} baños")
                         st.caption(" · ".join(info))
+                        _nuevo_txt = "🆕 **Entró hoy/ayer a la herramienta** · " if es_nuevo(p) else ""
                         if p.get("fecha_estimada"):
                             d_visto = dias_publicado(p.get("fecha"))
-                            st.markdown(f"**👁️ En el portal, visto hace "
+                            st.markdown(f"{_nuevo_txt}**👁️ En el portal, visto hace "
                                         f"{d_visto if d_visto is not None else '?'} día(s)** "
                                         "· el aviso no muestra su fecha real de publicación")
                         else:
                             frescura = badge_frescura(p.get("fecha"))
-                            if frescura:
-                                st.markdown(f"**{frescura}**")
+                            if frescura or _nuevo_txt:
+                                st.markdown(f"{_nuevo_txt}**{frescura}**")
                         if p.get("otras_fuentes"):
                             st.caption("♻️ También publicado en: " + ", ".join(p["otras_fuentes"]))
                         if m["razones_ok"]:

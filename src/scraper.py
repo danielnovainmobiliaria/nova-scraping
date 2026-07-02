@@ -111,9 +111,7 @@ def scrapear_cuentas(cuentas: list[str], log=print) -> int:
         post = _normalizar(item)
         if post is None:
             continue
-        antes = db.contar_posts()
-        db.guardar_post(post)
-        if db.contar_posts() > antes:
+        if db.guardar_post(post):
             nuevos += 1
 
     # Recuerda cuándo scrapeamos y qué cuentas no se dejaron leer.
