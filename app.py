@@ -23,7 +23,54 @@ from src import clientes as mod_clientes
 from src import config, db, matcher
 
 st.set_page_config(page_title="Nova Scraping", page_icon="🏙️", layout="wide")
-db.init_db()
+
+
+# ── Caché de datos: evita repetir viajes a la base (Neon) en cada clic ──
+@st.cache_resource
+def _init_db_una_vez() -> bool:
+    db.init_db()
+    return True
+
+
+_init_db_una_vez()
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def clientes_cacheados():
+    """Clientes para LEER en la interfaz (se refresca solo al guardar o cada 60 s)."""
+    return mod_clientes.cargar_guardados()
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def posts_cacheados():
+    """Inmuebles para las coincidencias (se refresca tras scraping o cada 2 min)."""
+    return db.posts_leidos()
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def contar_posts_cacheado() -> int:
+    return db.contar_posts()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def restringidas_cacheadas() -> list:
+    try:
+        return json.loads(db.leer_meta("cuentas_restringidas") or "[]")
+    except json.JSONDecodeError:
+        return []
+
+
+# Cada vez que se GUARDAN clientes (desde cualquier botón), la caché se limpia
+# sola para que la interfaz muestre siempre lo último.
+if not getattr(mod_clientes.guardar_lista, "_con_cache", False):
+    _guardar_lista_original = mod_clientes.guardar_lista
+
+    def _guardar_lista_y_refrescar(lista):
+        _guardar_lista_original(lista)
+        st.cache_data.clear()
+
+    _guardar_lista_y_refrescar._con_cache = True
+    mod_clientes.guardar_lista = _guardar_lista_y_refrescar
 
 EXTRAS_LEGIBLES = {
     "cuarto_servicio": "cuarto de servicio", "balcon": "balcón",
@@ -196,7 +243,7 @@ def aplicar_exclusiones_de_texto(nombre: str, texto: str, cliente=None) -> dict:
                 af["limites"], af.get("tipo"))
         return af
     except Exception:  # noqa: BLE001
-        return vacio
+        return {**vacio, "error": True}
 
 
 # Etiquetas visuales de los estados del embudo de seguimiento.
@@ -352,7 +399,7 @@ st.sidebar.divider()
 st.sidebar.markdown("**▶️ Buscar inmuebles**")
 correr = st.sidebar.button("🔄 Traer y leer publicaciones",
                            type="primary", use_container_width=True)
-st.sidebar.caption(f"📦 {db.contar_posts()} inmuebles en memoria")
+st.sidebar.caption(f"📦 {contar_posts_cacheado()} inmuebles en memoria")
 
 # ── Acción del botón: traer + leer publicaciones ──────────────
 if correr:
@@ -366,6 +413,7 @@ if correr:
 
         try:
             actualizar_publicaciones(_log)
+            st.cache_data.clear()   # que las pestañas vean lo nuevo de una
             estado_scrape.update(
                 label=f"✅ ¡Listo! {db.contar_posts()} inmuebles en memoria. "
                       "Abre la pestaña 3️⃣ Coincidencias.", state="complete")
@@ -413,7 +461,7 @@ with tab_fuentes:
 
     cuentas_guardadas = config.leer_cuentas()
     try:
-        _restr_urls = json.loads(db.leer_meta("cuentas_restringidas") or "[]")
+        _restr_urls = restringidas_cacheadas()
     except json.JSONDecodeError:
         _restr_urls = []
     restringidas_us = {config._solo_usuario(u) for u in _restr_urls if u}
@@ -458,6 +506,7 @@ with tab_fuentes:
         try:
             from src import scraper_portales
             n = scraper_portales.scrapear_portales(config.leer_portales(), log=log_p)
+            st.cache_data.clear()   # que las pestañas vean lo nuevo de una
             st.success(f"¡Listo! Se agregaron {n} inmueble(s) de portales. "
                        "Míralos en 3️⃣ Coincidencias.")
         except Exception as e:  # noqa: BLE001
@@ -482,14 +531,15 @@ with tab_fuentes:
             from src import extractor, scraper
             scraper.scrapear_cuentas(config.leer_cuentas(), log=log)
             extractor.extraer_pendientes(log=log)
+            st.cache_data.clear()   # que las pestañas vean lo nuevo de una
             st.success("¡Actualización completa!")
         except Exception as e:  # noqa: BLE001
             st.error(f"Ocurrió un problema: {e}")
-    col2.metric("Posts en la caché", db.contar_posts())
+    col2.metric("Posts en la caché", contar_posts_cacheado())
 
     # ── Cuentas que Instagram no dejó leer (revisar a mano) ──
     try:
-        restr = json.loads(db.leer_meta("cuentas_restringidas") or "[]")
+        restr = restringidas_cacheadas()
     except json.JSONDecodeError:
         restr = []
     if restr:
@@ -602,69 +652,9 @@ def clientes_a_df(lista):
     return pd.DataFrame(filas, columns=COLS_HOJA)
 
 
-def df_a_clientes(df):
-    """Convierte la tabla editada de vuelta al formato interno."""
-    out = []
-    for _, fila in df.iterrows():
-        nombre = str(fila.get("nombre", "") or "").strip()
-        if not nombre or nombre.lower() == "nan":
-            continue
-        out.append({
-            "nombre": nombre,
-            "telefono": "".join(ch for ch in str(fila.get("telefono", "") or "") if ch.isdigit()),
-            "operacion": str(fila.get("operacion", "") or "venta").strip().lower(),
-            "barrios": texto_a_lista(fila.get("barrios")),
-            "zona": str(fila.get("zona", "") or "").strip(),
-            "presupuesto_max": parse_cop(fila.get("presupuesto")),
-            "area_min": num_o_none(fila.get("area_min")),
-            "area_max": num_o_none(fila.get("area_max")),
-            "habitaciones_min": num_o_none(fila.get("habitaciones_min")),
-            "banos_min": num_o_none(fila.get("banos_min")),
-            "extras": [e.lower() for e in texto_a_lista(fila.get("extras"))],
-            "obligatorios": [o for o in texto_a_lista(fila.get("obligatorios"))
-                             if o in OBLIGATORIOS_OPCIONES],
-            "perimetro": "",
-            "notas": str(fila.get("notas", "") or "").strip(),
-        })
-    return out
-
-
 def refrescar_hoja_clientes():
-    """Reconstruye la hoja editable desde la base y reinicia el editor.
-
-    Necesario para que la tabla no pierda los cambios entre recargas: usamos un
-    DataFrame estable en sesión y cambiamos la 'versión' (key) solo cuando hace falta.
-    """
-    st.session_state["df_clientes"] = clientes_a_df(mod_clientes.cargar_guardados())
-    st.session_state["hoja_ver"] = st.session_state.get("hoja_ver", 0) + 1
-
-
-def _aplicar_columna(cliente, col, val):
-    """Aplica el valor editado de una columna de la hoja al cliente."""
-    val = "" if val is None else val
-    if col == "nombre":
-        cliente["nombre"] = str(val).strip()
-    elif col == "telefono":
-        cliente["telefono"] = "".join(ch for ch in str(val) if ch.isdigit())
-    elif col == "operacion":
-        cliente["operacion"] = str(val or "venta").strip().lower()
-    elif col == "flexibilidad":
-        cliente["flexibilidad"] = (str(val or "medio").strip().lower()
-                                   if str(val or "").strip().lower() in FLEX_OPCIONES else "medio")
-    elif col == "barrios":
-        cliente["barrios"] = texto_a_lista(val)
-    elif col == "zona":
-        cliente["zona"] = str(val).strip()
-    elif col == "presupuesto":
-        cliente["presupuesto_max"] = parse_cop(val)
-    elif col in ("area_min", "area_max", "habitaciones_min", "banos_min"):
-        cliente[col] = num_o_none(val)
-    elif col == "extras":
-        cliente["extras"] = [e.lower() for e in texto_a_lista(val)]
-    elif col == "obligatorios":
-        cliente["obligatorios"] = [o for o in texto_a_lista(val) if o in OBLIGATORIOS_OPCIONES]
-    elif col == "notas":
-        cliente["notas"] = str(val).strip()
+    """Limpia la caché de datos para que la interfaz muestre lo último guardado."""
+    st.cache_data.clear()
 
 
 def coincide_busqueda(cliente, q):
@@ -678,38 +668,6 @@ def coincide_busqueda(cliente, q):
         " ".join(cliente.get("barrios") or []),
     ]
     return q in mod_clientes._norm_nombre(" ".join(str(c) for c in campos))
-
-
-def _cliente_nuevo_vacio():
-    return {"nombre": "", "telefono": "", "operacion": "venta", "flexibilidad": "medio",
-            "barrios": [], "zona": "", "presupuesto_max": None, "area_min": None,
-            "area_max": None, "habitaciones_min": None, "banos_min": None, "extras": [],
-            "obligatorios": [], "perimetro": "", "notas": ""}
-
-
-def guardar_edicion_hoja(editor_key):
-    """Lee los cambios del editor (delta) y los aplica sobre los clientes guardados.
-
-    Es el método confiable: toma exactamente lo que el usuario editó/agregó/borró,
-    sin depender de cómo Streamlit devuelva el DataFrame.
-    """
-    delta = st.session_state.get(editor_key) or {}
-    clientes = mod_clientes.cargar_guardados()
-    for idx_str, cambios in (delta.get("edited_rows") or {}).items():
-        i = int(idx_str)
-        if 0 <= i < len(clientes):
-            for col, val in cambios.items():
-                _aplicar_columna(clientes[i], col, val)
-    for i in sorted(delta.get("deleted_rows") or [], reverse=True):
-        if 0 <= i < len(clientes):
-            del clientes[i]
-    for fila in (delta.get("added_rows") or []):
-        nuevo = _cliente_nuevo_vacio()
-        for col, val in fila.items():
-            _aplicar_columna(nuevo, col, val)
-        if nuevo["nombre"].strip():
-            clientes.append(nuevo)
-    mod_clientes.guardar_lista(clientes)
 
 
 def excel_bytes(df) -> bytes:
@@ -845,7 +803,7 @@ with tab_clientes:
 
     # ── Editar / renombrar un cliente (vía confiable, sin la tabla) ──
     with st.expander("✏️ Editar o renombrar un cliente", expanded=True):
-        _lista = mod_clientes.cargar_guardados()
+        _lista = clientes_cacheados()
         if not _lista:
             st.caption("Aún no hay clientes.")
         else:
@@ -977,7 +935,7 @@ with tab_clientes:
     # cambios, así que toda edición se hace con el editor "✏️" de arriba.)
     st.info("👁️ Esta tabla es **solo para ver**. Para **editar, renombrar o borrar** un "
             "cliente, usa **«✏️ Editar o renombrar un cliente»** (arriba). Eso sí guarda bien.")
-    todos = mod_clientes.cargar_guardados()
+    todos = clientes_cacheados()
     lista_ver = [c for c in todos if coincide_busqueda(c, buscar_cli)]
     st.dataframe(clientes_a_df(lista_ver), use_container_width=True, hide_index=True)
     if buscar_cli:
@@ -1005,7 +963,7 @@ with tab_clientes:
             except Exception as e:  # noqa: BLE001
                 st.error(f"No se pudo leer el Excel: {e}")
 
-    st.session_state["clientes"] = mod_clientes.cargar_guardados()
+    st.session_state["clientes"] = clientes_cacheados()
     cols_pie = st.columns([2, 1])
     cols_pie[0].caption(f"👥 {len(st.session_state['clientes'])} cliente(s) guardado(s).")
     if cols_pie[1].button("🧹 Unir duplicados", use_container_width=True,
@@ -1025,7 +983,7 @@ with tab_resultados:
     clientes = st.session_state.get("clientes", [])
 
     # Todos los inmuebles leídos (no se ocultan por antigüedad).
-    posts = db.posts_leidos()
+    posts = posts_cacheados()
 
     if not clientes:
         st.warning("Primero carga tus clientes en la pestaña **2️⃣ Clientes**.")
@@ -1197,14 +1155,20 @@ with tab_resultados:
                         elif not txt.strip():
                             st.warning("Escribe un comentario primero.")
                         else:
-                            mod_clientes.agregar_comentario_ia(nombre, txt.strip())
-                            af = aplicar_exclusiones_de_texto(nombre, txt, cli_map.get(nombre))
-                            recalcular_preferencias(nombre)   # ajuste suave (priorizar/penalizar)
-                            st.session_state[f"afin_res_{nombre}"] = (
-                                af["resumen"] or "Lo tomé en cuenta para afinar la búsqueda.")
-                            st.toast(f"✨ Afiné la búsqueda de {nombre}")
-                            st.session_state["cliente_abierto"] = nombre
-                            st.rerun()
+                            with st.spinner("Afinando con IA… (unos segundos)"):
+                                mod_clientes.agregar_comentario_ia(nombre, txt.strip())
+                                af = aplicar_exclusiones_de_texto(nombre, txt, cli_map.get(nombre))
+                                recalcular_preferencias(nombre)   # ajuste suave
+                            if af.get("error"):
+                                st.error("⚠️ No pude aplicar el filtro (problema técnico con la "
+                                         "IA). Tu comentario quedó guardado: vuelve a intentar "
+                                         "con «✨ Afinar» en un momento.")
+                            else:
+                                st.session_state[f"afin_res_{nombre}"] = (
+                                    af["resumen"] or "Lo tomé en cuenta para afinar la búsqueda.")
+                                st.toast(f"✨ Afiné la búsqueda de {nombre}")
+                                st.session_state["cliente_abierto"] = nombre
+                                st.rerun()
                     if hay_exc and ccol2.button(
                             "♻️ Quitar exclusiones", key=f"afinar_clr_{nombre}",
                             use_container_width=True,
@@ -1316,8 +1280,13 @@ with tab_resultados:
                                            f"{matcher.formato_cop(p.get('precio')) or 'precio n/d'}, "
                                            f"barrio {p.get('barrio') or '?'}. "
                                            f"Motivo por el que NO le sirvió: {obs.strip()}")
-                                    af = aplicar_exclusiones_de_texto(nombre, ctx, cli_map.get(nombre))
-                                    recalcular_preferencias(nombre)
+                                    with st.spinner("Descartando y aprendiendo del motivo…"):
+                                        af = aplicar_exclusiones_de_texto(nombre, ctx, cli_map.get(nombre))
+                                        recalcular_preferencias(nombre)
+                                    if af.get("error"):
+                                        st.warning("Descartado ✅, pero NO pude convertir el motivo "
+                                                   "en filtro (falla técnica de la IA). Vuelve a "
+                                                   "escribirlo en «🤖 Afinar con IA» más tarde.")
                                     dur = []
                                     if af["excluir_barrios"]:
                                         dur.append("barrios: " + ", ".join(af["excluir_barrios"]))
@@ -1382,7 +1351,7 @@ with tab_manual:
                "La IA lo interpreta y te dice **a qué clientes encaja**, con el porqué. "
                "Es más manual, pero te da control total sobre lo que entra.")
 
-    clientes_m = mod_clientes.cargar_guardados()
+    clientes_m = clientes_cacheados()
     if not clientes_m:
         st.warning("Primero carga tus clientes en la pestaña **2️⃣ Clientes**.")
     else:
@@ -1435,6 +1404,8 @@ with tab_manual:
         mostrados = 0
         for item in manuales:
             datos = item.get("datos", {}) or {}
+            if datos.get("es_inmueble") is False:
+                continue   # lo pegado no era un inmueble concreto
             post = {**datos, "caption": item.get("texto", ""),
                     "url": item.get("link", ""), "id": item.get("id")}
             ms = []
@@ -1443,7 +1414,10 @@ with tab_manual:
                 if ev:
                     ms.append((c["nombre"], ev))
             ms.sort(key=lambda x: x[1]["score"], reverse=True)
-            buenos = [m for m in ms if m[1]["score"] >= 50]
+            # Mismo criterio que Coincidencias: los clientes estrictos exigen 80+.
+            buenos = [m for m in ms
+                      if m[1]["score"] >= max(50, matcher.perfil_flex(
+                          next(c for c in clientes_m if c["nombre"] == m[0]))["score_min"])]
             if filtro_cli != "(todos los clientes)" and filtro_cli not in [n for n, _ in buenos]:
                 continue
             mostrados += 1
@@ -1508,7 +1482,9 @@ with tab_crm:
 
         com_ganadas = sum(float(c.get("comision") or 0)
                           for c in crm_clientes if c["estado"] == "ganado")
-        com_en_juego = sum(float(c.get("comision") or 0)
+        # En juego = lo pactado a mano si existe; si no, la comisión estimada por el
+        # presupuesto (antes mostraba $0 junto a una proyección millonaria: confundía).
+        com_en_juego = sum(float(c.get("comision") or 0) or comision_potencial(c)
                            for c in crm_clientes if c["estado"] == "activo")
 
         m = st.columns(5)
@@ -1520,7 +1496,9 @@ with tab_crm:
 
         f1, f2, f3 = st.columns(3)
         f1.metric("💰 Comisiones ganadas", matcher.formato_cop(com_ganadas) or "$0")
-        f2.metric("⏳ Comisiones en juego (activos)", matcher.formato_cop(com_en_juego) or "$0")
+        f2.metric("⏳ Comisiones en juego (activos)", matcher.formato_cop(com_en_juego) or "$0",
+                  help="Suma de lo pactado (si lo fijaste) o la comisión estimada por el "
+                       "presupuesto de cada cliente activo.")
         f3.metric("📤 Envíos totales", enviados_tot)
 
         # ── Alerta de cobertura: a quién tenemos descuidado ──
@@ -1625,11 +1603,16 @@ with tab_crm:
                                  else f"💡 Comisión sugerida ({COMISION_VENTA_PCT * 100:.0f}%): {matcher.formato_cop(sug)}.")
                     st.caption(nota_calc + " Si dejas la comisión en 0, se calcula sola al guardar.")
 
-                    enviados_txt = st.text_area(
-                        "Inmuebles enviados (uno por línea)",
-                        value="\n".join(enviados), height=100, key=f"env_txt_{nombre}",
-                        help="Se llena solo cuando marcas inmuebles en Coincidencias, "
-                             "pero también puedes editarlo a mano.")
+                    # Los inmuebles enviados se ven en el embudo de abajo (render_procesos);
+                    # aquí solo un resumen de lectura (antes había un cuadro que nunca se
+                    # llenaba solo y confundía).
+                    _envs = [pr for pr in (c.get("procesos") or [])
+                             if pr.get("estado") != "descartado"]
+                    if _envs:
+                        st.caption("📤 Enviados (del embudo de abajo): "
+                                   + " · ".join((pr.get("resumen") or pr.get("post_id", ""))[:40]
+                                                for pr in _envs[:6])
+                                   + (" …" if len(_envs) > 6 else ""))
                     notas_crm = st.text_area("Notas de seguimiento",
                                              value=c.get("notas_crm", ""),
                                              height=70, key=f"ncrm_{nombre}")
@@ -1641,7 +1624,6 @@ with tab_crm:
                             "visitas": int(visitas),
                             "valor_cierre": int(valor_cierre),
                             "comision": com_final,
-                            "inmuebles_enviados": [l.strip() for l in enviados_txt.splitlines() if l.strip()],
                             "notas_crm": notas_crm.strip(),
                         })
                         st.success(f"Seguimiento de {nombre} guardado.")

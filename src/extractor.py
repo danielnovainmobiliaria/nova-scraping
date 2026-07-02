@@ -561,7 +561,9 @@ def interpretar_afinacion(comentario: str, cliente: dict[str, Any] | None = None
             t = t[t.find("{"): t.rfind("}") + 1]
         datos = json.loads(t)
     except Exception:  # noqa: BLE001
-        return vacio
+        # Falla técnica (API caída, sin crédito, JSON malo): distinta de "nada que excluir",
+        # para que la interfaz avise en vez de fingir éxito.
+        return {**vacio, "error": True}
 
     def _num(v):
         try:

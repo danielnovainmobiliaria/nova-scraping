@@ -6,6 +6,10 @@ on:
     - cron: "0 13 * * *"   # 8:00 a.m. hora Colombia (UTC-5)
   workflow_dispatch: {}
 
+permissions:
+  contents: write   # keepalive: evita que GitHub apague el cron a los 60 días sin commits
+  issues: write     # aviso automático si el robot falla
+
 jobs:
   actualizar:
     runs-on: ubuntu-latest
@@ -24,3 +28,21 @@ jobs:
           ANTHROPIC_MODEL: claude-haiku-4-5-20251001
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python job_actualizar.py
+      # GitHub desactiva los crons tras 60 días sin actividad en el repo; este paso
+      # hace un mini-commit de mantenimiento cuando hace falta para que NUNCA se apague.
+      - name: Mantener vivo el robot (keepalive)
+        if: success()
+        uses: gautamkrishnar/keepalive-workflow@v2
+        with:
+          time_elapsed: 40
+      # Si el día falló por completo, abre un Issue para que quede una alerta visible.
+      - name: Avisar si falló
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "Robot diario falló" --json number --jq 'length' | grep -q '^0$' && \
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "⚠️ Robot diario falló ($(date -u +%Y-%m-%d))" \
+            --body "La actualización automática de hoy falló por completo. Revisa los logs en la pestaña Actions. Causas típicas: llave de Apify/Claude vencida, plan agotado, o Neon inaccesible." \
+            || true

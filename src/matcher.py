@@ -30,17 +30,59 @@ PISO_PRECIO = 0.70
 # el cliente pida una "zona" y el post mencione un barrio (o viceversa).
 # Puedes ampliarlo con el tiempo.
 BARRIO_A_ZONA = {
-    "chico": "chapinero", "chico norte": "chapinero", "el nogal": "chapinero",
-    "rosales": "chapinero", "la cabrera": "chapinero", "quinta camacho": "chapinero",
-    "chapinero alto": "chapinero", "el retiro": "chapinero",
-    "cedritos": "usaquen", "santa barbara": "usaquen", "santa bárbara": "usaquen",
-    "la carolina": "usaquen", "country club": "usaquen", "san patricio": "usaquen",
-    "usaquen": "usaquen", "multicentro": "usaquen", "unicentro": "usaquen",
-    "el batan": "suba", "niza": "suba", "la alhambra": "suba", "pasadena": "suba",
-    "salitre": "fontibon", "ciudad salitre": "fontibon", "modelia": "fontibon",
+    # ── Chapinero ──
+    "chico": "chapinero", "chico norte": "chapinero", "chico reservado": "chapinero",
+    "chico navarra": "chapinero", "chico museo": "chapinero", "parque del chico": "chapinero",
+    "el nogal": "chapinero", "nogal": "chapinero", "rosales": "chapinero",
+    "los rosales": "chapinero", "la cabrera": "chapinero", "cabrera": "chapinero",
+    "quinta camacho": "chapinero", "chapinero alto": "chapinero", "chapinero central": "chapinero",
+    "el retiro": "chapinero", "el refugio": "chapinero", "refugio": "chapinero",
+    "la porciuncula": "chapinero", "el lago": "chapinero", "lago gaitan": "chapinero",
+    "el virrey": "chapinero", "virrey": "chapinero", "antiguo country": "chapinero",
+    "emaus": "chapinero", "bellavista": "chapinero", "bosque calderon": "chapinero",
+    "marly": "chapinero", "sucre": "chapinero", "la salle": "chapinero",
+    "granada": "chapinero", "el castillo": "chapinero", "la esperanza": "chapinero",
+    # ── Usaquén ──
+    "cedritos": "usaquen", "santa barbara": "usaquen", "santa barbara alta": "usaquen",
+    "santa barbara occidental": "usaquen", "la carolina": "usaquen", "country club": "usaquen",
+    "san patricio": "usaquen", "usaquen": "usaquen", "multicentro": "usaquen",
+    "unicentro": "usaquen", "santa ana": "usaquen", "santa ana occidental": "usaquen",
+    "bella suiza": "usaquen", "molinos norte": "usaquen", "cedro golf": "usaquen",
+    "cedro bolivar": "usaquen", "cedro narvaez": "usaquen", "contador": "usaquen",
+    "la calleja": "usaquen", "lisboa": "usaquen", "toberin": "usaquen",
+    "santa paula": "usaquen", "santa bibiana": "usaquen", "navarra": "usaquen",
+    "el pedregal": "usaquen", "san gabriel": "usaquen", "ginebra": "usaquen",
+    "rincon del chico": "usaquen", "sierras del moral": "usaquen", "la uribe": "usaquen",
+    "torca": "usaquen", "verbenal": "usaquen", "santa teresa": "usaquen",
+    "cerros de los alpes": "usaquen", "bosque medina": "usaquen", "bosque de pinos": "usaquen",
+    "la sonora": "usaquen", "las margaritas": "usaquen", "escuela de caballeria": "usaquen",
+    # ── Suba / Noroccidente ──
+    "el batan": "suba", "niza": "suba", "niza norte": "suba", "la alhambra": "suba",
+    "alhambra": "suba", "pasadena": "suba", "puente largo": "suba", "prado veraniego": "suba",
+    "mazuren": "suba", "colina campestre": "suba", "la colina": "suba", "san jose de bavaria": "suba",
+    "britalia": "suba", "cantalejo": "suba", "villa elisa": "suba", "las villas": "suba",
+    "iberia": "suba", "granada norte": "suba", "victoria norte": "suba", "potosi": "suba",
+    "provenza": "suba", "estoril": "suba", "colinas de suba": "suba", "monaco": "suba",
+    "la floresta": "suba", "pontevedra": "suba", "morato": "suba", "san nicolas": "suba",
+    # ── Barrios Unidos / Occidente cercano ──
+    "la castellana": "barrios unidos", "polo club": "barrios unidos", "el polo": "barrios unidos",
+    "los andes": "barrios unidos", "la patria": "barrios unidos", "rionegro": "barrios unidos",
+    "santa sofia": "barrios unidos", "alcazares": "barrios unidos",
+    "nicolas de federman": "teusaquillo", "la esmeralda": "teusaquillo",
+    "pablo vi": "teusaquillo", "campin": "teusaquillo", "quinta paredes": "teusaquillo",
+    # ── Salitre / Fontibón ──
+    "salitre": "fontibon", "ciudad salitre": "fontibon", "salitre oriental": "fontibon",
+    "salitre occidental": "fontibon", "modelia": "fontibon", "hayuelos": "fontibon",
+    "capellania": "fontibon", "el recuerdo": "fontibon", "corferias": "fontibon",
+    # ── Teusaquillo / Centro ──
     "teusaquillo": "teusaquillo", "la soledad": "teusaquillo", "park way": "teusaquillo",
-    "galerias": "teusaquillo", "galerías": "teusaquillo",
-    "la macarena": "santa fe", "centro internacional": "santa fe",
+    "galerias": "teusaquillo", "palermo": "teusaquillo", "santa teresita": "teusaquillo",
+    "armenia": "teusaquillo", "la magdalena": "teusaquillo",
+    "la macarena": "santa fe", "centro internacional": "santa fe", "la candelaria": "santa fe",
+    "san diego": "santa fe", "bosque izquierdo": "santa fe",
+    # ── Municipios vecinos (para NO confundirlos con Bogotá) ──
+    "chia": "chia", "cajica": "cajica", "cota": "cota", "la calera": "la calera",
+    "sopo": "sopo", "guarne": "fuera de bogota",
 }
 
 
@@ -295,9 +337,8 @@ def _falla_obligatorio(cliente: dict[str, Any], post: dict[str, Any]) -> str | N
         p_ubi, _ = _match_ubicacion(cliente, post)
         if p_ubi < 0.8:
             return "barrio/zona"
-    if "extras" in oblig:
-        if set(cliente.get("extras") or []) - set(post.get("extras") or []):
-            return "extras"
+    # OJO: "extras" obligatorios NO anulan aquí: que un caption no mencione el
+    # parqueadero no prueba que no exista. Se penaliza fuerte en evaluar() en su lugar.
     return None
 
 
@@ -364,9 +405,15 @@ def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | Non
                 return f"barrio excluido: {b}"
     if palabras_x:
         texto = _norm(post.get("caption", "")) + " " + _norm(post.get("resumen", ""))
+        lugar = " ".join(_norm(post.get(k) or "") for k in ("barrio", "zona", "direccion"))
         for w in palabras_x:
             nw = _norm(w)
-            if nw and nw in texto:
+            if not nw or len(nw) < 4:
+                continue
+            # Palabras de zona genéricas ('norte', 'sur'…) solo aplican a la UBICACIÓN
+            # del aviso, no a todo el texto ('iluminación norte' no debe anular).
+            objetivo = lugar if nw in _ZONAS_GENERICAS else texto
+            if re.search(rf"\b{re.escape(nw)}\b", objetivo):
                 return f"contiene «{w}» (excluido por ti)"
     # Topes numéricos duros pedidos por el broker.
     area = post.get("area_m2")
@@ -575,10 +622,20 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
             razones_ok.append("incluye: " + ", ".join(sorted(presentes)))
         if faltantes:
             razones_no.append("no menciona: " + ", ".join(sorted(faltantes)))
+        # Extras marcados como OBLIGATORIOS: castigo fuerte si no se mencionan (no se
+        # anula del todo: que el caption no los liste no prueba que no existan).
+        if faltantes and "extras" in set(cliente.get("obligatorios") or []):
+            pen_extras_oblig = 25
+            razones_no.append("⚠️ no menciona algo OBLIGATORIO ("
+                              + ", ".join(sorted(faltantes)) + ") — confírmalo antes de enviar")
+        else:
+            pen_extras_oblig = 0
     else:
         puntaje += 15
+        pen_extras_oblig = 0
 
     score = round(100 * puntaje / peso_total) if peso_total else 0
+    score = max(0, score - pen_extras_oblig)
 
     # Datos incompletos: un aviso que no dice ni precio, ni metraje, ni habitaciones
     # no puede rankear como uno completo. Tope al puntaje + etiqueta para verificar.
