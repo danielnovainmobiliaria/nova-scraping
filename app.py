@@ -24,6 +24,24 @@ from src import config, db, matcher
 
 st.set_page_config(page_title="Nova Scraping", page_icon="🏙️", layout="wide")
 
+# ── Estilo visual (marca Nova: limpio, tarjetas suaves, pestañas claras) ──
+st.markdown("""
+<style>
+/* Pestañas más grandes y legibles */
+.stTabs [data-baseweb="tab"] { font-size: 1.02rem; font-weight: 600; padding: 0.55rem 1.05rem; }
+/* Tarjetas y contenedores con esquinas suaves */
+div[data-testid="stVerticalBlockBorderWrapper"] { border-radius: 14px; }
+details, div[data-testid="stExpander"] { border-radius: 12px; }
+/* Botones y descargas redondeados */
+.stButton > button, .stDownloadButton > button, .stLinkButton > a,
+.stFormSubmitButton > button { border-radius: 10px; }
+/* Números de las métricas en color de marca */
+div[data-testid="stMetricValue"] { color: #0F6E5D; font-weight: 700; }
+/* Menos espacio muerto arriba */
+.block-container { padding-top: 2.4rem; }
+</style>
+""", unsafe_allow_html=True)
+
 
 # ── Caché de datos: evita repetir viajes a la base (Neon) en cada clic ──
 @st.cache_resource
@@ -373,7 +391,8 @@ def actualizar_publicaciones(log) -> None:
 
 
 # ── Barra lateral ─────────────────────────────────────────────
-st.sidebar.title("🏙️ Nova Scraping")
+st.sidebar.markdown("## 🏙️ Nova Scraping")
+st.sidebar.caption("Tu radar de inmuebles — Nova Inmobiliaria")
 
 st.sidebar.divider()
 tiene_llaves = bool(config.APIFY_TOKEN and config.ANTHROPIC_API_KEY)
@@ -422,7 +441,7 @@ if correr:
 
 # ── Pestañas ──────────────────────────────────────────────────
 tab_fuentes, tab_clientes, tab_resultados, tab_manual, tab_crm = st.tabs(
-    ["1️⃣ Fuentes (Instagram)", "2️⃣ Clientes", "3️⃣ Coincidencias",
+    ["1️⃣ Fuentes", "2️⃣ Clientes", "3️⃣ Coincidencias",
      "🔎 Inmueble → Clientes", "4️⃣ CRM"]
 )
 
@@ -448,7 +467,7 @@ def comision_sugerida(operacion: str, valor: float) -> int:
 
 # ===== 1. FUENTES ============================================
 with tab_fuentes:
-    st.subheader("Cuentas de Instagram a monitorear")
+    st.subheader("📷 Cuentas de Instagram")
     st.caption("Una cuenta por línea. Se guardan en config/cuentas.txt")
     actuales = "\n".join(config.leer_cuentas())
     texto = st.text_area("Cuentas", value=actuales, height=200,
@@ -515,7 +534,7 @@ with tab_fuentes:
                "(para que el gasto no se dispare). Cuesta unos centavos.")
 
     st.divider()
-    st.subheader("Actualizar publicaciones")
+    st.subheader("🔄 Actualizar todo")
     st.caption(f"Trae los posts de los últimos {config.DIAS_RECIENTES} días "
                "y los lee con IA. Cada post se procesa una sola vez.")
     col1, col2 = st.columns(2)
@@ -706,13 +725,11 @@ def fila_a_texto(fila, columnas) -> str:
 
 
 with tab_clientes:
-    st.subheader("Tus clientes y sus requerimientos")
-
-    st.caption("Agrega clientes con cualquiera de los métodos de abajo. Para **editar o "
-               "borrar**, usa el editor **«✏️»**. La tabla del final es solo para ver.")
+    st.subheader("👥 Tus clientes y sus requerimientos")
     buscar_cli = st.text_input("🔍 Buscar cliente", key="buscar_cli",
                                placeholder="Escribe un nombre, barrio, teléfono o zona…")
 
+    st.markdown("##### ➕ Agregar")
     # ── Agregar un cliente nuevo (MISMO formato que Zoho, con IA) ──
     with st.expander("➕ Agregar un cliente nuevo", expanded=False):
         st.caption("Llénalo igual que tu formulario de Zoho. La **misma IA** lo interpreta "
@@ -802,7 +819,8 @@ with tab_clientes:
                     st.error(f"No se pudo interpretar: {e}")
 
     # ── Editar / renombrar un cliente (vía confiable, sin la tabla) ──
-    with st.expander("✏️ Editar o renombrar un cliente", expanded=True):
+    st.markdown("##### ✏️ Editar")
+    with st.expander("✏️ Editar, renombrar o borrar un cliente", expanded=True):
         _lista = clientes_cacheados()
         if not _lista:
             st.caption("Aún no hay clientes.")
@@ -882,16 +900,6 @@ with tab_clientes:
                 st.success(f"«{sel}» eliminado.")
                 st.rerun()
 
-    with st.expander("ℹ️ Cómo llenar cada columna"):
-        st.markdown(
-            "- **operacion**: escribe `venta` o `arriendo`.\n"
-            "- **barrios**: varios separados por coma → `El Nogal, Rosales`.\n"
-            "- **presupuesto**: como quieras → `1'700.000.000`, `12M` o `1900000000`.\n"
-            "- **area_min / area_max**: metros cuadrados. Deja vacío si no importa.\n"
-            "- **habitaciones_min / banos_min**: mínimo deseado. Vacío = no filtra.\n"
-            f"- **extras**: separados por coma. Válidos: {', '.join(EXTRAS_OPCIONES)}."
-        )
-
     # ── Importar con IA desde un archivo "como sea" ──────
     with st.expander("🤖 Importar clientes desde un archivo (con IA)"):
         st.caption("Sube tu lista tal como la tengas (CSV o Excel), aunque esté en "
@@ -933,8 +941,8 @@ with tab_clientes:
 
     # La tabla es SOLO para ver. (La data_editor de Streamlit no guardaba bien los
     # cambios, así que toda edición se hace con el editor "✏️" de arriba.)
-    st.info("👁️ Esta tabla es **solo para ver**. Para **editar, renombrar o borrar** un "
-            "cliente, usa **«✏️ Editar o renombrar un cliente»** (arriba). Eso sí guarda bien.")
+    st.markdown("##### 📋 Tu lista completa")
+    st.caption("Solo para consultar. Para cambiar algo usa el editor «✏️» de arriba.")
     todos = clientes_cacheados()
     lista_ver = [c for c in todos if coincide_busqueda(c, buscar_cli)]
     st.dataframe(clientes_a_df(lista_ver), use_container_width=True, hide_index=True)
@@ -989,15 +997,32 @@ with tab_resultados:
         st.warning("Primero carga tus clientes en la pestaña **2️⃣ Clientes**.")
     elif not posts:
         st.warning("Aún no hay publicaciones. Ve a la pestaña **1️⃣ Fuentes** y "
-                   "actualiza (o usa el modo Demo).")
+                   "dale a **🔄 Traer y leer publicaciones**.")
     else:
-        st.caption("Ajusta qué tan flexible quieres ser. La búsqueda muestra "
-                   "opciones **similares**, no solo idénticas.")
-        fcol1, fcol2 = st.columns(2)
-        dias_venta = fcol1.slider("📅 Frescura VENTA (días)", 7, 180, 30, 1,
-                                  help="Muestra inmuebles EN VENTA publicados en los últimos N días.")
-        dias_arriendo = fcol2.slider("📅 Frescura ARRIENDO (días)", 3, 90, 20, 1,
-                                     help="Los arriendos se toman más rápido: por defecto 20 días.")
+        # Los controles finos viven plegados: los valores de fábrica funcionan bien
+        # y así la pantalla queda limpia para lo importante (los inmuebles).
+        with st.expander("⚙️ Ajustes de búsqueda (opcional — los valores de fábrica están bien)"):
+            fcol1, fcol2 = st.columns(2)
+            dias_venta = fcol1.slider("📅 Frescura VENTA (días)", 7, 180, 30, 1,
+                                      help="Muestra inmuebles EN VENTA publicados en los últimos N días.")
+            dias_arriendo = fcol2.slider("📅 Frescura ARRIENDO (días)", 3, 90, 20, 1,
+                                         help="Los arriendos se toman más rápido: por defecto 20 días.")
+            c1, c2, c3, c4 = st.columns(4)
+            score_min = c1.slider("Coincidencia mínima (%)", 0, 100, 50, 5,
+                                  help="Sube el valor para ver solo los matches más fuertes.")
+            flex_precio = c2.slider("Presupuesto: tope arriba (%)", 0, 40, 15, 5,
+                                    help="Cuánto POR ENCIMA del presupuesto se permite. "
+                                         "Ej: 15% deja ver opciones hasta 15% más caras.")
+            piso_precio = c3.slider("Presupuesto: precio mínimo (%)", 0, 100, 70, 5,
+                                    help="Oculta inmuebles DEMASIADO BARATOS (otro segmento). "
+                                         "Ej: 70% oculta lo que cueste menos del 70% del "
+                                         "presupuesto del cliente.")
+            flex_area = c4.slider("Flexibilidad en metraje (%)", 0, 40, 15, 5,
+                                  help="Cuánto por fuera del rango de m² se permite.")
+            st.caption("Guía de lectura — Afinidad: 🟢 muy afín (≥85%) · 🟡 afín (≥70%) · "
+                       "🟠 menos afín. Frescura: 🟢 ≤7 días · 🟡 unas semanas · 🔴 más viejo. "
+                       "Cada cliente muestra primero lo MÁS afín; los enviados/descartados "
+                       "desaparecen solos.")
 
         def _pasa_frescura(p):
             d = dias_publicado(p.get("fecha"))
@@ -1024,18 +1049,6 @@ with tab_resultados:
         if n_nuevos:
             st.success(f"🆕 **{n_nuevos} inmueble(s) entraron en las últimas 24 horas.** "
                        "En las tarjetas los reconoces por la insignia 🆕.")
-        c1, c2, c3, c4 = st.columns(4)
-        score_min = c1.slider("Coincidencia mínima (%)", 0, 100, 50, 5,
-                              help="Sube el valor para ver solo los matches más fuertes.")
-        flex_precio = c2.slider("Presupuesto: tope arriba (%)", 0, 40, 15, 5,
-                                help="Cuánto POR ENCIMA del presupuesto se permite. "
-                                     "Ej: 15% deja ver opciones hasta 15% más caras.")
-        piso_precio = c3.slider("Presupuesto: precio mínimo (%)", 0, 100, 70, 5,
-                                help="Oculta inmuebles DEMASIADO BARATOS (otro segmento). "
-                                     "Ej: 70% oculta lo que cueste menos del 70% del presupuesto "
-                                     "del cliente. Bájalo si quieres ver opciones más económicas.")
-        flex_area = c4.slider("Flexibilidad en metraje (%)", 0, 40, 15, 5,
-                              help="Cuánto por fuera del rango de m² se permite.")
         resultados = matcher.cruzar(
             clientes, posts, score_minimo=score_min,
             flex_precio=flex_precio / 100, flex_area=flex_area / 100,
@@ -1063,15 +1076,9 @@ with tab_resultados:
             ]
 
         total = sum(len(v) for v in resultados.values())
-        st.caption(f"{len(posts)} publicaciones analizadas"
-                   + (f" · {n_duplicados} duplicado(s) entre fuentes unificados" if n_duplicados else "")
-                   + f" · {total} coincidencias pendientes "
-                   "(los que marcas como enviados o descartados desaparecen).")
-        st.caption(f"Ventana de frescura: 🏷️ venta = {dias_venta} días · 🔑 arriendo = "
-                   f"{dias_arriendo} días (los arriendos se toman más rápido). "
-                   "Semáforo: 🟢 reciente (≤7 días) · 🟡 unas semanas · 🔴 más viejo.")
-        st.caption("Cada cliente muestra primero lo MÁS afín a su requerimiento. Afinidad: "
-                   "🟢 muy afín (≥85%) · 🟡 afín (≥70%) · 🟠 menos afín (más lejos de lo pedido).")
+        st.caption(f"🔎 {len(posts)} publicaciones analizadas · **{total} coincidencias pendientes**"
+                   + (f" · {n_duplicados} duplicado(s) unificados" if n_duplicados else "")
+                   + f" · frescura: venta {dias_venta}d / arriendo {dias_arriendo}d")
 
         # ── Cuadro: inmuebles potenciales por cliente (cobertura) ──
         resumen = []
@@ -1500,35 +1507,36 @@ with tab_crm:
         com_en_juego = sum(float(c.get("comision") or 0) or comision_potencial(c)
                            for c in crm_clientes if c["estado"] == "activo")
 
-        m = st.columns(5)
+        # Lo esencial a la vista; el detalle, en un cajón (menos ruido visual).
+        m = st.columns(4)
         m[0].metric("👥 Clientes", len(crm_clientes))
         m[1].metric("🟡 Activos", n_activos)
-        m[2].metric("🟢 Ganados", n_ganados)
-        m[3].metric("🔴 Perdidos", n_perdidos)
-        m[4].metric("👣 Visitas", visitas_tot)
-
-        f1, f2, f3 = st.columns(3)
-        f1.metric("💰 Comisiones ganadas", matcher.formato_cop(com_ganadas) or "$0")
-        f2.metric("⏳ Comisiones en juego (activos)", matcher.formato_cop(com_en_juego) or "$0",
-                  help="Suma de lo pactado (si lo fijaste) o la comisión estimada por el "
-                       "presupuesto de cada cliente activo.")
-        f3.metric("📤 Envíos totales", enviados_tot)
+        m[2].metric("💰 Comisiones ganadas", matcher.formato_cop(com_ganadas) or "$0")
+        m[3].metric("⏳ En juego (activos)", matcher.formato_cop(com_en_juego) or "$0",
+                    help="Suma de lo pactado (si lo fijaste) o la comisión estimada por el "
+                         "presupuesto de cada cliente activo.")
 
         # ── Alerta de cobertura: a quién tenemos descuidado ──
         activos_list = [c for c in crm_clientes if c["estado"] == "activo"]
         sin_cubrir = [c["nombre"] for c in activos_list if cobertura[c["nombre"]][0] == 0]
         sin_movimiento = [c["nombre"] for c in activos_list
                           if cobertura[c["nombre"]][0] > 0 and (cobertura[c["nombre"]][1] or 0) >= 14]
-        g1, g2, g3 = st.columns(3)
-        g1.metric("🔴 Activos sin cubrir", len(sin_cubrir), help="Clientes activos con 0 envíos.")
-        g2.metric("⏰ Sin enviar +14 días", len(sin_movimiento),
-                  help="Activos a los que no les mandas algo hace más de 2 semanas.")
-        g3.metric("🟢 Bien cubiertos (3+)",
-                  sum(1 for c in activos_list if cobertura[c["nombre"]][0] >= 3))
         descuidados = sorted(set(sin_cubrir + sin_movimiento))
         if descuidados:
             st.warning("👀 **Ojo, tienes clientes descuidados:** " + " · ".join(descuidados)
                        + ". Mándales opciones para no perderlos.")
+
+        with st.expander("📊 Más indicadores"):
+            g = st.columns(6)
+            g[0].metric("🟢 Ganados", n_ganados)
+            g[1].metric("🔴 Perdidos", n_perdidos)
+            g[2].metric("👣 Visitas", visitas_tot)
+            g[3].metric("📤 Envíos", enviados_tot)
+            g[4].metric("🔴 Sin cubrir", len(sin_cubrir),
+                        help="Clientes activos con 0 envíos.")
+            g[5].metric("🟢 Bien cubiertos",
+                        sum(1 for c in activos_list if cobertura[c["nombre"]][0] >= 3),
+                        help="Activos con 3+ inmuebles enviados.")
 
         # ── Proyección cerrando TODOS los activos: directo y compartido con aliado ──
         ganados_c = [c for c in crm_clientes if c["estado"] == "ganado"]
@@ -1541,7 +1549,7 @@ with tab_crm:
                       if (c.get("operacion") or "venta").lower() == op_filtro)
             return gan, pot
 
-        with st.expander("📈 Proyección de ganancias (cerrando todos los activos)", expanded=True):
+        with st.expander("📈 Proyección de ganancias (cerrando todos los activos)"):
             share = st.slider("Si el cliente es en alianza con otro broker, ¿qué % te queda?",
                               10, 100, 50, 5,
                               help="Muchos clientes llegan en alianza; ahí la comisión se reparte. "

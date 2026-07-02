@@ -38,7 +38,8 @@
       "Bash(python3 -c ' *)",
       "Bash(ls \"/Users/danielmejianauffal/Documents/Nova Scraping\" | head -20; ls \"/Users/danielmejianauffal/Documents/Nova Scraping/.venv/bin/python\" 2>/dev/null || echo \"no venv\")",
       "Bash(python3 -)",
-      "Bash(grep -vE \"ScriptRunContext|Warning:|streamlit run|^\\\\s*$|^2026-\" \"/Users/danielmejianauffal/.claude/projects/-Users-danielmejianauffal-Documents-Nova-Scraping/e13bacb8-616b-476b-a422-589bb92b1ae2/tool-results/brircf51b.txt\")"
+      "Bash(grep -vE \"ScriptRunContext|Warning:|streamlit run|^\\\\s*$|^2026-\" \"/Users/danielmejianauffal/.claude/projects/-Users-danielmejianauffal-Documents-Nova-Scraping/e13bacb8-616b-476b-a422-589bb92b1ae2/tool-results/brircf51b.txt\")",
+      "Bash(pkill -f \"streamlit run app.py\")"
     ]
   }
 }

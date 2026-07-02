@@ -1,0 +1,8 @@
+[theme]
+# Identidad visual Nova: verde esmeralda profundo (confianza inmobiliaria),
+# fondos suaves y texto gris-azulado para lectura cómoda.
+primaryColor = "#0F6E5D"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2F6F5"
+textColor = "#1F2937"
+font = "sans serif"
