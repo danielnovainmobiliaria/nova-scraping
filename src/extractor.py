@@ -99,7 +99,7 @@ def _extraer_uno(client: anthropic.Anthropic, caption: str) -> dict[str, Any]:
     datos = json.loads(texto)
     # Filtra extras a la lista válida por seguridad.
     datos["extras"] = [e for e in (datos.get("extras") or []) if e in EXTRAS_VALIDOS]
-    return datos
+    return _validar_precio(datos)
 
 
 def interpretar_inmueble(texto: str) -> dict[str, Any]:
@@ -180,17 +180,56 @@ Reglas:
 """
 
 
-def extraer_inmuebles_pagina(texto: str, fuente: str = "", log=print) -> list[dict[str, Any]]:
-    """Lee el texto de una página de portal y devuelve la lista de inmuebles que contiene."""
-    if not config.ANTHROPIC_API_KEY or not (texto or "").strip():
-        return []
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+def _validar_precio(d: dict[str, Any], fuente: str = "", log=None) -> dict[str, Any]:
+    """Descarta precios imposibles para la operación (protege el cruce de datos malos).
+
+    Una 'venta' de $1.900.000 (mal leída de '$1.900') contaminaría el matching: mejor
+    dejar el precio vacío que guardar un dato 1000 veces menor/mayor.
+    """
+    precio, op = d.get("precio"), (d.get("operacion") or "")
+    if not precio:
+        return d
+    sospechoso = (op == "venta" and precio < 100_000_000) or \
+                 (op == "arriendo" and precio > 100_000_000)
+    if sospechoso:
+        if log:
+            log(f"  ⚠️ precio sospechoso en {fuente or 'aviso'} ({op}: {precio:,}) → se deja vacío")
+        d["precio"] = None
+    return d
+
+
+def _trozos_pagina(texto: str, tam: int = 13000, solape: int = 600) -> list[str]:
+    """Parte el texto largo de una página en trozos con solape (corta en párrafos)."""
+    texto = texto.strip()
+    if len(texto) <= tam + solape:
+        return [texto]
+    trozos: list[str] = []
+    i = 0
+    while i < len(texto) and len(trozos) < 8:      # techo de trozos por página (costo)
+        fin = min(len(texto), i + tam)
+        corte = fin
+        if fin < len(texto):
+            salto = texto.rfind("\n\n", i + int(tam * 0.6), fin)
+            if salto > i:
+                corte = salto
+        trozos.append(texto[i:corte])
+        if corte >= len(texto):
+            break
+        i = max(corte - solape, i + 1)
+    return trozos
+
+
+def _extraer_trozo(client: anthropic.Anthropic, trozo: str, fuente: str, log=print
+                   ) -> list[dict[str, Any]]:
+    """Extrae los inmuebles de UN trozo de página (con rescate de JSON cortado)."""
     try:
         msg = client.messages.create(
             model=config.ANTHROPIC_MODEL, max_tokens=8000,
             system=SYSTEM_PORTAL,
-            messages=[{"role": "user", "content": texto.strip()[:16000]}],
+            messages=[{"role": "user", "content": trozo}],
         )
+        if getattr(msg, "stop_reason", "") == "max_tokens":
+            log(f"  ⚠️ {fuente}: respuesta cortada; se conservan los inmuebles completos.")
         t = msg.content[0].text.strip()
         if t.startswith("```"):
             t = t.strip("`")
@@ -199,23 +238,37 @@ def extraer_inmuebles_pagina(texto: str, fuente: str = "", log=print) -> list[di
         try:
             datos = json.loads(t if t.rstrip().endswith("]") else t[:t.rfind("]") + 1])
         except json.JSONDecodeError:
-            # Rescate: si la respuesta se cortó, conserva los inmuebles completos.
             corte = t.rfind("},")
             if corte <= 0:
                 raise
             datos = json.loads(t[:corte + 1] + "]")
     except Exception as e:  # noqa: BLE001
-        log(f"  ⚠️ No se pudo leer una página de {fuente}: {e}")
+        log(f"  ⚠️ No se pudo leer una parte de {fuente}: {e}")
         return []
-    if isinstance(datos, dict):
-        datos = [datos]
+    return datos if isinstance(datos, list) else [datos]
+
+
+def extraer_inmuebles_pagina(texto: str, fuente: str = "", log=print) -> list[dict[str, Any]]:
+    """Lee el texto COMPLETO de una página de portal (por trozos, sin perder avisos)."""
+    if not config.ANTHROPIC_API_KEY or not (texto or "").strip():
+        return []
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    trozos = _trozos_pagina(texto)
     salida: list[dict[str, Any]] = []
-    for d in datos:
-        if not isinstance(d, dict):
-            continue
-        d["es_inmueble"] = True
-        d["extras"] = [e for e in (d.get("extras") or []) if e in EXTRAS_VALIDOS]
-        salida.append(d)
+    vistos: set[str] = set()
+    for trozo in trozos:
+        for d in _extraer_trozo(client, trozo, fuente, log):
+            if not isinstance(d, dict):
+                continue
+            # Dedup dentro de la página (el solape puede repetir un aviso).
+            clave = (d.get("url") or
+                     f"{d.get('barrio')}|{d.get('precio')}|{d.get('area_m2')}|{d.get('habitaciones')}")
+            if clave in vistos:
+                continue
+            vistos.add(clave)
+            d["es_inmueble"] = True
+            d["extras"] = [e for e in (d.get("extras") or []) if e in EXTRAS_VALIDOS]
+            salida.append(_validar_precio(d, fuente, log))
     return salida
 
 

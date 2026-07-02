@@ -25,23 +25,37 @@ def _fecha_corte_iso() -> str:
     return corte.date().isoformat()
 
 
-def _cutoff_incremental() -> str:
+def _lecturas_por_cuenta() -> dict[str, str]:
+    """Última fecha de lectura EXITOSA de cada cuenta (para no perder posts)."""
+    try:
+        return json.loads(db.leer_meta("ultimas_lecturas") or "{}")
+    except json.JSONDecodeError:
+        return {}
+
+
+def _cutoff_incremental(cuentas: list[str]) -> str:
     """Desde qué fecha pedir publicaciones para NO repetir lo ya descargado.
 
-    - Primera vez: 30 días (trae todo lo reciente).
-    - Siguientes veces: solo lo nuevo desde el último scraping (con unos días de
-      solape), sin pasar nunca del piso de 30 días.
-    Esto reduce mucho el costo de Apify en cada actualización.
+    Usa la última lectura EXITOSA más ANTIGUA entre las cuentas: si una cuenta
+    estuvo restringida unos días, al recuperarse la ventana retrocede lo necesario
+    para no perder sus posts (antes el corte era global y esos posts se perdían).
+    Nunca pasa del piso de 30 días.
     """
     piso = (datetime.now(timezone.utc) - timedelta(days=config.DIAS_RECIENTES)).date()
-    ultimo = db.leer_meta("ultimo_scrape")
-    if ultimo:
+    lecturas = _lecturas_por_cuenta()
+    fechas = []
+    for c in cuentas:
+        f = lecturas.get(c)
+        if not f:
+            return piso.isoformat()   # alguna cuenta nunca leída → ventana completa
         try:
-            desde = date.fromisoformat(ultimo) - timedelta(days=config.DIAS_SOLAPE)
-            return max(piso, desde).isoformat()
+            fechas.append(date.fromisoformat(f))
         except ValueError:
-            pass
-    return piso.isoformat()
+            return piso.isoformat()
+    if not fechas:
+        return piso.isoformat()
+    desde = min(fechas) - timedelta(days=config.DIAS_SOLAPE)
+    return max(piso, desde).isoformat()
 
 
 def scrapear_cuentas(cuentas: list[str], log=print) -> int:
@@ -63,12 +77,14 @@ def scrapear_cuentas(cuentas: list[str], log=print) -> int:
 
     # Instagram exige proxies residenciales y enlaces de perfil (directUrls),
     # de lo contrario bloquea la lectura ("Empty or private data").
-    corte = _cutoff_incremental()
-    es_incremental = db.leer_meta("ultimo_scrape") is not None
+    corte = _cutoff_incremental(cuentas)
+    es_incremental = bool(_lecturas_por_cuenta()) or db.leer_meta("ultimo_scrape") is not None
     run_input: dict[str, Any] = {
         "directUrls": [f"https://www.instagram.com/{u}/" for u in cuentas],
         "resultsType": "posts",
-        "resultsLimit": config.MAX_POSTS_POR_CUENTA,
+        # Primera corrida (ventana de 30 días): límite amplio para cuentas activas;
+        # incremental (pocos días): el límite normal alcanza de sobra.
+        "resultsLimit": config.MAX_POSTS_POR_CUENTA if es_incremental else 100,
         "onlyPostsNewerThan": corte,
         "proxy": {"useApifyProxy": True, "apifyProxyGroups": ["RESIDENTIAL"]},
     }
@@ -101,8 +117,15 @@ def scrapear_cuentas(cuentas: list[str], log=print) -> int:
             nuevos += 1
 
     # Recuerda cuándo scrapeamos y qué cuentas no se dejaron leer.
-    db.guardar_meta("ultimo_scrape", datetime.now(timezone.utc).date().isoformat())
+    hoy = datetime.now(timezone.utc).date().isoformat()
+    db.guardar_meta("ultimo_scrape", hoy)
     db.guardar_meta("cuentas_restringidas", json.dumps(restringidas, ensure_ascii=False))
+    # Última lectura exitosa POR CUENTA: las restringidas conservan su fecha vieja,
+    # así la próxima corrida retrocede y recupera lo que se les perdió.
+    lecturas = _lecturas_por_cuenta()
+    restr_usuarios = {config._solo_usuario(u) for u in restringidas}
+    lecturas.update({c: hoy for c in cuentas if c not in restr_usuarios})
+    db.guardar_meta("ultimas_lecturas", json.dumps(lecturas, ensure_ascii=False))
 
     if restringidas:
         log(f"⚠️ {len(restringidas)} cuenta(s) no se pudieron leer (perfil restringido o privado).")

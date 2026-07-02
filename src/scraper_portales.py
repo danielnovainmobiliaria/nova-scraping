@@ -43,6 +43,27 @@ def _id_inmueble(d: dict, pagina_url: str) -> str:
     return "portal_" + hashlib.md5(base.encode("utf-8")).hexdigest()[:18]
 
 
+def _urls_paginadas(urls: list[str], max_paginas: int) -> list[str]:
+    """Expande cada búsqueda a varias páginas de resultados (verificado por portal).
+
+    Antes solo se leía la página 1 de cada búsqueda (~20 avisos de miles). Ahora el
+    tope de páginas se reparte entre las búsquedas con patrón de paginación conocido:
+    Metrocuadrado usa ?page=N y Fincaraíz /paginaN. Sitios sin patrón quedan con su URL.
+    """
+    conocidos = [u for u in urls if "metrocuadrado.com" in u or "fincaraiz.com" in u]
+    extra = max(0, max_paginas - len(urls))
+    por_busqueda = (extra // len(conocidos)) if conocidos else 0
+    out: list[str] = []
+    for u in urls:
+        out.append(u)
+        base = u.split("?")[0].rstrip("/")
+        if "metrocuadrado.com" in u:
+            out.extend(f"{base}/?page={n}" for n in range(2, 2 + por_busqueda))
+        elif "fincaraiz.com" in u:
+            out.extend(f"{base}/pagina{n}" for n in range(2, 2 + por_busqueda))
+    return out[:max_paginas]
+
+
 def _fecha_publicacion(d: dict, hoy) -> tuple[str, bool]:
     """(fecha, es_estimada): la fecha real si el portal dice 'publicado hace X días';
     si no la dice, el día en que lo vimos por primera vez (estimada)."""
@@ -71,17 +92,18 @@ def scrapear_portales(urls: list[str], log=print, max_paginas: int | None = None
         return 0
 
     max_paginas = max_paginas or config.MAX_PAGINAS_PORTAL
+    paginas = _urls_paginadas(urls, max_paginas)
     cliente = ApifyClient(config.APIFY_TOKEN)
     run_input = {
-        "startUrls": [{"url": u} for u in urls],
+        "startUrls": [{"url": u} for u in paginas],
         "maxCrawlPages": max_paginas,
-        "maxCrawlDepth": 0,                    # solo las páginas pegadas (predecible y barato)
+        "maxCrawlDepth": 0,                    # solo las páginas indicadas (predecible y barato)
         "crawlerType": "playwright:firefox",   # navegador real (portales con JavaScript)
         "saveMarkdown": True,
         "dynamicContentWaitSecs": 20,          # espera a que carguen los avisos (JS)
         "proxyConfiguration": {"useApifyProxy": True},
     }
-    log(f"Abriendo {len(urls)} portal(es) con navegador… (tope {max_paginas} páginas)")
+    log(f"Abriendo {len(urls)} búsqueda(s) → {len(paginas)} página(s) de resultados…")
     run = cliente.actor(ACTOR_CRAWLER).call(run_input=run_input)
     if run is None or not run.default_dataset_id:
         raise RuntimeError("El lector de portales no devolvió resultados.")
