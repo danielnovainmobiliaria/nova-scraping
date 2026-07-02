@@ -1,8 +1,7 @@
 [theme]
-# Identidad visual Nova: verde esmeralda profundo (confianza inmobiliaria),
-# fondos suaves y texto gris-azulado para lectura cómoda.
-primaryColor = "#0F6E5D"
+# Identidad NŌVA: terracota/café con detalles dorados y fondos crema.
+primaryColor = "#A9714B"
 backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F2F6F5"
-textColor = "#1F2937"
+secondaryBackgroundColor = "#FAF3EA"
+textColor = "#3E2F25"
 font = "sans serif"

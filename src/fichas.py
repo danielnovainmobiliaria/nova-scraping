@@ -1,11 +1,13 @@
 """Ficha de búsquedas en PDF para compartir con otras inmobiliarias.
 
-Genera un documento elegante con los requerimientos de los clientes ACTIVOS,
-con el nombre anonimizado ("Alfonso R.") y SIN datos privados (ni teléfono,
-ni notas): solo lo que un aliado necesita para saber si tiene algo que encaje.
+Genera un documento elegante con la identidad NŌVA (dorado + terracota + crema),
+con los requerimientos de los clientes ACTIVOS, el nombre anonimizado
+("Alfonso R.") y SIN datos privados (ni teléfono, ni notas): solo lo que un
+aliado necesita para saber si tiene algo que encaje.
 """
 from __future__ import annotations
 
+import io
 from datetime import date
 from typing import Any
 
@@ -13,11 +15,14 @@ from fpdf import FPDF
 
 from .matcher import formato_cop
 
-# Paleta Nova (la misma de la app).
-VERDE = (15, 110, 93)
-VERDE_SUAVE = (232, 244, 241)
-GRIS_TEXTO = (55, 65, 81)
-GRIS_CLARO = (120, 130, 140)
+# Paleta NŌVA.
+DORADO = (176, 141, 87)        # #B08D57 — el dorado del logo
+DORADO_SUAVE = (216, 196, 160)
+TERRACOTA = (169, 113, 75)     # #A9714B
+CAFE = (62, 47, 37)            # #3E2F25 — texto principal
+CAFE_MEDIO = (107, 79, 58)     # #6B4F3A
+CREMA = (250, 243, 234)        # #FAF3EA — fondo de tarjetas
+GRIS_CALIDO = (140, 125, 110)
 
 ETIQUETA_EXTRA = {"cuarto_servicio": "cuarto de servicio", "balcon": "balcón",
                   "deposito": "depósito", "duplex": "dúplex"}
@@ -80,7 +85,30 @@ def _linea_specs(c: dict[str, Any]) -> list[str]:
     return lineas
 
 
-def generar_pdf(clientes: list[dict[str, Any]], quien: str = "Nova Inmobiliaria") -> bytes:
+def _logo_texto(pdf: FPDF, x: float, y: float) -> None:
+    """Recrea el logo NŌVA en tipografía dorada (cuando no hay logo subido)."""
+    pdf.set_text_color(*DORADO)
+    pdf.set_font("helvetica", "", 24)
+    letras = ["N", "O", "V", "A"]
+    esp = 3.2                                     # aire entre letras, estilo del logo
+    pos_x = x
+    for i, letra in enumerate(letras):
+        pdf.set_xy(pos_x, y)
+        pdf.cell(pdf.get_string_width(letra) + 1, 10, letra)
+        if i == 1:  # macrón (la línea sobre la O del logo)
+            w_o = pdf.get_string_width("O")
+            pdf.set_draw_color(*DORADO)
+            pdf.set_line_width(0.7)
+            pdf.line(pos_x + w_o * 0.18, y - 0.8, pos_x + w_o * 0.82, y - 0.8)
+        pos_x += pdf.get_string_width(letra) + esp
+    pdf.set_font("helvetica", "", 8.5)
+    sub = "I N M O B I L I A R I A"
+    pdf.set_xy(x + 0.5, y + 10.5)
+    pdf.cell(0, 4, sub)
+
+
+def generar_pdf(clientes: list[dict[str, Any]], quien: str = "Nova Inmobiliaria",
+                logo_png: bytes | None = None) -> bytes:
     """Genera el PDF de búsquedas activas, listo para compartir."""
     activos = [c for c in clientes if (c.get("estado") or "activo") == "activo"]
     hoy = date.today().strftime("%d/%m/%Y")
@@ -90,20 +118,27 @@ def generar_pdf(clientes: list[dict[str, Any]], quien: str = "Nova Inmobiliaria"
     pdf.add_page()
 
     def encabezado() -> None:
-        pdf.set_fill_color(*VERDE)
-        pdf.rect(0, 0, 210, 26, "F")
-        pdf.set_text_color(255, 255, 255)
-        pdf.set_font("helvetica", "B", 17)
-        pdf.set_xy(12, 6)
-        pdf.cell(0, 8, _latin(quien.upper()))
-        pdf.set_font("helvetica", "", 10.5)
-        pdf.set_xy(12, 15)
+        # Membrete blanco con el logo (subido o recreado) y filo dorado.
+        if logo_png:
+            try:
+                pdf.image(io.BytesIO(logo_png), x=12, y=5, h=17)
+            except Exception:  # noqa: BLE001 - logo dañado → texto
+                _logo_texto(pdf, 12, 6)
+        else:
+            _logo_texto(pdf, 12, 6)
+        pdf.set_text_color(*GRIS_CALIDO)
+        pdf.set_font("helvetica", "", 9)
+        pdf.set_xy(-58, 8)
+        pdf.cell(46, 5, _latin(f"Corte: {hoy}"), align="R")
+        pdf.set_text_color(*CAFE_MEDIO)
+        pdf.set_font("helvetica", "I", 10.5)
+        pdf.set_xy(12, 24)
         pdf.cell(0, 5, _latin("Búsquedas activas de nuestros clientes - "
                               "¿tienes algo que encaje?"))
-        pdf.set_font("helvetica", "", 9)
-        pdf.set_xy(-52, 8)
-        pdf.cell(40, 5, _latin(f"Corte: {hoy}"), align="R")
-        pdf.set_y(32)
+        pdf.set_draw_color(*DORADO)
+        pdf.set_line_width(0.5)
+        pdf.line(10, 32, 200, 32)
+        pdf.set_y(38)
 
     encabezado()
 
@@ -113,51 +148,60 @@ def generar_pdf(clientes: list[dict[str, Any]], quien: str = "Nova Inmobiliaria"
     for titulo_grupo, grupo in [("COMPRA", venta), ("ARRIENDO", arriendo)]:
         if not grupo:
             continue
-        # Título del grupo
         if pdf.get_y() > 255:
             pdf.add_page()
             pdf.set_y(14)
-        pdf.set_text_color(*VERDE)
+        pdf.set_text_color(*TERRACOTA)
         pdf.set_font("helvetica", "B", 13)
-        pdf.cell(0, 8, _latin(f"Buscan en {titulo_grupo}  ({len(grupo)})"),
-                 new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(1)
+        titulo = _latin(f"Buscan en {titulo_grupo}  ({len(grupo)})")
+        pdf.cell(pdf.get_string_width(titulo) + 2, 8, titulo)
+        # detalle dorado: línea fina que completa el renglón
+        y_lin = pdf.get_y() + 4.5
+        pdf.set_draw_color(*DORADO_SUAVE)
+        pdf.set_line_width(0.3)
+        pdf.line(pdf.get_x() + 3, y_lin, 200, y_lin)
+        pdf.ln(9)
 
         for c in grupo:
             lineas = [_latin(l) for l in _linea_specs(c)]
-            # Altura de la tarjeta: título + líneas (con envoltura de texto).
             pdf.set_font("helvetica", "", 10)
-            n_render = sum(len(pdf.multi_cell(176, 5.2, l, dry_run=True, output="LINES"))
+            n_render = sum(len(pdf.multi_cell(174, 5.2, l, dry_run=True, output="LINES"))
                            for l in lineas) or 1
             alto = 9 + n_render * 5.2 + 5
             if pdf.get_y() + alto > 281:
                 pdf.add_page()
                 pdf.set_y(14)
             y0 = pdf.get_y()
-            # Tarjeta con barra de acento
-            pdf.set_fill_color(*VERDE_SUAVE)
+            # Tarjeta crema con barra terracota y filo dorado inferior
+            pdf.set_fill_color(*CREMA)
             pdf.rect(10, y0, 190, alto, "F")
-            pdf.set_fill_color(*VERDE)
+            pdf.set_fill_color(*TERRACOTA)
             pdf.rect(10, y0, 2.2, alto, "F")
-            # Título
+            pdf.set_draw_color(*DORADO_SUAVE)
+            pdf.set_line_width(0.25)
+            pdf.line(12.2, y0 + alto, 200, y0 + alto)
+            # Nombre (anonimizado) en café + puntico dorado
             pdf.set_xy(16, y0 + 3)
-            pdf.set_text_color(*VERDE)
+            pdf.set_text_color(*CAFE_MEDIO)
             pdf.set_font("helvetica", "B", 11.5)
-            pdf.cell(0, 6, _latin(f"{_anon(c.get('nombre', ''))}"))
+            nombre = _latin(_anon(c.get("nombre", "")))
+            pdf.cell(pdf.get_string_width(nombre) + 1, 6, nombre)
+            pdf.set_text_color(*DORADO)
+            pdf.cell(4, 6, "·")
             # Cuerpo
-            pdf.set_text_color(*GRIS_TEXTO)
+            pdf.set_text_color(*CAFE)
             pdf.set_font("helvetica", "", 10)
             pdf.set_xy(16, y0 + 9.5)
             for l in lineas:
                 pdf.set_x(16)
                 pdf.multi_cell(176, 5.2, l)
-            pdf.set_y(y0 + alto + 3)
+            pdf.set_y(y0 + alto + 3.5)
 
     # Pie
     if pdf.get_y() > 265:
         pdf.add_page()
     pdf.ln(2)
-    pdf.set_text_color(*GRIS_CLARO)
+    pdf.set_text_color(*GRIS_CALIDO)
     pdf.set_font("helvetica", "I", 9.5)
     pdf.multi_cell(0, 5, _latin("Si tienes un inmueble que encaje con alguna de estas "
                                 "búsquedas, escríbenos y coordinamos en alianza. - "

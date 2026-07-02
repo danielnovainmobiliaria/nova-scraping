@@ -24,7 +24,7 @@ from src import config, db, matcher
 
 st.set_page_config(page_title="Nova Scraping", page_icon="🏙️", layout="wide")
 
-# ── Estilo visual (marca Nova: limpio, tarjetas suaves, pestañas claras) ──
+# ── Estilo visual NŌVA (terracota/café + detalles dorados, tarjetas suaves) ──
 st.markdown("""
 <style>
 /* Pestañas más grandes y legibles */
@@ -35,8 +35,11 @@ details, div[data-testid="stExpander"] { border-radius: 12px; }
 /* Botones y descargas redondeados */
 .stButton > button, .stDownloadButton > button, .stLinkButton > a,
 .stFormSubmitButton > button { border-radius: 10px; }
-/* Números de las métricas en color de marca */
-div[data-testid="stMetricValue"] { color: #0F6E5D; font-weight: 700; }
+/* Números de las métricas en DORADO Nova */
+div[data-testid="stMetricValue"] { color: #B08D57; font-weight: 700; }
+/* Títulos con el café de la marca y detalle dorado */
+h2, h3 { color: #6B4F3A; }
+hr { border-color: #B08D57; }
 /* Menos espacio muerto arriba */
 .block-container { padding-top: 2.4rem; }
 </style>
@@ -954,9 +957,12 @@ with tab_clientes:
     # Ficha elegante para compartir con otras inmobiliarias: clientes ACTIVOS,
     # nombre anonimizado ("Alfonso R.") y sin teléfonos ni notas privadas.
     try:
+        import base64 as _b64
         from src import fichas
+        _logo_b64 = db.leer_meta("logo_png_b64")
+        _logo = _b64.b64decode(_logo_b64) if _logo_b64 else None
         c1.download_button(
-            "📄 Ficha para aliados (PDF)", fichas.generar_pdf(todos),
+            "📄 Ficha para aliados (PDF)", fichas.generar_pdf(todos, logo_png=_logo),
             f"busquedas_nova_{datetime.now(timezone.utc).date().isoformat()}.pdf",
             "application/pdf", use_container_width=True,
             help="Diseño listo para enviar a otras inmobiliarias: búsquedas activas con "
@@ -982,6 +988,19 @@ with tab_clientes:
                 st.rerun()
             except Exception as e:  # noqa: BLE001
                 st.error(f"No se pudo leer el Excel: {e}")
+
+    # ── Logo para el membrete del PDF (se sube una vez y queda en la nube) ──
+    with st.expander("🎨 Logo de Nova en el PDF (súbelo una sola vez)"):
+        st.caption("Sube el logo (PNG) y aparecerá en el membrete de la ficha para aliados. "
+                   "Queda guardado para siempre; mientras tanto, el PDF usa el logo en letras doradas.")
+        logo_up = st.file_uploader("Logo (PNG)", type=["png"], key="logo_pdf")
+        if logo_up is not None and st.button("💾 Guardar logo"):
+            import base64 as _b64g
+            db.guardar_meta("logo_png_b64", _b64g.b64encode(logo_up.read()).decode())
+            st.cache_data.clear()
+            st.success("¡Logo guardado! Descarga el PDF de nuevo y ya sale con tu logo.")
+        if db.leer_meta("logo_png_b64"):
+            st.caption("✅ Ya tienes un logo guardado (subir otro lo reemplaza).")
 
     st.session_state["clientes"] = clientes_cacheados()
     cols_pie = st.columns([2, 1])
