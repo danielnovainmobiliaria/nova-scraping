@@ -8,3 +8,4 @@ python-dotenv==1.2.2
 rapidfuzz==3.14.5
 sqlalchemy==2.0.51
 psycopg[binary]==3.3.4
+fpdf2==2.8.7

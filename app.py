@@ -950,9 +950,21 @@ with tab_clientes:
         st.caption(f"Mostrando {len(lista_ver)} de {len(todos)} clientes que coinciden "
                    f"con «{buscar_cli}».")
 
-    c2, c3 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
+    # Ficha elegante para compartir con otras inmobiliarias: clientes ACTIVOS,
+    # nombre anonimizado ("Alfonso R.") y sin teléfonos ni notas privadas.
+    try:
+        from src import fichas
+        c1.download_button(
+            "📄 Ficha para aliados (PDF)", fichas.generar_pdf(todos),
+            f"busquedas_nova_{datetime.now(timezone.utc).date().isoformat()}.pdf",
+            "application/pdf", use_container_width=True,
+            help="Diseño listo para enviar a otras inmobiliarias: búsquedas activas con "
+                 "nombre anonimizado (Alfonso R.), sin teléfonos ni notas.")
+    except Exception as e:  # noqa: BLE001
+        c1.caption(f"PDF no disponible: {e}")
     c2.download_button(
-        "⬇️ Descargar copia (Excel)", excel_bytes(clientes_a_df(todos)),
+        "⬇️ Copia de respaldo (Excel)", excel_bytes(clientes_a_df(todos)),
         "clientes.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
