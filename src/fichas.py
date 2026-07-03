@@ -8,6 +8,7 @@ aliado necesita para saber si tiene algo que encaje.
 from __future__ import annotations
 
 import io
+import re
 from datetime import date
 from typing import Any
 
@@ -45,43 +46,100 @@ def _latin(t: str) -> str:
     return str(t).encode("latin-1", "ignore").decode("latin-1")
 
 
-def _linea_specs(c: dict[str, Any]) -> list[str]:
-    """Las líneas de especificaciones de un cliente (solo lo que tenga dato)."""
-    lineas: list[str] = []
+def _sanitizar(t: str) -> str:
+    """Limpia datos privados de un texto antes de compartirlo (teléfonos, correos, links)."""
+    t = re.sub(r"\S+@\S+", " ", str(t or ""))
+    t = re.sub(r"https?://\S+", " ", t)
+    t = re.sub(r"\+?\d[\d .\-]{6,}\d", " ", t)   # números tipo teléfono
+    t = re.sub(r"\b(tel|cel|celular|whatsapp|wpp|contacto)\b[.:]?", " ", t, flags=re.I)
+    return " ".join(t.split()).strip()
 
+
+def _linea_specs(c: dict[str, Any]) -> list[str]:
+    """Las líneas DETALLADAS de un cliente (con **negrilla** en las etiquetas)."""
+    lineas: list[str] = []
+    exc = c.get("exclusiones") or {}
+    prefs = c.get("preferencias_evitar") or {}
+
+    # Qué busca (tipo de inmueble, si se sabe)
+    tipo = str(c.get("tipo") or exc.get("tipo") or "").strip()
+    if tipo:
+        lineas.append(f"**Busca:** {tipo.capitalize()}")
+
+    # Dónde
     ubic = ", ".join(c.get("barrios") or [])
     zona = (c.get("zona") or "").strip()
     if ubic and zona:
-        lineas.append(f"Zona: {ubic}  ({zona})")
+        lineas.append(f"**Zona:** {ubic}  ({zona})")
     elif ubic or zona:
-        lineas.append(f"Zona: {ubic or zona}")
+        lineas.append(f"**Zona:** {ubic or zona}")
+    exc_barrios = exc.get("barrios") or []
+    if exc_barrios:
+        vista = ", ".join(exc_barrios[:5]) + (" y más" if len(exc_barrios) > 5 else "")
+        lineas.append(f"**No busca en:** {vista}")
 
-    partes: list[str] = []
+    # Presupuesto
     if c.get("presupuesto_max"):
         tope = formato_cop(c["presupuesto_max"])
-        partes.append(f"Presupuesto: hasta {tope}"
-                      + (" mensuales" if (c.get("operacion") or "") == "arriendo" else ""))
-    amin, amax = c.get("area_min"), c.get("area_max")
+        lineas.append(f"**Presupuesto:** hasta {tope}"
+                      + (" mensuales (canon + admin)"
+                         if (c.get("operacion") or "") == "arriendo" else ""))
+
+    # Espacio: metraje + habitaciones + baños (incluye topes aprendidos)
+    partes: list[str] = []
+    amin = c.get("area_min")
+    amax = c.get("area_max") or exc.get("area_max")
     if amin and amax:
         partes.append(f"{amin:g}-{amax:g} m2")
     elif amin:
         partes.append(f"desde {amin:g} m2")
     elif amax:
         partes.append(f"hasta {amax:g} m2")
-    if c.get("habitaciones_min"):
-        partes.append(f"{c['habitaciones_min']:g}+ hab")
+    hmin, hmax = c.get("habitaciones_min"), exc.get("habitaciones_max")
+    if hmin and hmax and hmin == hmax:
+        partes.append(f"exactamente {hmin:g} hab")
+    elif hmin and hmax:
+        partes.append(f"{hmin:g}-{hmax:g} hab")
+    elif hmin:
+        partes.append(f"{hmin:g}+ hab")
     if c.get("banos_min"):
         partes.append(f"{c['banos_min']:g}+ baños")
     if partes:
-        lineas.append("  ·  ".join(partes))
+        lineas.append("**Espacio:** " + "  ·  ".join(partes))
 
-    extras = [ETIQUETA_EXTRA.get(e, e).replace("_", " ") for e in (c.get("extras") or [])]
-    if extras:
-        lineas.append("Ideal con: " + ", ".join(extras))
+    # Antigüedad deseada (aprendida de sus afinaciones)
+    ant = exc.get("antiguedad_max")
+    if ant is not None:
+        lineas.append("**Antigüedad:** " + ("para estrenar / obra nueva" if ant == 0
+                      else f"máximo {ant:g} años de construido"))
 
+    # Lo que idealmente debe tener (extras pedidos + los aprendidos de sus descartes)
+    extras = list(dict.fromkeys((c.get("extras") or []) + (prefs.get("extras") or [])))
+    extras_leg = [ETIQUETA_EXTRA.get(e, e).replace("_", " ") for e in extras]
+    if extras_leg:
+        lineas.append("**Ideal con:** " + ", ".join(extras_leg))
+
+    # Lo que EVITA (aprendido de descartes y comentarios del broker)
+    evita = list(dict.fromkeys((exc.get("palabras") or []) + (prefs.get("palabras") or [])))
+    if evita:
+        lineas.append("**Evita:** " + ", ".join(evita[:6]))
+
+    # No negociable
     oblig = [ETIQUETA_OBLIG.get(o, o) for o in (c.get("obligatorios") or [])]
     if oblig:
-        lineas.append("No negociable: " + ", ".join(oblig))
+        lineas.append("**Sí o sí:** " + ", ".join(oblig))
+
+    # El detalle en palabras del broker (sin datos privados)
+    notas = _sanitizar(c.get("notas") or "")
+    if notas:
+        lineas.append(f"**Detalle:** {notas}")
+
+    # Qué tan exigente es (le dice al aliado qué tan afinado debe ser lo que ofrezca)
+    flex = str(c.get("flexibilidad") or "medio").lower()
+    if flex == "estricto":
+        lineas.append("**Perfil:** cliente exigente - solo opciones que cumplan TODO")
+    elif flex == "flexible":
+        lineas.append("**Perfil:** abierto a opciones parecidas")
     return lineas
 
 
@@ -165,7 +223,8 @@ def generar_pdf(clientes: list[dict[str, Any]], quien: str = "Nova Inmobiliaria"
         for c in grupo:
             lineas = [_latin(l) for l in _linea_specs(c)]
             pdf.set_font("helvetica", "", 10)
-            n_render = sum(len(pdf.multi_cell(174, 5.2, l, dry_run=True, output="LINES"))
+            n_render = sum(len(pdf.multi_cell(174, 5.2, l, dry_run=True, output="LINES",
+                                              markdown=True))
                            for l in lineas) or 1
             alto = 9 + n_render * 5.2 + 5
             if pdf.get_y() + alto > 281:
@@ -194,7 +253,7 @@ def generar_pdf(clientes: list[dict[str, Any]], quien: str = "Nova Inmobiliaria"
             pdf.set_xy(16, y0 + 9.5)
             for l in lineas:
                 pdf.set_x(16)
-                pdf.multi_cell(176, 5.2, l)
+                pdf.multi_cell(176, 5.2, l, markdown=True)
             pdf.set_y(y0 + alto + 3.5)
 
     # Pie

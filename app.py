@@ -1487,20 +1487,54 @@ with tab_manual:
                 if item.get("link"):
                     st.markdown(f"🔗 [Abrir inmueble (tu referencia)]({item['link']})")
 
+                cli_by_name = {c["nombre"]: c for c in clientes_m}
+
+                def _ya_enviado(nombre_c: str) -> bool:
+                    cli = cli_by_name.get(nombre_c) or {}
+                    return any(pr.get("post_id") == item.get("id")
+                               for pr in (cli.get("procesos") or []))
+
                 if buenos:
                     st.markdown(f"**✅ Le sirve a {len(buenos)} cliente(s):**")
                     for nombre, ev in buenos:
-                        st.markdown(f"- {badge_afinidad(ev['score'])} **{ev['score']}%** — {nombre}")
-                        if ev["razones_ok"]:
-                            st.caption("　✅ " + " · ".join(ev["razones_ok"]))
-                        if ev["razones_no"]:
-                            st.caption("　⚠️ " + " · ".join(ev["razones_no"]))
+                        col_i, col_b = st.columns([4, 1])
+                        with col_i:
+                            st.markdown(f"- {badge_afinidad(ev['score'])} **{ev['score']}%** — {nombre}")
+                            if ev["razones_ok"]:
+                                st.caption("　✅ " + " · ".join(ev["razones_ok"]))
+                            if ev["razones_no"]:
+                                st.caption("　⚠️ " + " · ".join(ev["razones_no"]))
+                        with col_b:
+                            if _ya_enviado(nombre):
+                                st.caption("✅ Ya enviado")
+                            elif st.button("📤 Enviado", key=f"envm_{item.get('id')}_{nombre}",
+                                           use_container_width=True,
+                                           help=f"Lo pasa al seguimiento CRM de {nombre}"):
+                                mod_clientes.agregar_proceso(nombre, proceso_de(post, "enviado"))
+                                st.toast(f"📤 En el seguimiento de {nombre} (míralo en 4️⃣ CRM)")
+                                st.rerun()
                 else:
                     st.info("Ningún cliente encaja claramente (≥50%) con este inmueble.")
                     if ms:
                         st.caption("Los más cercanos: "
                                    + " · ".join(f"{n} ({e['score']}%)" for n, e in ms[:3]))
-                if st.button("🗑️ Quitar este inmueble", key=f"delm_{item.get('id')}"):
+
+                a1, a2 = st.columns(2)
+                with a1.popover("📤 Enviado a OTRO cliente", use_container_width=True):
+                    st.caption("¿Se lo mandaste a alguien que no está en la lista de arriba? "
+                               "Márcalo aquí para que quede en su CRM.")
+                    otros = [c["nombre"] for c in clientes_m if not _ya_enviado(c["nombre"])]
+                    if not otros:
+                        st.caption("Ya está enviado a todos tus clientes.")
+                    else:
+                        sel_env = st.selectbox("¿A quién se lo enviaste?", otros,
+                                               key=f"selenv_{item.get('id')}")
+                        if st.button("Confirmar envío", key=f"btnenv_{item.get('id')}"):
+                            mod_clientes.agregar_proceso(sel_env, proceso_de(post, "enviado"))
+                            st.toast(f"📤 En el seguimiento de {sel_env} (míralo en 4️⃣ CRM)")
+                            st.rerun()
+                if a2.button("🗑️ Quitar este inmueble", key=f"delm_{item.get('id')}",
+                             use_container_width=True):
                     guardar_inmuebles_manuales(
                         [x for x in cargar_inmuebles_manuales() if x.get("id") != item.get("id")])
                     st.rerun()
