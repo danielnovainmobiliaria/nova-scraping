@@ -647,8 +647,8 @@ def texto_a_lista(v) -> list[str]:
 
 # Columnas de la "hoja de clientes" dentro de la app.
 COLS_HOJA = ["nombre", "telefono", "operacion", "flexibilidad", "barrios", "zona", "presupuesto",
-             "area_min", "area_max", "habitaciones_min", "banos_min", "extras",
-             "obligatorios", "notas"]
+             "area_min", "area_max", "habitaciones_min", "habitaciones_max", "banos_min",
+             "extras", "obligatorios", "notas"]
 
 
 def clientes_a_df(lista):
@@ -666,6 +666,7 @@ def clientes_a_df(lista):
             "area_min": c.get("area_min"),
             "area_max": c.get("area_max"),
             "habitaciones_min": c.get("habitaciones_min"),
+            "habitaciones_max": c.get("habitaciones_max"),
             "banos_min": c.get("banos_min"),
             "extras": lista_a_texto(c.get("extras")),
             "obligatorios": lista_a_texto(c.get("obligatorios")),
@@ -850,11 +851,15 @@ with tab_clientes:
                 e_barrios = st.text_input("Barrios", value=lista_a_texto(cliente_e.get("barrios")))
                 e_pres = st.text_input("Presupuesto",
                                        value=matcher.formato_cop(cliente_e.get("presupuesto_max")))
-                g1, g2, g3, g4 = st.columns(4)
+                g1, g2, g3, g4, g5 = st.columns(5)
                 e_amin = g1.number_input("Área mín", min_value=0, value=int(cliente_e.get("area_min") or 0))
                 e_amax = g2.number_input("Área máx", min_value=0, value=int(cliente_e.get("area_max") or 0))
-                e_hab = g3.number_input("Habitac.", min_value=0, value=int(cliente_e.get("habitaciones_min") or 0))
-                e_ban = g4.number_input("Baños", min_value=0, value=int(cliente_e.get("banos_min") or 0))
+                e_hab = g3.number_input("Hab. mín", min_value=0, value=int(cliente_e.get("habitaciones_min") or 0))
+                e_hab_max = g4.number_input(
+                    "Hab. máx", min_value=0, value=int(cliente_e.get("habitaciones_max") or 0),
+                    help="Vacío (0) = quiere EXACTAMENTE las del mínimo. "
+                         "Pon un máximo si acepta rango (ej. 2 a 3).")
+                e_ban = g5.number_input("Baños", min_value=0, value=int(cliente_e.get("banos_min") or 0))
                 e_extras = st.multiselect(
                     "Extras", EXTRAS_OPCIONES, format_func=lambda x: ETIQUETA_EXTRA.get(x, x),
                     default=[x for x in (cliente_e.get("extras") or []) if x in EXTRAS_OPCIONES])
@@ -886,6 +891,7 @@ with tab_clientes:
                             c["area_min"] = num_o_none(e_amin)
                             c["area_max"] = num_o_none(e_amax)
                             c["habitaciones_min"] = num_o_none(e_hab)
+                            c["habitaciones_max"] = num_o_none(e_hab_max)
                             c["banos_min"] = num_o_none(e_ban)
                             c["extras"] = e_extras
                             c["obligatorios"] = e_oblig
@@ -1039,8 +1045,9 @@ with tab_resultados:
             dias_arriendo = fcol2.slider("📅 Frescura ARRIENDO (días)", 3, 90, 20, 1,
                                          help="Los arriendos se toman más rápido: por defecto 20 días.")
             c1, c2, c3, c4 = st.columns(4)
-            score_min = c1.slider("Coincidencia mínima (%)", 0, 100, 50, 5,
-                                  help="Sube el valor para ver solo los matches más fuertes.")
+            score_min = c1.slider("Coincidencia mínima (%)", 0, 100, 70, 5,
+                                  help="Por defecto 70%: solo opciones afines. Bájalo si quieres "
+                                       "ver más opciones (ej. 60 muestra las de datos incompletos).")
             flex_precio = c2.slider("Presupuesto: tope arriba (%)", 0, 40, 15, 5,
                                     help="Cuánto POR ENCIMA del presupuesto se permite. "
                                          "Ej: 15% deja ver opciones hasta 15% más caras.")

@@ -298,6 +298,7 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin texto extra, sin ```), con esta
   "area_min": number|null,          // metros cuadrados
   "area_max": number|null,          // metros cuadrados
   "habitaciones_min": number|null,
+  "habitaciones_max": number|null,  // ver regla de habitaciones abajo
   "banos_min": number|null,
   "extras": [string],               // SOLO valores de: {EXTRAS_VALIDOS}
   "obligatorios": [string],         // criterios NO negociables. SOLO de:
@@ -312,7 +313,9 @@ Reglas de interpretación (mercado bogotano):
   "1.900", "1900 millones", "$1.900M" (venta) = 1900000000.
   En ARRIENDO, montos de 1 a 40 suelen ser millones ("arriendo 12M" = 12000000).
   Usa tu criterio del mercado para distinguir arriendo vs venta.
-- "2 alcobas"/"2 habs"/"2 hab"/"2 dormitorios" = habitaciones_min 2.
+- Habitaciones (IMPORTANTE, sé exacto): "2 alcobas/habs/dormitorios" = quiere DOS →
+  habitaciones_min 2 Y habitaciones_max 2. "2 o 3" / "2-3" → min 2, max 3.
+  "mínimo 3" / "3 o más" / "3+" → min 3, max 5. Nunca dejes max en null si hay dato.
 - "mts2"/"m2"/"mtrs"/"metros" = área. "mín 60 m2" -> area_min 60.
   "entre 60 y 90 m2" -> area_min 60, area_max 90. "máx 120" -> area_max 120.
 - "cuarto de servicio"/"alcoba de servicio" -> "cuarto_servicio".
@@ -415,7 +418,7 @@ cliente que encuentres, con estas claves:
   "tipo": "apartamento"|"casa"|"apartaestudio"|"penthouse"|"local"|"oficina"|null,
   "barrios": [string], "zona": string|null,
   "presupuesto_max": number|null, "area_min": number|null, "area_max": number|null,
-  "habitaciones_min": number|null, "banos_min": number|null,
+  "habitaciones_min": number|null, "habitaciones_max": number|null, "banos_min": number|null,
   "extras": [string], "obligatorios": [string],
   "flexibilidad": "estricto"|"medio"|"flexible", "notas": string|null
 }}]
@@ -426,7 +429,7 @@ NO negociables que el texto marque como "obligatorio"/"sí o sí"/"indispensable
 más opciones; "medio" si no se nota.
 Reglas (mercado bogotano): "12M"/"12 millones"=12000000; "MM"=millones; "$450M" en venta=450000000;
 "1.900.000.000" tal cual. Rangos ("800M-900M","11M-14M"): usa el MÁXIMO. "comprar"/"compra" ->
-operacion "venta"; "arrendar"/"arriendo" -> "arriendo". "2 alcobas/habs/dormitorios"=habitaciones;
+operacion "venta"; "arrendar"/"arriendo" -> "arriendo". Habitaciones EXACTAS: "2 alcobas/habs"= min 2 y max 2; "2 o 3"= min 2 max 3; "mínimo 3"/"3+"= min 3 max 5;
 "mts2/m2/metros"=área. "cuarto de servicio" -> "cuarto_servicio". Si la zona viene por calles/carreras,
 deduce los barrios reales de Bogotá de ese sector. Teléfono solo dígitos.
 Si hay un solo cliente, devuelve un array con un solo objeto. NO inventes clientes que no estén.

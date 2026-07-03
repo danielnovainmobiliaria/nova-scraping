@@ -79,6 +79,7 @@ def cargar_clientes(ruta: str | Path) -> list[dict[str, Any]]:
                 "area_max": _numero(fila.get("area_max")),
                 "presupuesto_max": _numero(presupuesto),
                 "habitaciones_min": _numero(fila.get("habitaciones_min")),
+                "habitaciones_max": _numero(fila.get("habitaciones_max")),
                 "banos_min": _numero(fila.get("banos_min")),
                 "extras": [e.lower() for e in _lista(fila.get("extras"))],
                 "obligatorios": [o.lower().strip() for o in _lista(fila.get("obligatorios"))],

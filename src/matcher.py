@@ -536,26 +536,27 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
     if presupuesto and precio and not admin and _inferir_operacion(post) == "arriendo":
         razones_no.append("sin dato de administración (confírmala)")
 
-    # ── Habitaciones (peso 12, permite 1 menos) ──────────────
+    # ── Habitaciones (peso 12, EXACTAS por defecto) ──────────
+    # "Quiere 2 habitaciones" = 2 (ni 3 ni 4). Si el cliente acepta un rango
+    # ("2 o 3"), se usa habitaciones_max. Solo el perfil FLEXIBLE tolera ±1.
     habs_min = cliente.get("habitaciones_min")
+    habs_max = (cliente.get("habitaciones_max")
+                or (cliente.get("exclusiones") or {}).get("habitaciones_max"))
     habs = post.get("habitaciones")
     peso_total += 12
     if habs_min and habs is not None:
-        if habs == habs_min:
+        lo = habs_min
+        hi = habs_max if habs_max else habs_min   # sin rango explícito → exacto
+        if lo <= habs <= hi:
             puntaje += 12
-            razones_ok.append(f"{habs:g} habitaciones")
-        elif habs == habs_min + 1:
-            puntaje += 12 * 0.65          # 1 de más: aceptable, pero menos ideal
-            razones_no.append(f"{habs:g} habitaciones (1 más de lo pedido)")
-        elif habs > habs_min + 1:
-            puntaje += 12 * 0.2           # bastantes de más: suele ser otro segmento
-            razones_no.append(f"{habs:g} habitaciones (muchas más de las {habs_min:g} pedidas)")
-        elif habs == habs_min - 1 and perfil["mult"] > 1.0:
-            # Solo el perfil FLEXIBLE acepta una habitación menos del mínimo.
+            razones_ok.append(f"{habs:g} habitaciones" +
+                              (f" (pediste {lo:g}-{hi:g})" if hi > lo else ""))
+        elif perfil["mult"] > 1.0 and (habs == lo - 1 or habs == hi + 1):
             puntaje += 12 * 0.5
-            razones_no.append(f"{habs:g} habitaciones (1 menos de lo pedido)")
+            lado = "menos" if habs < lo else "más"
+            razones_no.append(f"{habs:g} habitaciones (1 {lado} de lo pedido)")
         else:
-            return None  # por debajo del mínimo pedido: no se muestra
+            return None  # fuera de lo pedido: no se muestra
     elif habs_min and habs is None:
         puntaje += 12 * 0.5
         razones_no.append("el post no indica habitaciones")
