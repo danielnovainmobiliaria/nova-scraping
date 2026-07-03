@@ -2,8 +2,8 @@
 
 Genera un documento elegante con la identidad NŌVA (dorado + terracota + crema),
 con los requerimientos de los clientes ACTIVOS, el nombre anonimizado
-("Alfonso R.") y SIN datos privados (ni teléfono, ni notas): solo lo que un
-aliado necesita para saber si tiene algo que encaje.
+("Alfonso R.") y CON las notas del requerimiento (limpiadas de teléfonos/correos),
+pero sin datos de contacto ni seguimiento privado del CRM.
 """
 from __future__ import annotations
 
@@ -95,7 +95,8 @@ def _linea_specs(c: dict[str, Any]) -> list[str]:
         partes.append(f"desde {amin:g} m2")
     elif amax:
         partes.append(f"hasta {amax:g} m2")
-    hmin, hmax = c.get("habitaciones_min"), exc.get("habitaciones_max")
+    hmin = c.get("habitaciones_min")
+    hmax = c.get("habitaciones_max") or exc.get("habitaciones_max")
     if hmin and hmax and hmin == hmax:
         partes.append(f"exactamente {hmin:g} hab")
     elif hmin and hmax:
@@ -132,7 +133,7 @@ def _linea_specs(c: dict[str, Any]) -> list[str]:
     # El detalle en palabras del broker (sin datos privados)
     notas = _sanitizar(c.get("notas") or "")
     if notas:
-        lineas.append(f"**Detalle:** {notas}")
+        lineas.append(f"**Notas:** {notas}")
 
     # Qué tan exigente es (le dice al aliado qué tan afinado debe ser lo que ofrezca)
     flex = str(c.get("flexibilidad") or "medio").lower()
