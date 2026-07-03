@@ -70,6 +70,9 @@ def cargar_clientes(ruta: str | Path) -> list[dict[str, Any]]:
                               "arrendar": "arriendo"}.get(
                     str(fila.get("operacion", "")).strip().lower(),
                     str(fila.get("operacion", "")).strip().lower()),
+                "prioridad": (str(fila.get("prioridad", "")).strip().lower()
+                              if str(fila.get("prioridad", "")).strip().lower()
+                              in ("alta", "media", "baja") else "media"),
                 "flexibilidad": (str(fila.get("flexibilidad", "")).strip().lower()
                                  if str(fila.get("flexibilidad", "")).strip().lower()
                                  in ("estricto", "medio", "flexible") else "medio"),
@@ -96,7 +99,8 @@ def cargar_clientes(ruta: str | Path) -> list[dict[str, Any]]:
 # valor_cierre = canon mensual (arriendo) o precio de venta final (venta).
 # comision = comisión final (ajustable, porque todo es negociable).
 CRM_CAMPOS = {
-    "estado": "activo", "visitas": 0, "inmuebles_enviados": [], "notas_crm": "",
+    "estado": "activo", "prioridad": "media", "visitas": 0,
+    "inmuebles_enviados": [], "notas_crm": "",
     "valor_cierre": 0, "comision": 0,
     # ids de inmuebles ya enviados o descartados (compatibilidad / set para ocultar).
     "ids_enviados": [], "ids_descartados": [],

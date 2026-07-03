@@ -598,6 +598,20 @@ ETIQUETA_FLEX = {
 }
 BADGE_FLEX = {"estricto": "🔒 Estricto", "medio": "⚖️ Medio", "flexible": "🌊 Flexible"}
 
+# Prioridad del cliente: los 🔥 van SIEMPRE de primeros en toda la herramienta.
+PRIORIDAD_OPCIONES = ["alta", "media", "baja"]
+ETIQUETA_PRIORIDAD = {"alta": "🔥 Alta — con afán / responde rápido",
+                      "media": "⭐ Media — ritmo normal",
+                      "baja": "🌙 Baja — sin afán, explorando"}
+BADGE_PRIORIDAD = {"alta": "🔥 Alta", "media": "⭐ Media", "baja": "🌙 Baja"}
+ICONO_PRIORIDAD = {"alta": "🔥 ", "media": "", "baja": "🌙 "}
+RANGO_PRIORIDAD = {"alta": 0, "media": 1, "baja": 2}
+
+
+def prioridad_de(c) -> str:
+    p = str((c or {}).get("prioridad") or "media").lower().strip()
+    return p if p in PRIORIDAD_OPCIONES else "media"
+
 
 def num_o_none(v):
     """Convierte 0/vacío en None (0 = 'no especificado')."""
@@ -646,7 +660,7 @@ def texto_a_lista(v) -> list[str]:
 
 
 # Columnas de la "hoja de clientes" dentro de la app.
-COLS_HOJA = ["nombre", "telefono", "operacion", "flexibilidad", "barrios", "zona", "presupuesto",
+COLS_HOJA = ["nombre", "telefono", "operacion", "flexibilidad", "prioridad", "barrios", "zona", "presupuesto",
              "area_min", "area_max", "habitaciones_min", "habitaciones_max", "banos_min",
              "extras", "obligatorios", "notas"]
 
@@ -660,6 +674,7 @@ def clientes_a_df(lista):
             "telefono": c.get("telefono", ""),
             "operacion": c.get("operacion", "venta"),
             "flexibilidad": c.get("flexibilidad") or "medio",
+            "prioridad": prioridad_de(c),
             "barrios": lista_a_texto(c.get("barrios")),
             "zona": c.get("zona", ""),
             "presupuesto": matcher.formato_cop(c.get("presupuesto_max")),
@@ -759,6 +774,10 @@ with tab_clientes:
                 format_func=lambda f: ETIQUETA_FLEX.get(f, f),
                 help="Estricto = solo inmuebles muy acertados (clientes que no ceden, como Eleonora). "
                      "Flexible = abierto a más opciones. Medio = equilibrado.")
+            z_prio = st.selectbox(
+                "¿Qué tan prioritario es?", PRIORIDAD_OPCIONES, index=1,
+                format_func=lambda x: ETIQUETA_PRIORIDAD.get(x, x),
+                help="Los 🔥 salen de primeros en Coincidencias y en el CRM.")
             if st.form_submit_button("➕ Agregar cliente", type="primary"):
                 if not z_nombre.strip():
                     st.error("Ponle un nombre al cliente.")
@@ -777,6 +796,7 @@ with tab_clientes:
                         nuevos[0]["obligatorios"] = sorted(
                             set(nuevos[0].get("obligatorios") or []) | set(z_oblig))
                         nuevos[0]["flexibilidad"] = z_flex  # lo que elegiste manda
+                        nuevos[0]["prioridad"] = z_prio
                         existentes = mod_clientes.cargar_guardados()
                         antes = len(existentes)
                         combinados = mod_clientes.fusionar_duplicados(existentes + nuevos)
@@ -847,6 +867,11 @@ with tab_clientes:
                                       format_func=lambda f: ETIQUETA_FLEX.get(f, f),
                                       help="Estricto = no cede (solo lo muy acertado). "
                                            "Flexible = abierto a más opciones.")
+                e_prio = st.selectbox(
+                    "Prioridad", PRIORIDAD_OPCIONES,
+                    index=PRIORIDAD_OPCIONES.index(prioridad_de(cliente_e)),
+                    format_func=lambda x: ETIQUETA_PRIORIDAD.get(x, x),
+                    help="Los 🔥 salen de primeros en Coincidencias, Cobertura y CRM.")
                 e_zona = st.text_input("Zona", value=cliente_e.get("zona", ""))
                 e_barrios = st.text_input("Barrios", value=lista_a_texto(cliente_e.get("barrios")))
                 e_pres = st.text_input("Presupuesto",
@@ -885,6 +910,7 @@ with tab_clientes:
                             c["telefono"] = "".join(ch for ch in e_tel if ch.isdigit())
                             c["operacion"] = e_op
                             c["flexibilidad"] = e_flex
+                            c["prioridad"] = e_prio
                             c["barrios"] = texto_a_lista(e_barrios)
                             c["zona"] = e_zona.strip()
                             c["presupuesto_max"] = parse_cop(e_pres)
@@ -1101,6 +1127,7 @@ with tab_resultados:
         aprendizajes = {c["nombre"]: mod_clientes.aprendizajes_cliente(c) for c in clientes}
         oblig_map = {c["nombre"]: (c.get("obligatorios") or []) for c in clientes}
         flex_map = {c["nombre"]: (c.get("flexibilidad") or "medio") for c in clientes}
+        prio_map = {c["nombre"]: prioridad_de(c) for c in clientes}
         com_map = {c["nombre"]: (c.get("comentarios_ia") or []) for c in clientes}
         cli_map = {c["nombre"]: c for c in clientes}
         for nombre in list(resultados):
@@ -1126,20 +1153,28 @@ with tab_resultados:
             n_ig = n - n_portal
             resumen.append({
                 "Cliente": nombre,
+                "Prioridad": BADGE_PRIORIDAD.get(prio_map.get(nombre, "media"), "⭐ Media"),
                 "Perfil": BADGE_FLEX.get(flex_map.get(nombre, "medio"), "⚖️ Medio"),
                 "📷 Instagram": n_ig,
                 "🏠 Portales": n_portal,
                 "Total": n,
                 "Cobertura": "🔴 Buscar más" if n == 0 else ("🟡 Pocos" if n <= 2 else "🟢 Bien cubierto"),
             })
-        resumen.sort(key=lambda r: r["Total"])  # los más flojos primero
+        # Primero los 🔥 y, dentro de cada prioridad, los más flojos de inventario.
+        resumen.sort(key=lambda r: (RANGO_PRIORIDAD.get(prio_map.get(r["Cliente"], "media"), 1),
+                                    r["Total"]))
         with st.expander("📋 Cobertura por cliente (cuántos inmuebles potenciales hay)", expanded=True):
             st.dataframe(pd.DataFrame(resumen), hide_index=True, use_container_width=True)
             st.caption("Ordenado de menos a más. Los 🔴/🟡 son a quienes conviene "
                        "buscarles más (incluso manual o ampliando criterios con los deslizadores).")
 
-        for nombre, matches in resultados.items():
-            with st.expander(f"👤 {nombre} — {len(matches)} coincidencia(s)",
+        # Orden de los clientes: 🔥 primero; a igual prioridad, más coincidencias arriba.
+        orden_clientes = sorted(
+            resultados.items(),
+            key=lambda kv: (RANGO_PRIORIDAD.get(prio_map.get(kv[0], "media"), 1), -len(kv[1])))
+        for nombre, matches in orden_clientes:
+            icono_p = ICONO_PRIORIDAD.get(prio_map.get(nombre, "media"), "")
+            with st.expander(f"{icono_p}👤 {nombre} — {len(matches)} coincidencia(s)",
                              expanded=(nombre == st.session_state.get("cliente_abierto"))):
                 perfil = flex_map.get(nombre, "medio")
                 st.caption(f"Perfil de búsqueda: **{ETIQUETA_FLEX.get(perfil, perfil)}**"
@@ -1506,7 +1541,8 @@ with tab_manual:
                     for nombre, ev in buenos:
                         col_i, col_b = st.columns([4, 1])
                         with col_i:
-                            st.markdown(f"- {badge_afinidad(ev['score'])} **{ev['score']}%** — {nombre}")
+                            st.markdown(f"- {badge_afinidad(ev['score'])} **{ev['score']}%** — "
+                                        f"{ICONO_PRIORIDAD.get(prioridad_de(cli_by_name.get(nombre)), '')}{nombre}")
                             if ev["razones_ok"]:
                                 st.caption("　✅ " + " · ".join(ev["razones_ok"]))
                             if ev["razones_no"]:
@@ -1647,6 +1683,8 @@ with tab_crm:
                           horizontal=True)
         mapa_filtro = {"🟡 Activos": "activo", "🟢 Ganados": "ganado", "🔴 Perdidos": "perdido"}
 
+        crm_clientes = sorted(crm_clientes,
+                              key=lambda c: RANGO_PRIORIDAD.get(prioridad_de(c), 1))
         for c in crm_clientes:
             if filtro != "Todos" and c["estado"] != mapa_filtro.get(filtro):
                 continue
@@ -1654,7 +1692,8 @@ with tab_crm:
             enviados = c.get("inmuebles_enviados") or []
             com_actual = float(c.get("comision") or 0)
             n_env, dias_ult = cobertura[nombre]
-            cab = (f"{ESTADOS_CRM.get(c['estado'], c['estado'])}  ·  **{nombre}**  ·  "
+            cab = (f"{ICONO_PRIORIDAD.get(prioridad_de(c), '')}"
+                   f"{ESTADOS_CRM.get(c['estado'], c['estado'])}  ·  **{nombre}**  ·  "
                    f"{cobertura_emoji(n_env)} {n_env} envío(s)  ·  👣 {c.get('visitas', 0)} visita(s)")
             if dias_ult is not None:
                 cab += f"  ·  último hace {dias_ult}d"
@@ -1666,12 +1705,17 @@ with tab_crm:
                 op = (c.get("operacion") or "venta").lower()
                 es_arriendo = op == "arriendo"
                 with st.form(key=f"crm_form_{nombre}"):
-                    col1, col2 = st.columns([1, 1])
+                    col1, col2, col3 = st.columns([1, 1, 1])
                     estado = col1.selectbox(
                         "Estado del negocio", ["activo", "ganado", "perdido"],
                         index=["activo", "ganado", "perdido"].index(c["estado"]),
                         format_func=lambda e: ESTADOS_CRM[e], key=f"est_{nombre}")
-                    visitas = col2.number_input("Visitas realizadas", min_value=0,
+                    prio_crm = col2.selectbox(
+                        "Prioridad", PRIORIDAD_OPCIONES,
+                        index=PRIORIDAD_OPCIONES.index(prioridad_de(c)),
+                        format_func=lambda x: BADGE_PRIORIDAD.get(x, x), key=f"prio_{nombre}",
+                        help="Los 🔥 salen de primeros en toda la herramienta.")
+                    visitas = col3.number_input("Visitas realizadas", min_value=0,
                                                 value=int(c.get("visitas") or 0),
                                                 step=1, key=f"vis_{nombre}")
 
@@ -1714,6 +1758,7 @@ with tab_crm:
                             else comision_sugerida(op, valor_cierre)
                         mod_clientes.actualizar_crm(nombre, {
                             "estado": estado,
+                            "prioridad": prio_crm,
                             "visitas": int(visitas),
                             "valor_cierre": int(valor_cierre),
                             "comision": com_final,

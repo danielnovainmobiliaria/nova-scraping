@@ -304,6 +304,7 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin texto extra, sin ```), con esta
   "obligatorios": [string],         // criterios NO negociables. SOLO de:
                                     // ["barrio","presupuesto","habitaciones","banos","metraje","extras"]
   "flexibilidad": "estricto"|"medio"|"flexible",  // qué tan exigente es el cliente
+  "prioridad": "alta"|"media"|"baja",  // urgencia del cliente (ver regla abajo)
   "notas": string|null              // cualquier detalle adicional relevante
 }}
 
@@ -324,6 +325,9 @@ Reglas de interpretación (mercado bogotano):
   presupuesto; "mínimo 3 hab sí o sí"->habitaciones; "obligatorio 2 baños"->banos;
   "mínimo 80 m2 indispensable"->metraje; "con parqueadero sí o sí"->extras. Si nada es
   obligatorio, deja la lista vacía.
+- "prioridad": "alta" si el texto sugiere urgencia ("tiene afán", "urgente", "necesita ya",
+  "se muda pronto", "entrega su apto", "responde rápido"); "baja" si está "explorando"/"sin
+  afán"/"para el otro año"; si no se nota, "media".
 - "flexibilidad": qué tan exigente es el cliente con cumplir sus requerimientos.
   "estricto" si NO cede / es muy exigente / "tiene que ser exacto" / "no se mueve de" /
   "solo lo que cumpla todo"; "flexible" si es abierto / "lo que aparezca por la zona" /
@@ -393,6 +397,8 @@ def interpretar_clientes(textos: list[str], log=print) -> list[dict[str, Any]]:
         datos["obligatorios"] = [o for o in (datos.get("obligatorios") or []) if o in OBLIGATORIOS_VALIDOS]
         _fx = str(datos.get("flexibilidad") or "medio").lower().strip()
         datos["flexibilidad"] = _fx if _fx in FLEX_VALIDOS else "medio"
+        _pr = str(datos.get("prioridad") or "media").lower().strip()
+        datos["prioridad"] = _pr if _pr in ("alta", "media", "baja") else "media"
         datos["tipo"] = (str(datos.get("tipo") or "").lower().strip() or None)
         datos["barrios"] = datos.get("barrios") or []
         datos["perimetro"] = ""
@@ -420,13 +426,15 @@ cliente que encuentres, con estas claves:
   "presupuesto_max": number|null, "area_min": number|null, "area_max": number|null,
   "habitaciones_min": number|null, "habitaciones_max": number|null, "banos_min": number|null,
   "extras": [string], "obligatorios": [string],
-  "flexibilidad": "estricto"|"medio"|"flexible", "notas": string|null
+  "flexibilidad": "estricto"|"medio"|"flexible",
+  "prioridad": "alta"|"media"|"baja", "notas": string|null
 }}]
 
 "extras" SOLO de: {EXTRAS_VALIDOS}. "obligatorios" SOLO de: {OBLIGATORIOS_VALIDOS} (criterios
 NO negociables que el texto marque como "obligatorio"/"sí o sí"/"indispensable"/"solo").
 "flexibilidad": "estricto" si el cliente NO cede / es muy exigente; "flexible" si es abierto a
-más opciones; "medio" si no se nota.
+más opciones; "medio" si no se nota. "prioridad": "alta" si hay urgencia ("afán", "urgente",
+"necesita ya", "se muda pronto"); "baja" si "sin afán"/"explorando"; si no se nota, "media".
 Reglas (mercado bogotano): "12M"/"12 millones"=12000000; "MM"=millones; "$450M" en venta=450000000;
 "1.900.000.000" tal cual. Rangos ("800M-900M","11M-14M"): usa el MÁXIMO. "comprar"/"compra" ->
 operacion "venta"; "arrendar"/"arriendo" -> "arriendo". Habitaciones EXACTAS: "2 alcobas/habs"= min 2 y max 2; "2 o 3"= min 2 max 3; "mínimo 3"/"3+"= min 3 max 5;
@@ -467,6 +475,8 @@ def interpretar_texto_libre(texto: str, log=print) -> list[dict[str, Any]]:
         d["obligatorios"] = [o for o in (d.get("obligatorios") or []) if o in OBLIGATORIOS_VALIDOS]
         _fx = str(d.get("flexibilidad") or "medio").lower().strip()
         d["flexibilidad"] = _fx if _fx in FLEX_VALIDOS else "medio"
+        _pr = str(d.get("prioridad") or "media").lower().strip()
+        d["prioridad"] = _pr if _pr in ("alta", "media", "baja") else "media"
         d["tipo"] = (str(d.get("tipo") or "").lower().strip() or None)
         d["barrios"] = d.get("barrios") or []
         d["perimetro"] = ""
