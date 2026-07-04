@@ -843,6 +843,46 @@ with tab_clientes:
                     st.error(f"No se pudo interpretar: {e}")
 
     # ── Editar / renombrar un cliente (vía confiable, sin la tabla) ──
+    # ── Importar con IA desde un archivo "como sea" ──────
+    with st.expander("📁 SUBIR ARCHIVO MASIVO — CSV/Excel de Zoho (la IA coteja y une)"):
+        st.caption("Sube tu lista tal como la tengas (CSV o Excel), aunque esté en "
+                   "texto libre y con abreviaciones (ej. *“arriendo 12M, 2 alcobas, "
+                   "Chapinero, mín 60 mts”*). La IA lee cada fila, la interpreta "
+                   "(12M → $12.000.000) y la acomoda al formato. Revisa el resultado "
+                   "en la tabla de abajo antes de guardar. Los que ya existan se ACTUALIZAN sin "
+                   "duplicar (coteja por nombre o teléfono) y conservan su seguimiento CRM.")
+        archivo_ia = st.file_uploader("Archivo de clientes (.csv o .xlsx)",
+                                      type=["csv", "xlsx"], key="ia_uploader")
+        if archivo_ia is not None and st.button("🤖 Interpretar y agregar con IA"):
+            if not config.ANTHROPIC_API_KEY:
+                st.error("Falta la llave de Claude. Revisa «🔑 Mis llaves» en la barra lateral.")
+            else:
+                try:
+                    df_in = leer_tabla(archivo_ia)
+                    cols = list(df_in.columns)
+                    textos = [fila_a_texto(fila, cols) for _, fila in df_in.iterrows()]
+                    registro = st.empty()
+                    lineas: list[str] = []
+
+                    def log_ia(msg: str) -> None:
+                        lineas.append(msg)
+                        registro.code("\n".join(lineas[-10:]))
+
+                    from src import extractor
+                    nuevos = extractor.interpretar_clientes(textos, log=log_ia)
+                    existentes = mod_clientes.cargar_guardados()
+                    # Une duplicados (mismo nombre) tomando el más completo, y
+                    # conserva el seguimiento CRM de los que ya existían.
+                    combinados = mod_clientes.fusionar_duplicados(existentes + nuevos)
+                    mod_clientes.guardar_lista(combinados)
+                    st.success(f"¡Listo! Se procesaron {len(nuevos)} fila(s) → "
+                               f"{len(combinados)} cliente(s) en total (duplicados unidos). "
+                               "Revísalos en la tabla y dale Guardar si todo está bien.")
+                    refrescar_hoja_clientes()
+                    st.rerun()
+                except Exception as e:  # noqa: BLE001
+                    st.error(f"No se pudo procesar el archivo: {e}")
+
     st.markdown("##### ✏️ Editar")
     with st.expander("✏️ Editar, renombrar o borrar un cliente", expanded=True):
         _lista = clientes_cacheados()
@@ -934,45 +974,6 @@ with tab_clientes:
                 refrescar_hoja_clientes()
                 st.success(f"«{sel}» eliminado.")
                 st.rerun()
-
-    # ── Importar con IA desde un archivo "como sea" ──────
-    with st.expander("🤖 Importar clientes desde un archivo (con IA)"):
-        st.caption("Sube tu lista tal como la tengas (CSV o Excel), aunque esté en "
-                   "texto libre y con abreviaciones (ej. *“arriendo 12M, 2 alcobas, "
-                   "Chapinero, mín 60 mts”*). La IA lee cada fila, la interpreta "
-                   "(12M → $12.000.000) y la acomoda al formato. Revisa el resultado "
-                   "en la tabla de abajo antes de guardar.")
-        archivo_ia = st.file_uploader("Archivo de clientes (.csv o .xlsx)",
-                                      type=["csv", "xlsx"], key="ia_uploader")
-        if archivo_ia is not None and st.button("🤖 Interpretar y agregar con IA"):
-            if not config.ANTHROPIC_API_KEY:
-                st.error("Falta la llave de Claude. Revisa «🔑 Mis llaves» en la barra lateral.")
-            else:
-                try:
-                    df_in = leer_tabla(archivo_ia)
-                    cols = list(df_in.columns)
-                    textos = [fila_a_texto(fila, cols) for _, fila in df_in.iterrows()]
-                    registro = st.empty()
-                    lineas: list[str] = []
-
-                    def log_ia(msg: str) -> None:
-                        lineas.append(msg)
-                        registro.code("\n".join(lineas[-10:]))
-
-                    from src import extractor
-                    nuevos = extractor.interpretar_clientes(textos, log=log_ia)
-                    existentes = mod_clientes.cargar_guardados()
-                    # Une duplicados (mismo nombre) tomando el más completo, y
-                    # conserva el seguimiento CRM de los que ya existían.
-                    combinados = mod_clientes.fusionar_duplicados(existentes + nuevos)
-                    mod_clientes.guardar_lista(combinados)
-                    st.success(f"¡Listo! Se procesaron {len(nuevos)} fila(s) → "
-                               f"{len(combinados)} cliente(s) en total (duplicados unidos). "
-                               "Revísalos en la tabla y dale Guardar si todo está bien.")
-                    refrescar_hoja_clientes()
-                    st.rerun()
-                except Exception as e:  # noqa: BLE001
-                    st.error(f"No se pudo procesar el archivo: {e}")
 
     # La tabla es SOLO para ver. (La data_editor de Streamlit no guardaba bien los
     # cambios, así que toda edición se hace con el editor "✏️" de arriba.)
