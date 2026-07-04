@@ -187,6 +187,24 @@ _ZONAS_GENERICAS = {"norte", "sur", "centro", "occidente", "oriente", "noroccide
                     "nororiente", "bogota", "el", "la", "los", "las", "de", "del", "alto"}
 
 
+# Apodos de zona que usan los brokers en Bogotá → los barrios reales que abarcan.
+# (Fácil de ampliar: agrega otra línea con el apodo y su lista.)
+ZONAS_APODO = {
+    "las santas": ["Santa Bibiana", "San Patricio", "Santa Paula", "Santa Bárbara"],
+}
+
+
+def _expandir_apodos(nombres: list) -> list:
+    """'Las Santas' → además Santa Bibiana, San Patricio, Santa Paula, Santa Bárbara."""
+    out = []
+    for n in nombres:
+        out.append(n)
+        exp = ZONAS_APODO.get(_norm(str(n or "")))
+        if exp:
+            out.extend(exp)
+    return out
+
+
 def _tokens_lugar(texto: str) -> set[str]:
     """Palabras significativas de un nombre de lugar (sin genéricas ni muy cortas)."""
     return {t for t in _norm(texto).split() if len(t) >= 3 and t not in _ZONAS_GENERICAS}
@@ -212,10 +230,12 @@ def _match_ubicacion(cliente: dict[str, Any], post: dict[str, Any]) -> tuple[flo
     if not barrios_cliente and not zona_cliente:
         return 1.0, "sin restricción de zona"
 
+    barrios_cliente = _expandir_apodos(barrios_cliente)   # "las santas" → sus 4 barrios
     post_barrio = post.get("barrio") or ""
     post_zona = post.get("zona") or ""
     post_dir = post.get("direccion") or ""
-    candidatos_post = [post_barrio, post_zona, post_dir, _zona_de(post_barrio)]
+    candidatos_post = _expandir_apodos(
+        [post_barrio, post_zona, post_dir, _zona_de(post_barrio)])
 
     # 1) ¿coincide algún barrio pedido con lo que dice el post? (palabras completas)
     mejor = 0.0
@@ -393,7 +413,7 @@ def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | Non
     Devuelve el motivo si el inmueble debe anularse, o None si pasa.
     """
     exc = cliente.get("exclusiones") or {}
-    barrios_x = exc.get("barrios") or []
+    barrios_x = _expandir_apodos(exc.get("barrios") or [])
     palabras_x = exc.get("palabras") or []
     if barrios_x:
         candidato = " ".join(_norm(x) for x in (

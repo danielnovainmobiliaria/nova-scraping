@@ -351,6 +351,8 @@ Reglas de interpretación (mercado bogotano):
   Chapinero Alto, El Retiro, Cedritos, Santa Bárbara, La Carolina). NO inventes nombres
   genéricos (como "Barrio Antiguo") ni te quedes solo en la localidad si puedes nombrar
   barrios específicos. Copia además el perímetro textual en "notas".
+- Apodos de zona en Bogotá: "las santas" = los barrios Santa Bibiana, San Patricio,
+  Santa Paula y Santa Bárbara → inclúyelos TODOS en "barrios".
 - IGNORA datos administrativos que NO describen el inmueble: teléfono, status, fechas,
   horas, URLs, correos, nombre del asesor/referente. NO los pongas en "notas".
 - Si un dato no aparece, usa null (o lista vacía para barrios/extras). NO inventes.
@@ -440,6 +442,7 @@ Reglas (mercado bogotano): "12M"/"12 millones"=12000000; "MM"=millones; "$450M" 
 operacion "venta"; "arrendar"/"arriendo" -> "arriendo". Habitaciones EXACTAS: "2 alcobas/habs"= min 2 y max 2; "2 o 3"= min 2 max 3; "mínimo 3"/"3+"= min 3 max 5;
 "mts2/m2/metros"=área. "cuarto de servicio" -> "cuarto_servicio". Si la zona viene por calles/carreras,
 deduce los barrios reales de Bogotá de ese sector. Teléfono solo dígitos.
+Apodo bogotano: "las santas" = Santa Bibiana, San Patricio, Santa Paula y Santa Bárbara (ponlos todos).
 Si hay un solo cliente, devuelve un array con un solo objeto. NO inventes clientes que no estén.
 """
 
@@ -551,6 +554,7 @@ Si el broker DESCARTA un inmueble de referencia por ser "muy grande/pequeño/car
 los datos de ese inmueble como límite, pero PON EL TOPE UN POCO POR DENTRO para que ese mismo
 inmueble y los similares queden fuera. Ej: descartó uno de 300 m² por muy grande -> area_max 290;
 descartó uno de $2.500M por muy caro -> precio_max ~2.400.000.000.
+Apodo bogotano: "las santas" = Santa Bibiana, San Patricio, Santa Paula y Santa Bárbara.
 Reglas: incluye SOLO exclusiones CLARAS que el broker pide quitar. Para "limites", llena solo
 los topes que el broker mencione y deja el resto en null. "metros"/"m2"/"mts" = área;
 distingue área (decenas/cientos) de precio (millones/miles de millones). Si el comentario es una
