@@ -730,6 +730,49 @@ def leer_tabla(archivo):
     return pd.read_excel(archivo)
 
 
+def _col_por_patron(df, patrones):
+    """Encuentra la columna del DataFrame cuyo nombre contenga alguno de los patrones."""
+    for col in df.columns:
+        c = str(col).lower()
+        if any(p in c for p in patrones):
+            return col
+    return None
+
+
+def comparar_clientes_archivo(df, actuales):
+    """Coteja el archivo contra los clientes de la herramienta (por nombre o teléfono).
+
+    Devuelve (en_ambos, solo_archivo, solo_herramienta) con los nombres, o None si
+    el archivo no tiene una columna de nombre reconocible.
+    """
+    col_nom = _col_por_patron(df, ["nombre", "name"])
+    if col_nom is None:
+        return None
+    col_tel = _col_por_patron(df, ["tel", "cel", "phone", "movil", "móvil", "whats"])
+
+    nombres_app = {mod_clientes._norm_nombre(c.get("nombre", "")): c.get("nombre", "")
+                   for c in actuales}
+    tels_app = {mod_clientes._norm_tel(c.get("telefono", "")): c.get("nombre", "")
+                for c in actuales if mod_clientes._norm_tel(c.get("telefono", ""))}
+
+    en_ambos: dict = {}
+    solo_archivo: list = []
+    for _, f in df.iterrows():
+        nom = str(f.get(col_nom, "") or "").strip()
+        if not nom or nom.lower() == "nan":
+            continue
+        nk = mod_clientes._norm_nombre(nom)
+        tk = mod_clientes._norm_tel(str(f.get(col_tel, "") or "")) if col_tel is not None else ""
+        match = nombres_app.get(nk) or (tels_app.get(tk) if tk else None)
+        if match:
+            en_ambos[mod_clientes._norm_nombre(match)] = match
+        elif nom not in solo_archivo:
+            solo_archivo.append(nom)
+    solo_app = [c.get("nombre", "") for c in actuales
+                if mod_clientes._norm_nombre(c.get("nombre", "")) not in en_ambos]
+    return list(en_ambos.values()), solo_archivo, solo_app
+
+
 def fila_a_texto(fila, columnas) -> str:
     """Convierte una fila ('columna: valor' por cada celda con dato) en un texto."""
     partes = []
@@ -861,7 +904,42 @@ with tab_clientes:
                    "duplicar (coteja por nombre o teléfono) y conservan su seguimiento CRM.")
         archivo_ia = st.file_uploader("Archivo de clientes (.csv o .xlsx)",
                                       type=["csv", "xlsx"], key="ia_uploader")
-        if archivo_ia is not None and st.button("🤖 Interpretar y agregar con IA"):
+        comparar = importar = False
+        if archivo_ia is not None:
+            bcol1, bcol2 = st.columns(2)
+            comparar = bcol1.button("🔍 Comparar sin guardar", use_container_width=True,
+                                    help="Coteja el archivo contra tus clientes actuales y "
+                                         "muestra quién falta en cada lado. No cambia NADA.")
+            importar = bcol2.button("🤖 Interpretar y agregar con IA", type="primary",
+                                    use_container_width=True)
+        if comparar:
+            try:
+                dif = comparar_clientes_archivo(leer_tabla(archivo_ia), clientes_cacheados())
+                if dif is None:
+                    st.warning("No encontré una columna de nombre en el archivo. "
+                               "Usa directo el botón de importar con IA.")
+                else:
+                    en_ambos, solo_csv, solo_app = dif
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("🟢 En ambos lados", len(en_ambos))
+                    m2.metric("📄 Solo en el archivo", len(solo_csv))
+                    m3.metric("🖥️ Solo en la herramienta", len(solo_app))
+                    d1, d2 = st.columns(2)
+                    with d1:
+                        st.markdown("**📄 Vienen en el archivo y FALTAN aquí:**")
+                        st.markdown("\n".join(f"- {n}" for n in solo_csv) or "*— ninguno —*")
+                        if solo_csv:
+                            st.caption("👉 Dale a «🤖 Interpretar y agregar» y entran "
+                                       "sin duplicar los demás.")
+                    with d2:
+                        st.markdown("**🖥️ Están aquí y NO vienen en el archivo:**")
+                        st.markdown("\n".join(f"- {n}" for n in solo_app) or "*— ninguno —*")
+                        if solo_app:
+                            st.caption("Tranquilo: importar NUNCA los borra. Si alguno sobra, "
+                                       "elimínalo desde el editor ✏️.")
+            except Exception as e:  # noqa: BLE001
+                st.error(f"No pude comparar el archivo: {e}")
+        if importar:
             if not config.ANTHROPIC_API_KEY:
                 st.error("Falta la llave de Claude. Revisa «🔑 Mis llaves» en la barra lateral.")
             else:
