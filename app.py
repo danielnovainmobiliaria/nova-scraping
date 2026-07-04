@@ -832,11 +832,19 @@ with tab_clientes:
                     else:
                         existentes = mod_clientes.cargar_guardados()
                         antes = len(existentes)
+                        nombres_previos = {mod_clientes._norm_nombre(c.get("nombre", ""))
+                                           for c in existentes}
                         combinados = mod_clientes.fusionar_duplicados(existentes + nuevos)
                         mod_clientes.guardar_lista(combinados)
-                        nombres = ", ".join(c.get("nombre", "") for c in nuevos)
-                        st.success(f"Se interpretaron {len(nuevos)} cliente(s): {nombres}. "
-                                   f"(Quedan {len(combinados)} en total, duplicados unidos.) 🎉")
+                        n_nuevos = len(combinados) - antes
+                        nombres_nuevos = [c.get("nombre", "") for c in combinados
+                                          if mod_clientes._norm_nombre(c.get("nombre", ""))
+                                          not in nombres_previos]
+                        st.success(f"Se interpretaron {len(nuevos)} cliente(s) → "
+                                   f"🆕 {n_nuevos} nuevo(s)"
+                                   + (": " + ", ".join(nombres_nuevos[:10]) if nombres_nuevos else "")
+                                   + f" · 🔄 {max(0, len(nuevos) - n_nuevos)} actualizados. "
+                                   f"👥 Total: {len(combinados)}. 🎉")
                         refrescar_hoja_clientes()
                         st.rerun()
                 except Exception as e:  # noqa: BLE001
@@ -871,13 +879,25 @@ with tab_clientes:
                     from src import extractor
                     nuevos = extractor.interpretar_clientes(textos, log=log_ia)
                     existentes = mod_clientes.cargar_guardados()
-                    # Une duplicados (mismo nombre) tomando el más completo, y
-                    # conserva el seguimiento CRM de los que ya existían.
+                    nombres_previos = {mod_clientes._norm_nombre(c.get("nombre", ""))
+                                       for c in existentes}
+                    antes = len(existentes)
+                    # Une duplicados (mismo nombre o teléfono) tomando el más completo,
+                    # y conserva el seguimiento CRM de los que ya existían.
                     combinados = mod_clientes.fusionar_duplicados(existentes + nuevos)
                     mod_clientes.guardar_lista(combinados)
-                    st.success(f"¡Listo! Se procesaron {len(nuevos)} fila(s) → "
-                               f"{len(combinados)} cliente(s) en total (duplicados unidos). "
-                               "Revísalos en la tabla y dale Guardar si todo está bien.")
+                    n_nuevos = len(combinados) - antes
+                    n_actualizados = max(0, len(nuevos) - n_nuevos)
+                    nombres_nuevos = [c.get("nombre", "") for c in combinados
+                                      if mod_clientes._norm_nombre(c.get("nombre", ""))
+                                      not in nombres_previos]
+                    detalle_nuevos = (": " + ", ".join(nombres_nuevos[:10])
+                                      + (" …" if len(nombres_nuevos) > 10 else "")
+                                      ) if nombres_nuevos else ""
+                    st.success(f"¡Listo! Se leyeron {len(nuevos)} fila(s) del archivo → "
+                               f"🆕 **{n_nuevos} cliente(s) NUEVO(s)**{detalle_nuevos} · "
+                               f"🔄 {n_actualizados} ya existían (actualizados sin duplicar, "
+                               f"CRM conservado) · 👥 Total: {len(combinados)} clientes.")
                     refrescar_hoja_clientes()
                     st.rerun()
                 except Exception as e:  # noqa: BLE001
