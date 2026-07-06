@@ -186,6 +186,110 @@ def fuente_post(p) -> str:
     return f"📷 @{p.get('cuenta', '')}"
 
 
+def esc_md(t) -> str:
+    """Evita que los $ del texto activen el modo matemático de Markdown."""
+    return str(t).replace("$", "\\$")
+
+
+def tabla_comparativa(cliente, post) -> str:
+    """Tabla lado a lado: lo que ofrece el inmueble vs lo que pide el cliente."""
+    filas = []
+    op_post = matcher._inferir_operacion(post)
+    op_cli = matcher._op_cliente((cliente or {}).get("operacion", ""))
+
+    # Operación
+    if op_cli:
+        ok = "✅" if (not op_post or op_post == "ambos" or op_post == op_cli) else "❌"
+        filas.append(("Operación", op_post or "sin dato", op_cli, ok))
+
+    # Precio (en arriendo: canon + administración)
+    pres = cliente.get("presupuesto_max")
+    if pres:
+        precio = post.get("precio")
+        admin = post.get("administracion") or 0
+        if not precio:
+            filas.append(("Precio", "sin dato", f"hasta {matcher.formato_cop(pres)}", "⚠️ confirmar"))
+        else:
+            total = precio + admin if (admin and op_post == "arriendo") else precio
+            mostrado = matcher.formato_cop(precio) + (
+                f" + {matcher.formato_cop(admin)} admin" if admin and op_post == "arriendo" else "")
+            rel = total / pres
+            if rel <= 1.0:
+                ver = "✅"
+            elif rel <= 1.3:
+                ver = f"⚠️ {round((rel - 1) * 100)}% encima"
+            else:
+                ver = "❌ muy caro"
+            filas.append(("Precio", mostrado, f"hasta {matcher.formato_cop(pres)}", ver))
+
+    # Habitaciones (exactas o rango)
+    hmin = cliente.get("habitaciones_min")
+    if hmin:
+        hmax = (cliente.get("habitaciones_max")
+                or (cliente.get("exclusiones") or {}).get("habitaciones_max") or hmin)
+        pide = f"exactamente {hmin:g}" if hmax == hmin else f"{hmin:g} a {hmax:g}"
+        habs = post.get("habitaciones")
+        if habs is None:
+            filas.append(("Habitaciones", "sin dato", pide, "⚠️ confirmar"))
+        else:
+            filas.append(("Habitaciones", f"{habs:g}", pide,
+                          "✅" if hmin <= habs <= hmax else "❌"))
+
+    # Metraje (rango efectivo, con techo implícito)
+    if cliente.get("area_min") or cliente.get("area_max"):
+        lo, hi = matcher._rango_area(cliente)
+        pide = f"{lo:g}–{hi:g} m²" if hi < 1e9 else f"desde {lo:g} m²"
+        area = post.get("area_m2")
+        if not area:
+            filas.append(("Metraje", "sin dato", pide, "⚠️ confirmar"))
+        else:
+            filas.append(("Metraje", f"{area:g} m²", pide,
+                          "✅" if lo <= area <= hi else "❌ fuera de rango"))
+
+    # Baños
+    if cliente.get("banos_min"):
+        banos = post.get("banos")
+        pide = f"{cliente['banos_min']:g} o más"
+        if banos is None:
+            filas.append(("Baños", "sin dato", pide, "⚠️ confirmar"))
+        else:
+            filas.append(("Baños", f"{banos:g}", pide,
+                          "✅" if banos >= cliente["banos_min"] else "❌"))
+
+    # Ubicación
+    if cliente.get("barrios") or cliente.get("zona"):
+        p_ubi, _ = matcher._match_ubicacion(cliente, post)
+        donde = post.get("barrio") or post.get("zona") or "sin dato"
+        pide = ", ".join(cliente.get("barrios") or []) or (cliente.get("zona") or "")
+        ver = "✅" if p_ubi >= 0.8 else ("⚠️ parecida" if p_ubi >= 0.5 else "❌ otra zona")
+        filas.append(("Ubicación", donde, pide, ver))
+
+    # Extras deseados
+    if cliente.get("extras"):
+        extras_post = set(post.get("extras") or [])
+        pide = ", ".join(bonito(e) for e in cliente["extras"])
+        presentes = [e for e in cliente["extras"] if e in extras_post]
+        faltan = [e for e in cliente["extras"] if e not in extras_post]
+        tiene = ", ".join(bonito(e) for e in presentes) or "no los menciona"
+        ver = "✅" if not faltan else ("⚠️ falta: " + ", ".join(bonito(e) for e in faltan))
+        filas.append(("Extras", tiene, pide, ver))
+
+    # Antigüedad (si el cliente la pidió al afinar)
+    ant_max = (cliente.get("exclusiones") or {}).get("antiguedad_max")
+    if ant_max is not None:
+        anos = post.get("antiguedad_anos")
+        pide = "para estrenar" if ant_max == 0 else f"máx {ant_max:g} años"
+        if anos is None:
+            filas.append(("Antigüedad", "sin dato", pide, "⚠️ confirmar"))
+        else:
+            filas.append(("Antigüedad", f"{anos:g} años", pide,
+                          "✅" if anos <= ant_max else "❌"))
+
+    md = "| Criterio | 🏠 Este inmueble | 👤 Pide el cliente | ¿Cumple? |\n|---|---|---|---|\n"
+    md += "\n".join(f"| **{c}** | {i} | {p} | {v} |" for c, i, p, v in filas)
+    return esc_md(md)
+
+
 def badge_afinidad(score: int) -> str:
     """Etiqueta de qué tan cerca está el inmueble del requerimiento del cliente."""
     if score >= 85:
@@ -1383,7 +1487,7 @@ with tab_resultados:
                     p = m["post"]
                     c1, c2 = st.columns([3, 1])
                     with c1:
-                        st.markdown(f"**{p.get('resumen') or p.get('caption','')[:80]}**")
+                        st.markdown(f"**{esc_md(p.get('resumen') or p.get('caption', '')[:80])}**")
                         info = []
                         if p.get("operacion"): info.append(p["operacion"].capitalize())
                         if p.get("barrio"): info.append(p["barrio"])
@@ -1427,7 +1531,13 @@ with tab_resultados:
                             + (f"💰 {matcher.formato_cop(p['precio'])}\n" if p.get('precio') else "")
                             + "\nEscríbeme para más información y agendar visita. — Nova Inmobiliaria"
                         )
-                        a1, a2 = st.columns(2)
+                        a0, a1, a2 = st.columns(3)
+                        with a0:
+                            with st.popover("⚖️ Comparativo", use_container_width=True):
+                                st.markdown(f"**⚖️ Este inmueble vs lo que pide {nombre}**")
+                                st.markdown(tabla_comparativa(cli_map.get(nombre, {}), p))
+                                st.caption("⚠️ confirmar = el aviso no trae ese dato: "
+                                           "verifícalo antes de enviarlo.")
                         with a1:
                             with st.popover("📲 Texto para compartir", use_container_width=True):
                                 st.caption("Listo para tu cliente: solo datos + tu marca, sin link ni fuente.")
