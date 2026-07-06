@@ -6,6 +6,7 @@ requerimientos del cliente, listo para el motor de cruce.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -347,10 +348,14 @@ def _fusionar_dos(base: dict[str, Any], otro: dict[str, Any]) -> dict[str, Any]:
 
 
 def _norm_nombre(nombre: str) -> str:
-    """Normaliza un nombre para comparar (minúsculas, sin tildes, espacios colapsados)."""
+    """Normaliza un nombre para comparar (minúsculas, sin tildes NI signos).
+
+    'Alberto, Nessim' y 'Alberto Nessim' son la misma persona.
+    """
     t = str(nombre or "").lower().strip()
     for a, b in {"á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ñ": "n"}.items():
         t = t.replace(a, b)
+    t = re.sub(r"[^a-z0-9 ]", " ", t)
     return " ".join(t.split())
 
 

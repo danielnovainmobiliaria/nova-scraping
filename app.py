@@ -1204,8 +1204,12 @@ with tab_clientes:
                  "nombre anonimizado (Alfonso R.), sin teléfonos ni notas.")
     except Exception as e:  # noqa: BLE001
         c1.caption(f"PDF no disponible: {e}")
+    # Mismo orden que la ficha: ventas primero, de mayor a menor presupuesto.
+    _orden_aliados = sorted(
+        todos, key=lambda c: ((c.get("operacion") or "venta") == "arriendo",
+                              -(c.get("presupuesto_max") or 0)))
     c2.download_button(
-        "⬇️ Copia de respaldo (Excel)", excel_bytes(clientes_a_df(todos)),
+        "⬇️ Copia de respaldo (Excel)", excel_bytes(clientes_a_df(_orden_aliados)),
         "clientes.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,

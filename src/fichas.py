@@ -201,8 +201,14 @@ def generar_pdf(clientes: list[dict[str, Any]], quien: str = "Nova Inmobiliaria"
 
     encabezado()
 
-    venta = [c for c in activos if (c.get("operacion") or "venta") != "arriendo"]
-    arriendo = [c for c in activos if (c.get("operacion") or "venta") == "arriendo"]
+    def _valor(c):
+        return c.get("presupuesto_max") or 0
+
+    # Ventas primero y, dentro de cada grupo, de MAYOR a menor presupuesto.
+    venta = sorted([c for c in activos if (c.get("operacion") or "venta") != "arriendo"],
+                   key=_valor, reverse=True)
+    arriendo = sorted([c for c in activos if (c.get("operacion") or "venta") == "arriendo"],
+                      key=_valor, reverse=True)
 
     for titulo_grupo, grupo in [("COMPRA", venta), ("ARRIENDO", arriendo)]:
         if not grupo:
