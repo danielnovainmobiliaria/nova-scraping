@@ -320,11 +320,11 @@ Reglas de interpretación (mercado bogotano):
 - "mts2"/"m2"/"mtrs"/"metros" = área. "mín 60 m2" -> area_min 60.
   "entre 60 y 90 m2" -> area_min 60, area_max 90. "máx 120" -> area_max 120.
 - "cuarto de servicio"/"alcoba de servicio" -> "cuarto_servicio".
-- "obligatorios": agrega un criterio si el texto lo marca como OBLIGATORIO / "sí o sí" /
-  "indispensable" / "solo"/"únicamente". Mapea: "solo en Chicó"->barrio; "máx/no más de X"->
-  presupuesto; "mínimo 3 hab sí o sí"->habitaciones; "obligatorio 2 baños"->banos;
-  "mínimo 80 m2 indispensable"->metraje; "con parqueadero sí o sí"->extras. Si nada es
-  obligatorio, deja la lista vacía.
+- "obligatorios": SOLO si el texto usa palabras EXPLÍCITAS de exigencia: "sí o sí",
+  "indispensable", "obligatorio", "innegociable", "solo"/"únicamente". OJO: pedir
+  "3 habitaciones" o "mínimo 100 m2" NO es obligatorio por sí solo (eso ya lo filtra el
+  buscador); en la duda deja la lista VACÍA. Mapea: "solo en Chicó"->barrio;
+  "mínimo 3 hab sí o sí"->habitaciones; "80 m2 indispensable"->metraje.
 - "prioridad": "alta" si el texto sugiere urgencia ("tiene afán", "urgente", "necesita ya",
   "se muda pronto", "entrega su apto", "responde rápido"); "baja" si está "explorando"/"sin
   afán"/"para el otro año"; si no se nota, "media".
@@ -432,8 +432,9 @@ cliente que encuentres, con estas claves:
   "prioridad": "alta"|"media"|"baja", "notas": string|null
 }}]
 
-"extras" SOLO de: {EXTRAS_VALIDOS}. "obligatorios" SOLO de: {OBLIGATORIOS_VALIDOS} (criterios
-NO negociables que el texto marque como "obligatorio"/"sí o sí"/"indispensable"/"solo").
+"extras" SOLO de: {EXTRAS_VALIDOS}. "obligatorios" SOLO de: {OBLIGATORIOS_VALIDOS} — ÚNICAMENTE si el texto usa palabras
+explícitas de exigencia ("sí o sí"/"indispensable"/"obligatorio"/"solo"); pedir "3 hab" o
+"mínimo 100 m2" NO cuenta. En la duda, lista VACÍA.
 "flexibilidad": "estricto" si el cliente NO cede / es muy exigente; "flexible" si es abierto a
 más opciones; "medio" si no se nota. "prioridad": "alta" si hay urgencia ("afán", "urgente",
 "necesita ya", "se muda pronto"); "baja" si "sin afán"/"explorando"; si no se nota, "media".

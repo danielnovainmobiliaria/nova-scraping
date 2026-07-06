@@ -354,9 +354,11 @@ def _falla_obligatorio(cliente: dict[str, Any], post: dict[str, Any]) -> str | N
             if not (lo <= a <= hi):
                 return "metraje"
     if "barrio" in oblig:
-        p_ubi, _ = _match_ubicacion(cliente, post)
-        if p_ubi < 0.8:
-            return "barrio/zona"
+        # Solo se exige si el aviso TRAE dato de ubicación (desconocido no es incumplir).
+        if post.get("barrio") or post.get("zona") or post.get("direccion"):
+            p_ubi, _ = _match_ubicacion(cliente, post)
+            if p_ubi < 0.8:
+                return "barrio/zona"
     # OJO: "extras" obligatorios NO anulan aquí: que un caption no mencione el
     # parqueadero no prueba que no exista. Se penaliza fuerte en evaluar() en su lugar.
     return None
