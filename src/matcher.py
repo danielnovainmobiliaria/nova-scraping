@@ -16,15 +16,14 @@ from typing import Any
 from rapidfuzz import fuzz
 
 # Flexibilidad por defecto (se puede ajustar desde la app con un deslizador).
-# 0.15 = acepta hasta 15% por encima del presupuesto o fuera del rango de metraje,
-# con un puntaje que baja gradualmente.
-FLEX_PRECIO = 0.15
-FLEX_AREA = 0.15
+# 0.20 = margen del 20% definido por Daniel: acepta hasta 20% por encima del
+# presupuesto o por fuera del rango de metraje, con puntaje que baja gradualmente.
+FLEX_PRECIO = 0.20
+FLEX_AREA = 0.20
 
-# Piso de presupuesto: por debajo de este % del presupuesto, el inmueble se
-# considera de otro segmento y NO se muestra (0.70 = 70%). Evita mostrar, por
-# ejemplo, un apto de $6.5M a un cliente con presupuesto de $12M.
-PISO_PRECIO = 0.70
+# Piso de presupuesto: margen del 20% hacia ABAJO (0.80 = muestra desde el 80%
+# del presupuesto). Más barato que eso se considera otro segmento y no se muestra.
+PISO_PRECIO = 0.80
 
 # Mapa básico barrio → zona/localidad de Bogotá. Sirve para emparejar aunque
 # el cliente pida una "zona" y el post mencione un barrio (o viceversa).
@@ -128,7 +127,7 @@ OBLIGATORIOS_VALIDOS = ["barrio", "presupuesto", "habitaciones", "banos", "metra
 #   - piso_extra: sube/baja el piso de precio (estricto rechaza lo muy barato).
 #   - score_min: puntaje mínimo propio (estricto solo muestra coincidencias muy altas).
 PERFILES_FLEX = {
-    "estricto": {"mult": 0.3, "piso_extra": 0.20, "score_min": 80},   # no cede en nada
+    "estricto": {"mult": 0.3, "piso_extra": 0.10, "score_min": 80},   # no cede en nada
     "medio":    {"mult": 1.0, "piso_extra": 0.0,  "score_min": 0},    # equilibrado (def.)
     "flexible": {"mult": 2.0, "piso_extra": -0.20, "score_min": 0},   # abierto a más opciones
 }
@@ -604,6 +603,8 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
         if hi < 1e9 and area > hi * 1.5:
             return None
         factor, razon, ok = _factor_area(area, lo, hi, flex_area)
+        if factor == 0.0:
+            return None   # fuera del margen de metraje (igual de firme que el presupuesto)
         puntaje += 20 * factor
         (razones_ok if ok else razones_no).append(razon)
     elif (a_min or a_max) and not area:

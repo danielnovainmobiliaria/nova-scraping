@@ -1281,15 +1281,15 @@ with tab_resultados:
             score_min = c1.slider("Coincidencia mínima (%)", 0, 100, 70, 5,
                                   help="Por defecto 70%: solo opciones afines. Bájalo si quieres "
                                        "ver más opciones (ej. 60 muestra las de datos incompletos).")
-            flex_precio = c2.slider("Presupuesto: tope arriba (%)", 0, 40, 15, 5,
+            flex_precio = c2.slider("Presupuesto: tope arriba (%)", 0, 40, 20, 5,
                                     help="Cuánto POR ENCIMA del presupuesto se permite. "
-                                         "Ej: 15% deja ver opciones hasta 15% más caras.")
-            piso_precio = c3.slider("Presupuesto: precio mínimo (%)", 0, 100, 70, 5,
-                                    help="Oculta inmuebles DEMASIADO BARATOS (otro segmento). "
-                                         "Ej: 70% oculta lo que cueste menos del 70% del "
-                                         "presupuesto del cliente.")
-            flex_area = c4.slider("Flexibilidad en metraje (%)", 0, 40, 15, 5,
-                                  help="Cuánto por fuera del rango de m² se permite.")
+                                         "Por defecto 20% (margen acordado).")
+            piso_precio = c3.slider("Presupuesto: precio mínimo (%)", 0, 100, 80, 5,
+                                    help="Margen hacia ABAJO: 80% = muestra hasta 20% más "
+                                         "barato. Menos que eso es otro segmento y se oculta.")
+            flex_area = c4.slider("Flexibilidad en metraje (%)", 0, 40, 20, 5,
+                                  help="Cuánto por fuera del rango de m² se permite. "
+                                       "Por defecto 20% (margen acordado).")
             st.caption("Guía de lectura — Afinidad: 🟢 muy afín (≥85%) · 🟡 afín (≥70%) · "
                        "🟠 menos afín. Frescura: 🟢 ≤7 días · 🟡 unas semanas · 🔴 más viejo. "
                        "Cada cliente muestra primero lo MÁS afín; los enviados/descartados "
