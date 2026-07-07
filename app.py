@@ -469,7 +469,11 @@ def render_procesos(c: dict) -> None:
         pid = pr.get("post_id", "")
         precio = matcher.formato_cop(pr.get("precio"))
         with st.container(border=True):
-            st.caption(" · ".join(x for x in [pr.get("resumen", ""), pr.get("barrio", ""), precio] if x))
+            st.caption(" · ".join(x for x in [pr.get("resumen", ""), pr.get("barrio", ""),
+                                              precio] if x)
+                       + (f"  ·  enviado el {pr.get('fecha')}" if pr.get("fecha") else ""))
+            if pr.get("url"):
+                st.markdown(f"🔗 [Ver el inmueble (solo tú — no compartas este link)]({pr['url']})")
             cc = st.columns([2, 4, 1, 1])
             estado = cc[0].selectbox(
                 "Estado", opciones,
