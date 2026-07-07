@@ -575,6 +575,31 @@ if correr:
         except Exception as e:  # noqa: BLE001
             estado_scrape.update(label=f"⚠️ Ocurrió un problema: {e}", state="error")
 
+# ===== INMUEBLE MANUAL → CLIENTES ============================
+def cargar_inmuebles_manuales():
+    try:
+        return json.loads(db.leer_meta("inmuebles_manuales") or "[]")
+    except json.JSONDecodeError:
+        return []
+
+
+def guardar_inmuebles_manuales(lista):
+    db.guardar_meta("inmuebles_manuales", json.dumps(lista, ensure_ascii=False))
+
+
+def _norm_link(u):
+    """Normaliza un link para comparar (sin http, sin www, sin / final ni parámetros)."""
+    u = (u or "").strip().lower()
+    for p in ("https://", "http://"):
+        if u.startswith(p):
+            u = u[len(p):]
+    if u.startswith("www."):
+        u = u[4:]
+    return u.split("?")[0].split("#")[0].rstrip("/")
+
+
+
+
 # ── Pestañas ──────────────────────────────────────────────────
 tab_fuentes, tab_clientes, tab_resultados, tab_crm = st.tabs(
     ["1️⃣ Fuentes", "2️⃣ Clientes", "3️⃣ Coincidencias", "4️⃣ CRM"]
@@ -628,8 +653,10 @@ with tab_fuentes:
         if p.get("cuenta") in set(_cuentas) and d is not None and d <= 30:
             _posts_f.setdefault(p["cuenta"], []).append((d, p))
 
-    st.caption("Semáforo de publicaciones: 🟢 hasta 3 días · 🟡 4-10 · 🟠 11-20 · 🔴 21-30. "
-               "Clic en cada publicación para verla en Instagram.")
+    st.caption("Semáforo: 🟢 hasta 3 días · 🟡 4-10 · 🟠 11-20 · 🔴 21-30 · "
+               "✅ = ya lo tomaste para Coincidencias (no lo copies de nuevo).")
+    _tomados = {_norm_link(x.get("link", "")) for x in cargar_inmuebles_manuales()
+                if x.get("link")}
     _orden_ctas = sorted(_cuentas, key=lambda c: (-(len(_posts_f.get(c, []))),
                                                   c not in _restr_us))
     for cta in _orden_ctas:
@@ -640,19 +667,28 @@ with tab_fuentes:
                             f"(https://www.instagram.com/{cta}/)")
             continue
         conteo = {"🟢": 0, "🟡": 0, "🟠": 0, "🔴": 0}
-        for d, _ in pubs:
+        n_tomadas = 0
+        for d, pp in pubs:
             conteo[color_publicacion(d)] += 1
+            if pp.get("url") and _norm_link(pp["url"]) in _tomados:
+                n_tomadas += 1
         resumen_c = "  ".join(f"{e}{n}" for e, n in conteo.items() if n)
+        if n_tomadas:
+            resumen_c += f"  ·  ✅{n_tomadas}"
         titulo = f"📷 @{cta} — {len(pubs)} publicación(es)" + (f"  ·  {resumen_c}" if resumen_c else "")
         if not pubs:
             titulo = f"📷 @{cta} — sin publicaciones vigentes"
         with st.expander(titulo):
             st.markdown(f"[Abrir el perfil @{cta} en Instagram](https://www.instagram.com/{cta}/)")
             for d, p in pubs:
-                linea = (f"{color_publicacion(d)} **hace {d} día{'s' if d != 1 else ''}** — "
+                tomado = bool(p.get("url")) and _norm_link(p["url"]) in _tomados
+                linea = (("✅ " if tomado else "")
+                         + f"{color_publicacion(d)} **hace {d} día{'s' if d != 1 else ''}** — "
                          f"{esc_md((p.get('resumen') or p.get('caption', ''))[:75])}")
                 if p.get("url"):
                     linea += f"  ·  [🔗 ver publicación]({p['url']})"
+                if tomado:
+                    linea += "  ·  **ya en Coincidencias**"
                 st.markdown(linea)
 
     st.divider()
@@ -1302,30 +1338,6 @@ with tab_clientes:
         refrescar_hoja_clientes()
         st.rerun()
 
-# ===== INMUEBLE MANUAL → CLIENTES ============================
-def cargar_inmuebles_manuales():
-    try:
-        return json.loads(db.leer_meta("inmuebles_manuales") or "[]")
-    except json.JSONDecodeError:
-        return []
-
-
-def guardar_inmuebles_manuales(lista):
-    db.guardar_meta("inmuebles_manuales", json.dumps(lista, ensure_ascii=False))
-
-
-def _norm_link(u):
-    """Normaliza un link para comparar (sin http, sin www, sin / final ni parámetros)."""
-    u = (u or "").strip().lower()
-    for p in ("https://", "http://"):
-        if u.startswith(p):
-            u = u[len(p):]
-    if u.startswith("www."):
-        u = u[4:]
-    return u.split("?")[0].split("#")[0].rstrip("/")
-
-
-
 # ===== 3. RESULTADOS =========================================
 with tab_resultados:
     st.subheader("✨ Coincidencias por cliente")
@@ -1335,9 +1347,10 @@ with tab_resultados:
         st.success(st.session_state.pop("flash_manual"))
 
     # ── Inmueble manual: lo que encuentres a mano entra al MISMO cruce ──
-    with st.expander("➕ Agregar un inmueble manual (descripción + link)"):
-        st.caption("Lo que pegues aquí entra al cruce junto con lo del scraping. "
-                   "El link evita repetidos y queda de referencia.")
+    with st.expander("➕ Agregar un inmueble al cruce (pega el link, y listo)", expanded=True):
+        st.caption("**Si el link viene del catálogo de Fuentes, basta con pegarlo** (ya tenemos "
+                   "descripción, datos y fotos). Si es de otra parte, pega también la "
+                   "descripción. El link evita repetidos y marca ✅ en Fuentes.")
         with st.form("inmueble_manual", clear_on_submit=True):
             desc_man = st.text_area(
                 "Descripción del inmueble", height=110,
@@ -1350,33 +1363,59 @@ with tab_resultados:
                 (x for x in cargar_inmuebles_manuales()
                  if link_man.strip() and _norm_link(x.get("link", "")) == _norm_link(link_man)),
                 None)
-            if not desc_man.strip():
-                st.warning("Escribe la descripción del inmueble.")
-            elif not config.ANTHROPIC_API_KEY:
-                st.error("Falta la llave de Claude. Revisa «🔑 Mis llaves».")
+            # Si el link viene del catálogo de Fuentes, ya tenemos TODO del scraping
+            # (descripción, datos leídos por IA y hasta fotos): cero re-trabajo.
+            scr = None
+            if link_man.strip():
+                _nl = _norm_link(link_man)
+                scr = next((pp for pp in posts_cacheados()
+                            if pp.get("url") and _norm_link(pp["url"]) == _nl), None)
+            if not desc_man.strip() and not scr:
+                st.warning("Pega la descripción, o un link que esté en el catálogo de Fuentes.")
             elif dup_link:
                 st.warning(f"⚠️ Ese link **ya estaba incluido** (lo agregaste el "
                            f"{dup_link.get('fecha', '?')}). No lo dupliqué.")
+            elif desc_man.strip() and not config.ANTHROPIC_API_KEY:
+                st.error("Falta la llave de Claude. Revisa «🔑 Mis llaves».")
             else:
                 try:
-                    with st.spinner("Leyendo el inmueble…"):
-                        from src import extractor
-                        datos_man = extractor.interpretar_inmueble(desc_man.strip())
+                    hoy_iso = datetime.now(timezone.utc).date().isoformat()
+                    if desc_man.strip():
+                        with st.spinner("Leyendo el inmueble…"):
+                            from src import extractor
+                            datos_man = extractor.interpretar_inmueble(desc_man.strip())
+                        texto_man = desc_man.strip()
+                        fecha_man = (scr or {}).get("fecha") or hoy_iso
+                    else:
+                        campos = ("es_inmueble", "operacion", "tipo", "barrio", "zona",
+                                  "direccion", "area_m2", "precio", "administracion",
+                                  "habitaciones", "banos", "parqueaderos", "estrato",
+                                  "antiguedad_anos", "extras", "resumen")
+                        datos_man = {k: scr.get(k) for k in campos}
+                        datos_man["es_inmueble"] = True
+                        texto_man = scr.get("caption", "")
+                        fecha_man = scr.get("fecha") or hoy_iso
                     if datos_man.get("es_inmueble") is False:
                         st.warning("Eso no parece un inmueble concreto; revisa la descripción.")
                     else:
                         item_man = {
-                            "id": "m_" + hashlib.md5((desc_man + link_man).encode("utf-8")).hexdigest()[:16],
-                            "texto": desc_man.strip(), "link": link_man.strip(),
-                            "fecha": datetime.now(timezone.utc).date().isoformat(),
+                            "id": "m_" + hashlib.md5((texto_man + link_man).encode("utf-8")).hexdigest()[:16],
+                            "texto": texto_man, "link": link_man.strip(),
+                            "fecha": fecha_man,          # fecha real de publicación si se conoce
+                            "agregado": hoy_iso,          # cuándo lo tomaste tú (para el 🆕)
+                            "cuenta": (scr or {}).get("cuenta") or "manual",
+                            "imagen": (scr or {}).get("imagen", ""),
+                            "media": (scr or {}).get("media") or [],
                             "datos": datos_man,
                         }
                         lista_man = [x for x in cargar_inmuebles_manuales()
                                      if x.get("id") != item_man["id"]]
                         lista_man.insert(0, item_man)
                         guardar_inmuebles_manuales(lista_man)
-                        st.session_state["flash_manual"] = ("✅ Inmueble agregado: ya está en el "
-                                                            "cruce (abajo, con la fuente 🖊️).")
+                        st.session_state["flash_manual"] = (
+                            "✅ Inmueble agregado al cruce"
+                            + (" (tomado del catálogo, con sus fotos)" if scr and not desc_man.strip() else "")
+                            + ". En Fuentes quedó marcado con ✅.")
                         st.rerun()
                 except Exception as e:  # noqa: BLE001
                     st.error(f"No se pudo interpretar: {e}")
@@ -1395,22 +1434,24 @@ with tab_resultados:
                              if x.get("id") != item.get("id")])
                         st.rerun()
 
-    # Todos los inmuebles: scraping + los tuyos manuales, en un solo cruce.
-    posts = list(posts_cacheados())
+    # Al cruce entra SOLO lo que TÚ agregas (curaduría manual). El scraping
+    # alimenta el catálogo de la pestaña Fuentes, de donde tomas los links.
+    posts = []
     for item in cargar_inmuebles_manuales():
         d_it = item.get("datos") or {}
         if d_it.get("es_inmueble") is False:
             continue
         posts.append({**d_it, "id": item.get("id"), "caption": item.get("texto", ""),
                       "url": item.get("link", ""), "fecha": item.get("fecha", ""),
-                      "agregado": item.get("fecha", ""), "cuenta": "manual",
-                      "imagen": "", "media": []})
+                      "agregado": item.get("agregado") or item.get("fecha", ""),
+                      "cuenta": item.get("cuenta") or "manual",
+                      "imagen": item.get("imagen", ""), "media": item.get("media") or []})
 
     if not clientes:
         st.warning("Primero carga tus clientes en la pestaña **2️⃣ Clientes**.")
     elif not posts:
-        st.warning("Aún no hay publicaciones. Ve a la pestaña **1️⃣ Fuentes** y "
-                   "dale a **🔄 Traer y leer publicaciones**.")
+        st.info("Coincidencias arranca vacío: agrega tu primer inmueble en el cajón "
+                "**➕ de arriba** (toma los links del catálogo de **1️⃣ Fuentes**).")
     else:
         # Los controles finos viven plegados: los valores de fábrica funcionan bien
         # y así la pantalla queda limpia para lo importante (los inmuebles).
@@ -1499,16 +1540,10 @@ with tab_resultados:
         resumen = []
         for nombre, matches in resultados.items():
             n = len(matches)
-            n_portal = sum(1 for m in matches if es_portal_post(m["post"]))
-            n_man = sum(1 for m in matches if str(m["post"].get("id", "")).startswith("m_"))
-            n_ig = n - n_portal - n_man
             resumen.append({
                 "Cliente": nombre,
                 "Prioridad": BADGE_PRIORIDAD.get(prio_map.get(nombre, "media"), "⭐ Media"),
                 "Perfil": BADGE_FLEX.get(flex_map.get(nombre, "medio"), "⚖️ Medio"),
-                "📷 Instagram": n_ig,
-                "🏠 Portales": n_portal,
-                "🖊️ Manuales": n_man,
                 "Total": n,
                 "Cobertura": "🔴 Buscar más" if n == 0 else ("🟡 Pocos" if n <= 2 else "🟢 Bien cubierto"),
             })
@@ -1532,11 +1567,6 @@ with tab_resultados:
                 st.caption(f"Perfil de búsqueda: **{ETIQUETA_FLEX.get(perfil, perfil)}**"
                            + ("  ·  con este perfil solo verás inmuebles muy acertados."
                               if perfil == "estricto" else ""))
-                _n_portal = sum(1 for m in matches if es_portal_post(m["post"]))
-                _n_man = sum(1 for m in matches if str(m["post"].get("id", "")).startswith("m_"))
-                _n_ig = len(matches) - _n_portal - _n_man
-                st.markdown(f"**Fuentes para este cliente:** 📷 Instagram: **{_n_ig}**  ·  "
-                            f"🏠 Portales: **{_n_portal}**  ·  🖊️ Manuales: **{_n_man}**")
                 oblig = oblig_map.get(nombre, [])
                 if oblig:
                     st.info("🔒 No negociable (filtra duro): "
