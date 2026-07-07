@@ -1659,151 +1659,203 @@ def _norm_link(u):
 
 
 with tab_manual:
-    st.subheader("🔎 Pega un inmueble y mira a qué clientes les sirve")
-    st.caption("Ingresa la descripción de un inmueble que viste (y su link de referencia). "
-               "La IA lo interpreta y te dice **a qué clientes encaja**, con el porqué. "
-               "Es más manual, pero te da control total sobre lo que entra.")
-
+    st.subheader("🔎 Inmuebles → Clientes (búsqueda manual)")
     clientes_m = clientes_cacheados()
     if not clientes_m:
         st.warning("Primero carga tus clientes en la pestaña **2️⃣ Clientes**.")
     else:
+        if st.session_state.get("flash_manual"):
+            st.success(st.session_state.pop("flash_manual"))
+        st.caption("Pega cada inmueble que encuentres (descripción + link) y la herramienta lo "
+                   "**reparte sola** entre los clientes a los que les sirve, con tus reglas: "
+                   "habitaciones exactas (o el rango del cliente), ±20% en presupuesto y "
+                   "metraje, y **barrio de verdad** (aquí no vale \'misma zona\').")
+
+        # ── Agregar inmueble (el link evita repetidos) ──
         with st.form("inmueble_manual", clear_on_submit=True):
             desc = st.text_area(
-                "Descripción del inmueble", height=130,
+                "Descripción del inmueble", height=120,
                 placeholder="Ej: Apartamento en venta en El Nogal, 120 m², 3 habitaciones, "
                             "2 baños, $1.800 millones, remodelado, con vista y parqueadero.")
-            link = st.text_input("Link (para tu referencia)", placeholder="https://…")
-            if st.form_submit_button("🔎 ¿A qué clientes les sirve?", type="primary"):
-                dup_link = next(
-                    (x for x in cargar_inmuebles_manuales()
-                     if link.strip() and _norm_link(x.get("link", "")) == _norm_link(link)),
-                    None)
-                if not desc.strip():
-                    st.warning("Escribe la descripción del inmueble.")
-                elif not config.ANTHROPIC_API_KEY:
-                    st.error("Falta la llave de Claude. Revisa «🔑 Mis llaves».")
-                elif dup_link:
-                    st.warning(f"⚠️ Esa publicación **ya estaba incluida** (la agregaste el "
-                               f"{dup_link.get('fecha', '?')}). No la dupliqué; la ves abajo en la lista.")
-                else:
-                    try:
+            link = st.text_input("Link (evita repetidos y queda de referencia)",
+                                 placeholder="https://…")
+            enviar_m = st.form_submit_button("➕ Agregar y repartir entre clientes",
+                                             type="primary")
+        if enviar_m:
+            dup_link = next(
+                (x for x in cargar_inmuebles_manuales()
+                 if link.strip() and _norm_link(x.get("link", "")) == _norm_link(link)),
+                None)
+            if not desc.strip():
+                st.warning("Escribe la descripción del inmueble.")
+            elif not config.ANTHROPIC_API_KEY:
+                st.error("Falta la llave de Claude. Revisa «🔑 Mis llaves».")
+            elif dup_link:
+                st.warning(f"⚠️ Ese link **ya estaba incluido** (lo agregaste el "
+                           f"{dup_link.get('fecha', '?')}). No lo dupliqué.")
+            else:
+                try:
+                    with st.spinner("Leyendo el inmueble y repartiéndolo…"):
                         from src import extractor
                         datos = extractor.interpretar_inmueble(desc.strip())
+                    if datos.get("es_inmueble") is False:
+                        st.warning("Eso no parece un inmueble concreto; revisa la descripción.")
+                    else:
                         item = {
                             "id": "m_" + hashlib.md5((desc + link).encode("utf-8")).hexdigest()[:16],
                             "texto": desc.strip(), "link": link.strip(),
-                            "fecha": datetime.now(timezone.utc).date().isoformat(), "datos": datos,
+                            "fecha": datetime.now(timezone.utc).date().isoformat(),
+                            "datos": datos,
                         }
-                        lista = [x for x in cargar_inmuebles_manuales() if x.get("id") != item["id"]]
+                        lista = [x for x in cargar_inmuebles_manuales()
+                                 if x.get("id") != item["id"]]
                         lista.insert(0, item)
                         guardar_inmuebles_manuales(lista)
-                        st.success("¡Listo! Abajo te muestro a qué clientes les sirve.")
+                        post_f = {**datos, "caption": item["texto"],
+                                  "url": item["link"], "id": item["id"]}
+                        les_sirve = []
+                        for c in clientes_m:
+                            ev = matcher.evaluar(c, post_f)
+                            if ev and ev["score"] >= max(70, matcher.perfil_flex(c)["score_min"]):
+                                if c.get("barrios"):
+                                    p_ubi, _ = matcher._match_ubicacion(c, post_f)
+                                    if p_ubi < 0.8:
+                                        continue
+                                les_sirve.append(c["nombre"])
+                        st.session_state["flash_manual"] = (
+                            ("✅ Agregado. Le sirve a " + f"{len(les_sirve)} cliente(s): "
+                             + ", ".join(les_sirve[:8])) if les_sirve else
+                            "✅ Agregado, pero por ahora no le sirve a ningún cliente "
+                            "(queda guardado por si entra uno nuevo).")
                         st.rerun()
-                    except Exception as e:  # noqa: BLE001
-                        st.error(f"No se pudo interpretar: {e}")
+                except Exception as e:  # noqa: BLE001
+                    st.error(f"No se pudo interpretar: {e}")
 
-        manuales = cargar_inmuebles_manuales()
-        if not manuales:
-            st.caption("Aún no has ingresado inmuebles. Agrega el primero arriba. 👆")
-        else:
-            st.caption("ℹ️ Esto se recalcula solo: si agregas o editas un cliente, los inmuebles "
-                       "de abajo se reasignan automáticamente a quien les sirva.")
-        filtro_cli = st.selectbox(
-            "Ver solo los inmuebles que le sirven a:",
-            ["(todos los clientes)"] + [c["nombre"] for c in clientes_m],
-            key="manual_filtro_cli") if manuales else "(todos los clientes)"
+        # ── Reparto por cliente ─────────────────────────────
+        manuales = [x for x in cargar_inmuebles_manuales()
+                    if (x.get("datos") or {}).get("es_inmueble") is not False]
 
-        mostrados = 0
-        for item in manuales:
-            datos = item.get("datos", {}) or {}
-            if datos.get("es_inmueble") is False:
-                continue   # lo pegado no era un inmueble concreto
-            post = {**datos, "caption": item.get("texto", ""),
-                    "url": item.get("link", ""), "id": item.get("id")}
-            ms = []
-            for c in clientes_m:
-                ev = matcher.evaluar(c, post)
+        def _sirve_manual(c, item):
+            """El inmueble le sirve al cliente con las reglas ESTRICTAS del panel manual."""
+            datos_i = item.get("datos") or {}
+            post_i = {**datos_i, "caption": item.get("texto", ""),
+                      "url": item.get("link", ""), "id": item.get("id")}
+            ev = matcher.evaluar(c, post_i)
+            if not ev or ev["score"] < max(70, matcher.perfil_flex(c)["score_min"]):
+                return None
+            if c.get("barrios"):
+                p_ubi, _ = matcher._match_ubicacion(c, post_i)
+                if p_ubi < 0.8:     # barrio pedido de verdad, no "misma zona"
+                    return None
+            return ev
+
+        reparto = {}
+        for c in clientes_m:
+            en_proceso = mod_clientes.ids_en_proceso(c)
+            pendientes_c = []
+            for item in manuales:
+                if item.get("id") in en_proceso:
+                    continue
+                ev = _sirve_manual(c, item)
                 if ev:
-                    ms.append((c["nombre"], ev))
-            ms.sort(key=lambda x: x[1]["score"], reverse=True)
-            # Mismo criterio que Coincidencias: los clientes estrictos exigen 80+.
-            buenos = [m for m in ms
-                      if m[1]["score"] >= max(50, matcher.perfil_flex(
-                          next(c for c in clientes_m if c["nombre"] == m[0]))["score_min"])]
-            if filtro_cli != "(todos los clientes)" and filtro_cli not in [n for n, _ in buenos]:
-                continue
-            mostrados += 1
-            with st.container(border=True):
-                resumen = datos.get("resumen") or (item.get("texto", "")[:80])
-                st.markdown(f"**{resumen}**")
-                info = []
-                if datos.get("operacion"): info.append(datos["operacion"].capitalize())
-                if datos.get("barrio"): info.append(datos["barrio"])
-                if datos.get("precio"): info.append(matcher.formato_cop(datos["precio"]))
-                if datos.get("area_m2"): info.append(f"{datos['area_m2']:g} m²")
-                if datos.get("habitaciones") is not None: info.append(f"{datos['habitaciones']:g} hab")
-                if datos.get("banos") is not None: info.append(f"{datos['banos']:g} baños")
-                st.caption(("🤖 La IA entendió: " + " · ".join(info)) if info
-                           else "🤖 No logré sacar datos claros; revisa la descripción.")
-                if item.get("link"):
-                    st.markdown(f"🔗 [Abrir inmueble (tu referencia)]({item['link']})")
+                    pendientes_c.append((item, ev))
+            pendientes_c.sort(key=lambda t: t[1]["score"], reverse=True)
+            reparto[c["nombre"]] = pendientes_c
 
-                cli_by_name = {c["nombre"]: c for c in clientes_m}
+        st.markdown("##### 👥 Tus clientes y sus opciones para compartir")
+        con_opciones = [c for c in clientes_m if reparto.get(c["nombre"])]
+        con_opciones.sort(key=lambda c: (RANGO_PRIORIDAD.get(prioridad_de(c), 1),
+                                         -len(reparto.get(c["nombre"], []))))
+        if not manuales:
+            st.info("Aún no has ingresado inmuebles: agrega el primero arriba. 👆")
+        elif not con_opciones:
+            st.info("Ninguno de tus inmuebles ingresados encaja (todavía) con un cliente.")
 
-                def _ya_enviado(nombre_c: str) -> bool:
-                    cli = cli_by_name.get(nombre_c) or {}
-                    return any(pr.get("post_id") == item.get("id")
-                               for pr in (cli.get("procesos") or []))
-
-                if buenos:
-                    st.markdown(f"**✅ Le sirve a {len(buenos)} cliente(s):**")
-                    for nombre, ev in buenos:
-                        col_i, col_b = st.columns([4, 1])
-                        with col_i:
-                            st.markdown(f"- {badge_afinidad(ev['score'])} **{ev['score']}%** — "
-                                        f"{ICONO_PRIORIDAD.get(prioridad_de(cli_by_name.get(nombre)), '')}{nombre}")
-                            if ev["razones_ok"]:
-                                st.caption("　✅ " + " · ".join(ev["razones_ok"]))
-                            if ev["razones_no"]:
-                                st.caption("　⚠️ " + " · ".join(ev["razones_no"]))
-                        with col_b:
-                            if _ya_enviado(nombre):
-                                st.caption("✅ Ya enviado")
-                            elif st.button("📤 Enviado", key=f"envm_{item.get('id')}_{nombre}",
-                                           use_container_width=True,
-                                           help=f"Lo pasa al seguimiento CRM de {nombre}"):
-                                mod_clientes.agregar_proceso(nombre, proceso_de(post, "enviado"))
-                                st.toast(f"📤 En el seguimiento de {nombre} (míralo en 4️⃣ CRM)")
-                                st.rerun()
-                else:
-                    st.info("Ningún cliente encaja claramente (≥50%) con este inmueble.")
-                    if ms:
-                        st.caption("Los más cercanos: "
-                                   + " · ".join(f"{n} ({e['score']}%)" for n, e in ms[:3]))
-
-                a1, a2 = st.columns(2)
-                with a1.popover("📤 Enviado a OTRO cliente", use_container_width=True):
-                    st.caption("¿Se lo mandaste a alguien que no está en la lista de arriba? "
-                               "Márcalo aquí para que quede en su CRM.")
-                    otros = [c["nombre"] for c in clientes_m if not _ya_enviado(c["nombre"])]
-                    if not otros:
-                        st.caption("Ya está enviado a todos tus clientes.")
-                    else:
-                        sel_env = st.selectbox("¿A quién se lo enviaste?", otros,
-                                               key=f"selenv_{item.get('id')}")
-                        if st.button("Confirmar envío", key=f"btnenv_{item.get('id')}"):
-                            mod_clientes.agregar_proceso(sel_env, proceso_de(post, "enviado"))
-                            st.toast(f"📤 En el seguimiento de {sel_env} (míralo en 4️⃣ CRM)")
+        for c in con_opciones:
+            nombre = c["nombre"]
+            opciones = reparto[nombre]
+            icono_p = ICONO_PRIORIDAD.get(prioridad_de(c), "")
+            with st.expander(f"{icono_p}👤 {nombre} — {len(opciones)} opción(es) para compartir",
+                             expanded=False):
+                for item, ev in opciones:
+                    d = item.get("datos") or {}
+                    with st.container(border=True):
+                        i1, i2 = st.columns([4, 1])
+                        with i1:
+                            st.markdown(f"**{esc_md(d.get('resumen') or item.get('texto', '')[:80])}**")
+                            info = []
+                            if d.get("operacion"): info.append(d["operacion"].capitalize())
+                            if d.get("barrio"): info.append(d["barrio"])
+                            if d.get("precio"): info.append(matcher.formato_cop(d["precio"]))
+                            if d.get("area_m2"): info.append(f"{d['area_m2']:g} m²")
+                            if d.get("habitaciones") is not None:
+                                info.append(f"{d['habitaciones']:g} hab")
+                            if d.get("banos") is not None: info.append(f"{d['banos']:g} baños")
+                            st.caption(" · ".join(info))
+                            if item.get("link"):
+                                st.markdown(f"🔗 [Abrir inmueble (tu referencia)]({item['link']})")
+                        with i2:
+                            st.metric("Afinidad", f"{ev['score']}%")
+                        a1, a2, a3, a4 = st.columns(4)
+                        with a1.popover("⚖️ Comparar", use_container_width=True):
+                            post_cmp = {**d, "caption": item.get("texto", ""), "id": item.get("id")}
+                            st.markdown(tabla_comparativa(c, post_cmp))
+                        with a2.popover("📲 Texto", use_container_width=True):
+                            extras_txt = ", ".join(bonito(e) for e in d.get("extras", []))
+                            mensaje_m = (
+                                f"🏙️ {d.get('resumen') or 'Apartamento'}\n"
+                                + (f"📍 {d.get('barrio', '')}\n" if d.get('barrio') else "")
+                                + (f"📐 {d.get('area_m2'):g} m²  " if d.get('area_m2') else "")
+                                + (f"🛏️ {d.get('habitaciones'):g} hab  "
+                                   if d.get('habitaciones') is not None else "")
+                                + (f"🛁 {d.get('banos'):g} baños" if d.get('banos') is not None else "")
+                                + "\n" + (f"✨ {extras_txt}\n" if extras_txt else "")
+                                + (f"💰 {matcher.formato_cop(d['precio'])}\n" if d.get('precio') else "")
+                                + "\nEscríbeme para más información y agendar visita. — Nova Inmobiliaria")
+                            st.caption("Listo para tu cliente (sin link de la fuente).")
+                            st.code(mensaje_m, language=None)
+                        if a3.button("📤 Enviado", key=f"envm_{item.get('id')}_{nombre}",
+                                     use_container_width=True,
+                                     help=f"Lo pasa al seguimiento CRM de {nombre}"):
+                            post_e = {**d, "caption": item.get("texto", ""),
+                                      "url": item.get("link", ""), "id": item.get("id")}
+                            mod_clientes.agregar_proceso(nombre, proceso_de(post_e, "enviado"))
+                            st.toast(f"📤 En el seguimiento de {nombre} (míralo en 4️⃣ CRM)")
                             st.rerun()
-                if a2.button("🗑️ Quitar este inmueble", key=f"delm_{item.get('id')}",
-                             use_container_width=True):
-                    guardar_inmuebles_manuales(
-                        [x for x in cargar_inmuebles_manuales() if x.get("id") != item.get("id")])
-                    st.rerun()
+                        if a4.button("🚫 No va", key=f"nova_{item.get('id')}_{nombre}",
+                                     use_container_width=True,
+                                     help=f"Lo oculta SOLO para {nombre} (a los demás les sigue)."):
+                            post_e = {**d, "caption": item.get("texto", ""),
+                                      "url": item.get("link", ""), "id": item.get("id")}
+                            mod_clientes.agregar_proceso(nombre, proceso_de(post_e, "descartado"))
+                            st.toast(f"🚫 Descartado para {nombre}")
+                            st.rerun()
 
-        if manuales and filtro_cli != "(todos los clientes)" and mostrados == 0:
-            st.info(f"Ningún inmueble de tu lista le sirve a **{filtro_cli}** todavía.")
+        sin_opciones = [c["nombre"] for c in clientes_m if not reparto.get(c["nombre"])]
+        if manuales and sin_opciones:
+            st.caption("😴 Sin opciones por ahora: " + " · ".join(sin_opciones))
+
+        # ── Administrar los inmuebles ingresados ──
+        if manuales:
+            with st.expander(f"🗂️ Inmuebles ingresados ({len(manuales)}) — administrar"):
+                st.caption("Aquí puedes borrar un inmueble por completo (de todos los clientes).")
+                for item in manuales:
+                    d = item.get("datos") or {}
+                    m1, m2 = st.columns([5, 1])
+                    n_sirve = sum(1 for c in clientes_m
+                                  for it, _ in [(item, None)] if reparto.get(c["nombre"]) and
+                                  any(x[0].get("id") == item.get("id")
+                                      for x in reparto[c["nombre"]]))
+                    with m1:
+                        st.markdown(f"**{esc_md(d.get('resumen') or item.get('texto', '')[:70])}**"
+                                    f"  ·  {item.get('fecha', '')}  ·  sirve a {n_sirve}"
+                                    + (f"  ·  [link]({item['link']})" if item.get("link") else ""))
+                    if m2.button("🗑️ Quitar", key=f"delm_{item.get('id')}",
+                                 use_container_width=True):
+                        guardar_inmuebles_manuales(
+                            [x for x in cargar_inmuebles_manuales()
+                             if x.get("id") != item.get("id")])
+                        st.rerun()
 
 
 # ===== 4. CRM (seguimiento) ==================================
