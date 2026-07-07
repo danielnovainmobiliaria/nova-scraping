@@ -95,11 +95,8 @@ def guardar_llaves(apify_token: str | None = None,
     os.environ["ANTHROPIC_API_KEY"] = ANTHROPIC_API_KEY
 
 
-def leer_cuentas() -> list[str]:
-    """Devuelve la lista de usuarios de Instagram a monitorear.
-
-    Ignora líneas vacías y comentarios. Quita la @ inicial si la tiene.
-    """
+def _leer_cuentas_archivo() -> list[str]:
+    """Lee config/cuentas.txt (solo como semilla inicial / respaldo local)."""
     if not CUENTAS_FILE.exists():
         return []
     cuentas: list[str] = []
@@ -108,7 +105,6 @@ def leer_cuentas() -> list[str]:
         if not linea or linea.startswith("#"):
             continue
         cuentas.append(_solo_usuario(linea))
-    # Quita vacíos y duplicados conservando el orden.
     vistos: dict[str, None] = {}
     for c in cuentas:
         if c:
@@ -116,11 +112,50 @@ def leer_cuentas() -> list[str]:
     return list(vistos)
 
 
-def leer_portales() -> list[str]:
-    """Devuelve la lista de URLs de portales/sitios web a leer.
+def leer_cuentas() -> list[str]:
+    """Lista de cuentas de Instagram a monitorear.
 
-    Ignora líneas vacías y comentarios. Una URL por línea.
+    IMPORTANTE: vive en la BASE DE DATOS (sobrevive a cada actualización de la app;
+    el disco de Streamlit Cloud se borra en cada deploy). El archivo local solo
+    sirve de semilla la primera vez.
     """
+    import json as _json
+    try:
+        from . import db
+        crudo = db.leer_meta("cuentas_ig")
+        if crudo is not None:
+            return [u for u in (_solo_usuario(x) for x in _json.loads(crudo)) if u]
+    except Exception:  # noqa: BLE001 - sin BD (tests) → archivo
+        return _leer_cuentas_archivo()
+    cuentas = _leer_cuentas_archivo()
+    if cuentas:
+        try:
+            from . import db
+            db.guardar_meta("cuentas_ig", _json.dumps(cuentas, ensure_ascii=False))
+        except Exception:  # noqa: BLE001
+            pass
+    return cuentas
+
+
+def guardar_cuentas(cuentas: list[str]) -> None:
+    """Guarda la lista de cuentas en la BD (permanente) y en el archivo (respaldo)."""
+    import json as _json
+    limpias: dict[str, None] = {}
+    for c in cuentas:
+        u = _solo_usuario(str(c))
+        if u:
+            limpias.setdefault(u, None)
+    lista = list(limpias)
+    from . import db
+    db.guardar_meta("cuentas_ig", _json.dumps(lista, ensure_ascii=False))
+    try:
+        CUENTAS_FILE.write_text("# Cuentas de Instagram a monitorear (una por línea)\n"
+                                + "\n".join(lista), encoding="utf-8")
+    except Exception:  # noqa: BLE001 - disco de solo lectura en la nube
+        pass
+
+
+def _leer_portales_archivo() -> list[str]:
     if not PORTALES_FILE.exists():
         return []
     urls: list[str] = []
@@ -133,6 +168,47 @@ def leer_portales() -> list[str]:
         if linea not in urls:
             urls.append(linea)
     return urls
+
+
+def leer_portales() -> list[str]:
+    """URLs de portales a leer. Viven en la BD (igual que las cuentas)."""
+    import json as _json
+    try:
+        from . import db
+        crudo = db.leer_meta("portales_urls")
+        if crudo is not None:
+            return [u for u in _json.loads(crudo) if str(u).strip()]
+    except Exception:  # noqa: BLE001
+        return _leer_portales_archivo()
+    urls = _leer_portales_archivo()
+    if urls:
+        try:
+            from . import db
+            db.guardar_meta("portales_urls", _json.dumps(urls, ensure_ascii=False))
+        except Exception:  # noqa: BLE001
+            pass
+    return urls
+
+
+def guardar_portales(urls: list[str]) -> None:
+    """Guarda los portales en la BD (permanente) y en el archivo (respaldo)."""
+    import json as _json
+    limpias: list[str] = []
+    for u in urls:
+        u = str(u).strip()
+        if not u:
+            continue
+        if not u.startswith("http"):
+            u = "https://" + u
+        if u not in limpias:
+            limpias.append(u)
+    from . import db
+    db.guardar_meta("portales_urls", _json.dumps(limpias, ensure_ascii=False))
+    try:
+        PORTALES_FILE.write_text("# Portales / sitios web a leer (una URL por línea)\n"
+                                 + "\n".join(limpias), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _solo_usuario(texto: str) -> str:

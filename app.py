@@ -603,6 +603,17 @@ def comision_sugerida(operacion: str, valor: float) -> int:
 # ===== 1. FUENTES ============================================
 with tab_fuentes:
     st.subheader("📷 Perfiles que monitoreamos")
+
+    with st.expander("➕ Agregar o quitar perfiles"):
+        st.caption("Una cuenta por línea (con o sin @, o pegando el link del perfil). "
+                   "Se guardan en la nube: NO se pierden al actualizar la app.")
+        actuales = "\n".join(config.leer_cuentas())
+        texto = st.text_area("Cuentas", value=actuales, height=200,
+                             placeholder="arriendos_chapinero\ninmobiliaria_norte")
+        if st.button("💾 Guardar cuentas"):
+            config.guardar_cuentas([l for l in texto.splitlines() if l.strip()])
+            st.success(f"Guardadas {len(config.leer_cuentas())} cuenta(s) en la nube. ✅")
+            st.rerun()
     try:
         _restr_urls = restringidas_cacheadas()
     except json.JSONDecodeError:
@@ -644,17 +655,6 @@ with tab_fuentes:
                     linea += f"  ·  [🔗 ver publicación]({p['url']})"
                 st.markdown(linea)
 
-    with st.expander("➕ Agregar o quitar perfiles"):
-        st.caption("Una cuenta por línea (con o sin @, o pegando el link del perfil).")
-        actuales = "\n".join(config.leer_cuentas())
-        texto = st.text_area("Cuentas", value=actuales, height=200,
-                             placeholder="arriendos_chapinero\ninmobiliaria_norte")
-        if st.button("💾 Guardar cuentas"):
-            cuentas = [config._solo_usuario(l) for l in texto.splitlines() if l.strip()]
-            cabecera = "# Cuentas de Instagram a monitorear (una por línea)\n"
-            config.CUENTAS_FILE.write_text(cabecera + "\n".join(cuentas), encoding="utf-8")
-            st.success(f"Guardadas {len(cuentas)} cuenta(s).")
-
     st.divider()
     with st.expander("🏠 Portales y sitios web (búsquedas que también leemos)"):
         st.caption("Pega la URL de tu **búsqueda** en el portal (una por línea). Ej: en Metrocuadrado "
@@ -667,10 +667,9 @@ with tab_fuentes:
             placeholder="https://www.metrocuadrado.com/apartamentos/venta/bogota/chapinero/\n"
                         "https://www.fincaraiz.com.co/...\nhttps://www.myhome.com.co/...")
         if st.button("💾 Guardar portales"):
-            ulist = [l.strip() for l in texto_portales.splitlines() if l.strip()]
-            cab = "# Portales / sitios web a leer (una URL por línea)\n"
-            config.PORTALES_FILE.write_text(cab + "\n".join(ulist), encoding="utf-8")
-            st.success(f"Guardados {len(ulist)} portal(es).")
+            config.guardar_portales([l.strip() for l in texto_portales.splitlines() if l.strip()])
+            st.success(f"Guardados {len(config.leer_portales())} portal(es) en la nube. ✅")
+            st.rerun()
         if config.leer_portales() and st.button("🏠 Leer inmuebles de portales", type="primary"):
             registro_p = st.empty()
             lineas_p: list[str] = []
