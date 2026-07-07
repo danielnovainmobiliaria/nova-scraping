@@ -1389,10 +1389,10 @@ with tab_resultados:
         st.success(st.session_state.pop("flash_manual"))
 
     # ── Inmueble manual: lo que encuentres a mano entra al MISMO cruce ──
-    with st.expander("➕ Agregar un inmueble al cruce (pega el link, y listo)", expanded=True):
-        st.caption("**Si el link viene del catálogo de Fuentes, basta con pegarlo** (ya tenemos "
-                   "descripción, datos y fotos). Si es de otra parte, pega también la "
-                   "descripción. El link evita repetidos y marca ✅ en Fuentes.")
+    with st.expander("➕ Agregar un inmueble manual (de WhatsApp, aliados o cuentas ⚠️)"):
+        st.caption("El scraping ya entra solo al cruce; usa este cajón para inmuebles que la "
+                   "máquina no ve (WhatsApp, aliados, cuentas restringidas ⚠️). Si el link "
+                   "viene del catálogo, basta pegarlo; si no, pega también la descripción.")
         with st.form("inmueble_manual", clear_on_submit=True):
             desc_man = st.text_area(
                 "Descripción del inmueble", height=110,
@@ -1476,9 +1476,9 @@ with tab_resultados:
                              if x.get("id") != item.get("id")])
                         st.rerun()
 
-    # Al cruce entra SOLO lo que TÚ agregas (curaduría manual). El scraping
-    # alimenta el catálogo de la pestaña Fuentes, de donde tomas los links.
-    posts = []
+    # Cruce HÍBRIDO: el catálogo del scraping + lo que agregas a mano. La máquina
+    # propone, tú decides (nada se envía sin tu clic). Los duplicados se unifican.
+    posts = list(posts_cacheados())
     for item in cargar_inmuebles_manuales():
         d_it = item.get("datos") or {}
         if d_it.get("es_inmueble") is False:
@@ -1492,8 +1492,8 @@ with tab_resultados:
     if not clientes:
         st.warning("Primero carga tus clientes en la pestaña **2️⃣ Clientes**.")
     elif not posts:
-        st.info("Coincidencias arranca vacío: agrega tu primer inmueble en el cajón "
-                "**➕ de arriba** (toma los links del catálogo de **1️⃣ Fuentes**).")
+        st.warning("Aún no hay inmuebles. Ve a **1️⃣ Fuentes** y dale a "
+                   "**🔄 Traer y leer publicaciones**, o agrega uno manual arriba.")
     else:
         # Los controles finos viven plegados: los valores de fábrica funcionan bien
         # y así la pantalla queda limpia para lo importante (los inmuebles).
@@ -1582,10 +1582,15 @@ with tab_resultados:
         resumen = []
         for nombre, matches in resultados.items():
             n = len(matches)
+            n_portal = sum(1 for m in matches if es_portal_post(m["post"]))
+            n_man = sum(1 for m in matches if str(m["post"].get("id", "")).startswith("m_"))
             resumen.append({
                 "Cliente": nombre,
                 "Prioridad": BADGE_PRIORIDAD.get(prio_map.get(nombre, "media"), "⭐ Media"),
                 "Perfil": BADGE_FLEX.get(flex_map.get(nombre, "medio"), "⚖️ Medio"),
+                "📷 Instagram": n - n_portal - n_man,
+                "🏠 Portales": n_portal,
+                "🖊️ Tuyos": n_man,
                 "Total": n,
                 "Cobertura": "🔴 Buscar más" if n == 0 else ("🟡 Pocos" if n <= 2 else "🟢 Bien cubierto"),
             })
