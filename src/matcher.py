@@ -237,6 +237,7 @@ def _match_ubicacion(cliente: dict[str, Any], post: dict[str, Any]) -> tuple[flo
         [post_barrio, post_zona, post_dir, _zona_de(post_barrio)])
 
     # 1) ¿coincide algún barrio pedido con lo que dice el post? (palabras completas)
+    #    Se revisan TODOS los barrios pedidos ANTES de conformarse con "misma zona".
     mejor = 0.0
     for b in barrios_cliente:
         nb = _norm(b)
@@ -252,16 +253,25 @@ def _match_ubicacion(cliente: dict[str, Any], post: dict[str, Any]) -> tuple[flo
             if c is post_dir and _tokens_lugar(nb) and _tokens_lugar(nb) <= _tokens_lugar(nc):
                 return 1.0, f"barrio coincide: {b}"
             mejor = max(mejor, fuzz.token_sort_ratio(nb, nc) / 100.0)
-        # ¿el barrio pedido cae en la misma zona que el post?
-        if _zona_de(b) and _zona_de(b) == _norm(post_zona):
-            return 0.8, f"misma zona ({post_zona})"
+
+    # 1b) Ningún barrio exacto: ¿al menos cae en la misma zona REAL?
+    # OJO: la zona real del post sale de NUESTRO mapa de barrios (Santa Bárbara →
+    # Usaquén), no de lo que el aviso declare (a veces le ponen "Chapinero" a todo).
+    zona_post_real = _zona_de(post_barrio) or _norm(post_zona)
+    for b in barrios_cliente:
+        if _zona_de(b) and _zona_de(b) == zona_post_real:
+            # Zona correcta pero OTRO barrio: se muestra con advertencia, nunca como pleno.
+            return 0.75, f"misma zona ({_zona_de(b)}), otro barrio — verifícalo"
 
     # 2) coincidencia por zona pedida (nivel zona: nunca cuenta como barrio exacto)
     if zona_cliente:
         nz_tokens = _tokens_lugar(zona_cliente) or {_norm(zona_cliente)}
-        for c in [post_zona, _zona_de(post_barrio), post_barrio]:
+        for c in [_zona_de(post_barrio), post_zona, post_barrio]:
             nc = _norm(c)
             if nc and (nz_tokens & (_tokens_lugar(nc) or {nc}) or _norm(zona_cliente) == nc):
+                if barrios_cliente:
+                    # Pidió barrios concretos y solo cuadra la zona general: señal débil.
+                    return 0.5, f"solo coincide la zona general ({zona_cliente}) — barrio distinto"
                 return 0.85, f"zona coincide: {zona_cliente}"
 
     # 3) Parecido de escritura (typos): umbral alto para no confundir lugares distintos.
