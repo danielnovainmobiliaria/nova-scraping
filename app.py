@@ -967,32 +967,6 @@ with tab_clientes:
     buscar_cli = st.text_input("🔍 Buscar cliente", key="buscar_cli",
                                placeholder="Escribe un nombre, barrio, teléfono o zona…")
 
-    # ── Prioridades de un clic: tocas el nivel y queda guardado al instante ──
-    with st.expander("🎯 Prioridades rápidas (un clic por cliente)"):
-        st.caption("🔥 con afán · ⭐ normal · 🌙 sin afán — se guarda solo y ordena "
-                   "Coincidencias, Cobertura y CRM (los 🔥 siempre de primeros).")
-        _opts_p = ["🔥", "⭐", "🌙"]
-        _map_p = {"🔥": "alta", "⭐": "media", "🌙": "baja"}
-        _rev_p = {"alta": "🔥", "media": "⭐", "baja": "🌙"}
-        _lista_p = [c for c in clientes_cacheados() if coincide_busqueda(c, buscar_cli)]
-        _lista_p.sort(key=lambda c: (RANGO_PRIORIDAD.get(prioridad_de(c), 1),
-                                     str(c.get("nombre", ""))))
-        for c in _lista_p:
-            _n = c.get("nombre", "")
-            _cur = _rev_p.get(prioridad_de(c), "⭐")
-            r1, r2 = st.columns([3, 2])
-            r1.markdown(f"{color_cliente(c)} **{esc_md(_n)}**"
-                        + (f"  ·  {c.get('operacion') or ''}")
-                        + (f" · hasta {matcher.formato_cop(c.get('presupuesto_max'))}"
-                           if c.get("presupuesto_max") else ""))
-            _sel = r2.segmented_control("p", _opts_p, default=_cur,
-                                        key=f"prio_seg_{_n}",
-                                        label_visibility="collapsed")
-            if _sel and _sel != _cur:
-                mod_clientes.actualizar_crm(_n, {"prioridad": _map_p[_sel]})
-                st.toast(f"{_sel} Prioridad de {_n} actualizada")
-                st.rerun()
-
     st.markdown("##### 🤖 Cuadro maestro — crea o edita clientes escribiendo")
     with st.expander("🤖 Escribe y la IA lo organiza (crear cliente nuevo o editar uno existente)",
                      expanded=True):
@@ -1285,14 +1259,56 @@ with tab_clientes:
                 except Exception as e:  # noqa: BLE001
                     st.error(f"No se pudo procesar el archivo: {e}")
 
-    # La tabla es SOLO para ver. (La data_editor de Streamlit no guardaba bien los
-    # cambios, así que toda edición se hace con el editor "✏️" de arriba.)
+    # Tabla con DOS columnas editables (prioridad y flexibilidad): clic en la celda,
+    # eliges y se guarda al instante. Las demás columnas se cambian en el cuadro 🤖.
     st.markdown("##### 📋 Tu lista completa")
-    st.caption("⏳ Antigüedad del cliente: 🟢 0-10 días · 🟡 11-20 · 🟠 21-30 · 🔴 +30. "
-               "Para cambiar algo usa el cuadro maestro 🤖 de arriba.")
+    st.caption("⏳ Antigüedad: 🟢 0-10 días · 🟡 11-20 · 🟠 21-30 · 🔴 +30.  ·  ✏️ Las columnas "
+               "**prioridad** y **flexibilidad** se editan AQUÍ MISMO (clic en la celda); "
+               "el resto, en el cuadro maestro 🤖.")
     todos = clientes_cacheados()
     lista_ver = [c for c in todos if coincide_busqueda(c, buscar_cli)]
-    st.dataframe(clientes_a_df(lista_ver), use_container_width=True, hide_index=True)
+
+    _PRIO_VISTA = {"alta": "🔥 alta", "media": "⭐ media", "baja": "🌙 baja"}
+    _FLEX_VISTA = {"estricto": "🔒 estricto", "medio": "⚖️ medio", "flexible": "🌊 flexible"}
+    df_tabla = clientes_a_df(lista_ver)
+    if not df_tabla.empty:
+        df_tabla["prioridad"] = df_tabla["prioridad"].map(lambda v: _PRIO_VISTA.get(v, "⭐ media"))
+        df_tabla["flexibilidad"] = df_tabla["flexibilidad"].map(
+            lambda v: _FLEX_VISTA.get(v, "⚖️ medio"))
+    _ver_t = st.session_state.get("tabla_ver", 0)
+    _key_t = f"tabla_clientes_{_ver_t}"
+    st.data_editor(
+        df_tabla, key=_key_t, hide_index=True, use_container_width=True,
+        disabled=[c for c in df_tabla.columns if c not in ("prioridad", "flexibilidad")],
+        column_config={
+            "prioridad": st.column_config.SelectboxColumn(
+                "prioridad", options=list(_PRIO_VISTA.values()), required=True,
+                help="🔥 con afán · ⭐ normal · 🌙 sin afán — ordena toda la herramienta."),
+            "flexibilidad": st.column_config.SelectboxColumn(
+                "flexibilidad", options=list(_FLEX_VISTA.values()), required=True,
+                help="🔒 solo lo muy acertado · ⚖️ equilibrado · 🌊 abierto a más opciones."),
+        })
+    _delta_t = (st.session_state.get(_key_t) or {}).get("edited_rows") or {}
+    if _delta_t:
+        _lista_g = mod_clientes.cargar_guardados()
+        _cambiados = []
+        for _idx, _cambios in _delta_t.items():
+            try:
+                _nom = df_tabla.iloc[int(_idx)]["nombre"]
+            except Exception:  # noqa: BLE001
+                continue
+            for _c_g in _lista_g:
+                if _c_g.get("nombre") == _nom:
+                    if "prioridad" in _cambios:
+                        _c_g["prioridad"] = str(_cambios["prioridad"]).split()[-1]
+                    if "flexibilidad" in _cambios:
+                        _c_g["flexibilidad"] = str(_cambios["flexibilidad"]).split()[-1]
+                    _cambiados.append(_nom)
+        if _cambiados:
+            mod_clientes.guardar_lista(_lista_g)
+            st.session_state["tabla_ver"] = _ver_t + 1
+            st.toast("✅ Guardado: " + ", ".join(dict.fromkeys(_cambiados)))
+            st.rerun()
     if buscar_cli:
         st.caption(f"Mostrando {len(lista_ver)} de {len(todos)} clientes que coinciden "
                    f"con «{buscar_cli}».")
