@@ -493,6 +493,90 @@ def interpretar_texto_libre(texto: str, log=print) -> list[dict[str, Any]]:
     return resultado
 
 
+# ── Edición de un cliente existente con lenguaje natural ─────
+
+SYSTEM_EDICION = f"""Eres un asistente inmobiliario en Bogotá. El broker quiere EDITAR un cliente
+existente. Recibes el cliente ACTUAL (JSON) y la instrucción del broker en texto libre.
+
+Devuelve ÚNICAMENTE un objeto JSON con SOLO los campos que deben CAMBIAR (omite los demás):
+{{{{
+  "nombre": string, "telefono": string, "operacion": "arriendo"|"venta",
+  "barrios": [string],              // la lista COMPLETA como debe quedar. Si dice "agrega X",
+                                    // incluye X junto a los barrios actuales; si dice "los
+                                    // barrios son X, Y", reemplaza.
+  "zona": string, "presupuesto_max": number,
+  "area_min": number, "area_max": number,
+  "habitaciones_min": number, "habitaciones_max": number, "banos_min": number,
+  "extras": [string],               // lista COMPLETA final, SOLO de: {EXTRAS_VALIDOS}
+  "obligatorios": [string],         // SOLO de {OBLIGATORIOS_VALIDOS} y SOLO con exigencia
+                                    // explícita ("sí o sí"/"indispensable")
+  "flexibilidad": "estricto"|"medio"|"flexible",
+  "prioridad": "alta"|"media"|"baja",
+  "notas": string                   // SOLO el texto NUEVO que haya que agregar a las notas
+}}}}
+
+Reglas de interpretación (las mismas del mercado bogotano): "12M"=12000000; "1.500 millones" o
+"1.500M"=1500000000; apóstrofo separador (1'500.000.000); "2 habitaciones"= min 2 y max 2
+(EXACTO); "2 o 3"= min 2 max 3; "mínimo 3"= min 3 max 5; "las santas"= barrios Santa Bibiana,
+San Patricio, Santa Paula y Santa Bárbara; "tiene afán/urgente"= prioridad alta; "sin afán"=
+baja; "no cede/exigente"= flexibilidad estricto; "abierto"= flexible.
+NO incluyas campos que la instrucción no menciona. Si no hay nada claro que cambiar, devuelve {{{{}}}}.
+"""
+
+
+def interpretar_edicion(texto: str, cliente: dict[str, Any]) -> dict[str, Any]:
+    """Convierte una instrucción libre en los CAMPOS a cambiar de un cliente existente."""
+    if not config.ANTHROPIC_API_KEY:
+        raise RuntimeError("Falta la llave de Claude (ANTHROPIC_API_KEY).")
+    if not (texto or "").strip():
+        return {}
+    actual = {k: cliente.get(k) for k in (
+        "nombre", "telefono", "operacion", "barrios", "zona", "presupuesto_max",
+        "area_min", "area_max", "habitaciones_min", "habitaciones_max", "banos_min",
+        "extras", "obligatorios", "flexibilidad", "prioridad")}
+    actual["notas"] = str(cliente.get("notas") or "")[:300]
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    msg = client.messages.create(
+        model=config.ANTHROPIC_MODEL, max_tokens=700,
+        system=SYSTEM_EDICION,
+        messages=[{"role": "user", "content":
+                   f"CLIENTE ACTUAL:\n{json.dumps(actual, ensure_ascii=False)}\n\n"
+                   f"INSTRUCCIÓN DEL BROKER:\n{texto.strip()[:3000]}"}],
+    )
+    t = msg.content[0].text.strip()
+    if t.startswith("```"):
+        t = t.strip("`")
+        t = t[t.find("{"): t.rfind("}") + 1]
+    try:
+        cambios = json.loads(t)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(cambios, dict):
+        return {}
+    # Normalización defensiva (mismas listas cerradas de siempre).
+    if "extras" in cambios:
+        cambios["extras"] = [e for e in (cambios.get("extras") or []) if e in EXTRAS_VALIDOS]
+    if "obligatorios" in cambios:
+        cambios["obligatorios"] = [o for o in (cambios.get("obligatorios") or [])
+                                   if o in OBLIGATORIOS_VALIDOS]
+    if "flexibilidad" in cambios:
+        _fx = str(cambios["flexibilidad"] or "").lower().strip()
+        if _fx not in FLEX_VALIDOS:
+            cambios.pop("flexibilidad")
+        else:
+            cambios["flexibilidad"] = _fx
+    if "prioridad" in cambios:
+        _pr = str(cambios["prioridad"] or "").lower().strip()
+        if _pr not in ("alta", "media", "baja"):
+            cambios.pop("prioridad")
+        else:
+            cambios["prioridad"] = _pr
+    if "telefono" in cambios:
+        cambios["telefono"] = "".join(ch for ch in str(cambios["telefono"] or "")
+                                      if ch.isdigit())
+    return cambios
+
+
 # ── Aprender qué evita un cliente (de los inmuebles descartados) ─────
 
 SYSTEM_PREFERENCIAS = f"""Eres un asistente inmobiliario en Bogotá. Te doy señales sobre un cliente:
