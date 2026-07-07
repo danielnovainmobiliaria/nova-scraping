@@ -460,12 +460,16 @@ def render_procesos(c: dict) -> None:
     """Muestra y permite editar el embudo de inmuebles en seguimiento de un cliente."""
     procs = c.get("procesos") or []
     nombre = c["nombre"]
-    st.markdown(f"**📋 Inmuebles en proceso ({len(procs)})**")
-    if not procs:
+    # Los DESCARTADOS no estorban la vista, pero siguen guardados (así el inmueble
+    # jamás vuelve a aparecer en Coincidencias para este cliente).
+    activos_pr = [pr for pr in procs if pr.get("estado") != "descartado"]
+    descartados_pr = [pr for pr in procs if pr.get("estado") == "descartado"]
+    st.markdown(f"**📋 Inmuebles enviados y en proceso ({len(activos_pr)})**")
+    if not activos_pr and not descartados_pr:
         st.caption("Marca inmuebles desde la pestaña Coincidencias para que entren aquí.")
         return
     opciones = mod_clientes.ESTADOS_PROCESO
-    for pr in procs:
+    for pr in activos_pr:
         pid = pr.get("post_id", "")
         precio = matcher.formato_cop(pr.get("precio"))
         with st.container(border=True):
@@ -492,6 +496,17 @@ def render_procesos(c: dict) -> None:
                             help="Sacar del proceso (vuelve a aparecer en coincidencias)"):
                 mod_clientes.quitar_proceso(nombre, pid)
                 st.rerun()
+    if descartados_pr:
+        with st.popover(f"🚫 {len(descartados_pr)} descartado(s) — ocultos, no se repetirán"):
+            for pr in descartados_pr:
+                pid = pr.get("post_id", "")
+                d1, d2 = st.columns([5, 1])
+                d1.caption(" · ".join(x for x in [pr.get("resumen", ""), pr.get("barrio", ""),
+                                                  pr.get("observaciones", "")] if x))
+                if d2.button("↩️", key=f"pundo_{nombre}_{pid}",
+                             help="Deshacer el descarte (vuelve a Coincidencias)"):
+                    mod_clientes.quitar_proceso(nombre, pid)
+                    st.rerun()
 
 
 def render_descargas(p: dict, prefijo: str) -> None:
@@ -1970,72 +1985,72 @@ with tab_crm:
                 cab += f"  ·  💰 {matcher.formato_cop(com_actual)}"
             with st.container(border=True):
                 st.markdown(cab)
-
-                op = (c.get("operacion") or "venta").lower()
-                es_arriendo = op == "arriendo"
-                with st.form(key=f"crm_form_{nombre}"):
-                    col1, col2, col3 = st.columns([1, 1, 1])
-                    estado = col1.selectbox(
-                        "Estado del negocio", ["activo", "ganado", "perdido"],
-                        index=["activo", "ganado", "perdido"].index(c["estado"]),
-                        format_func=lambda e: ESTADOS_CRM[e], key=f"est_{nombre}")
-                    prio_crm = col2.selectbox(
-                        "Prioridad", PRIORIDAD_OPCIONES,
-                        index=PRIORIDAD_OPCIONES.index(prioridad_de(c)),
-                        format_func=lambda x: BADGE_PRIORIDAD.get(x, x), key=f"prio_{nombre}",
-                        help="Los 🔥 salen de primeros en toda la herramienta.")
-                    visitas = col3.number_input("Visitas realizadas", min_value=0,
-                                                value=int(c.get("visitas") or 0),
-                                                step=1, key=f"vis_{nombre}")
-
-                    # ── Financiero (valor de cierre y comisión) ──
-                    colv, colc = st.columns([1, 1])
-                    valor_cierre = colv.number_input(
-                        "Canon mensual acordado ($)" if es_arriendo
-                        else "Precio de venta final ($)",
-                        min_value=0, value=int(c.get("valor_cierre") or 0),
-                        step=100_000 if es_arriendo else 10_000_000,
-                        format="%d", key=f"val_{nombre}",
-                        help="Ajústalo al valor final negociado.")
-                    comision = colc.number_input(
-                        "Comisión ($)", min_value=0, value=int(c.get("comision") or 0),
-                        step=100_000, format="%d", key=f"com_{nombre}",
-                        help=("Comisión = primer canon, sin administración."
-                              if es_arriendo else
-                              f"Comisión = {COMISION_VENTA_PCT * 100:.0f}% del valor. "
-                              "Todo es negociable: edítala si hace falta."))
-                    sug = comision_sugerida(op, c.get("valor_cierre") or 0)
-                    nota_calc = ("💡 Comisión = primer canon." if es_arriendo
-                                 else f"💡 Comisión sugerida ({COMISION_VENTA_PCT * 100:.0f}%): {matcher.formato_cop(sug)}.")
-                    st.caption(nota_calc + " Si dejas la comisión en 0, se calcula sola al guardar.")
-
-                    # Los inmuebles enviados se ven en el embudo de abajo (render_procesos);
-                    # aquí solo un resumen de lectura (antes había un cuadro que nunca se
-                    # llenaba solo y confundía).
-                    _envs = [pr for pr in (c.get("procesos") or [])
-                             if pr.get("estado") != "descartado"]
-                    if _envs:
-                        st.caption("📤 Enviados (del embudo de abajo): "
-                                   + " · ".join((pr.get("resumen") or pr.get("post_id", ""))[:40]
-                                                for pr in _envs[:6])
-                                   + (" …" if len(_envs) > 6 else ""))
-                    notas_crm = st.text_area("Notas de seguimiento",
-                                             value=c.get("notas_crm", ""),
-                                             height=70, key=f"ncrm_{nombre}")
-                    if st.form_submit_button("💾 Guardar seguimiento", type="primary"):
-                        com_final = int(comision) if int(comision) > 0 \
-                            else comision_sugerida(op, valor_cierre)
-                        mod_clientes.actualizar_crm(nombre, {
-                            "estado": estado,
-                            "prioridad": prio_crm,
-                            "visitas": int(visitas),
-                            "valor_cierre": int(valor_cierre),
-                            "comision": com_final,
-                            "notas_crm": notas_crm.strip(),
-                        })
-                        st.success(f"Seguimiento de {nombre} guardado.")
-                        st.rerun()
-
-                # Embudo de inmuebles en proceso (fuera del formulario: tiene botones).
-                st.divider()
+                # Lo primero del cliente: SUS inmuebles (enviados/proceso).
                 render_procesos(c)
+                with st.expander("⚙️ Estado del negocio, visitas y comisión"):
+
+                    op = (c.get("operacion") or "venta").lower()
+                    es_arriendo = op == "arriendo"
+                    with st.form(key=f"crm_form_{nombre}"):
+                        col1, col2, col3 = st.columns([1, 1, 1])
+                        estado = col1.selectbox(
+                            "Estado del negocio", ["activo", "ganado", "perdido"],
+                            index=["activo", "ganado", "perdido"].index(c["estado"]),
+                            format_func=lambda e: ESTADOS_CRM[e], key=f"est_{nombre}")
+                        prio_crm = col2.selectbox(
+                            "Prioridad", PRIORIDAD_OPCIONES,
+                            index=PRIORIDAD_OPCIONES.index(prioridad_de(c)),
+                            format_func=lambda x: BADGE_PRIORIDAD.get(x, x), key=f"prio_{nombre}",
+                            help="Los 🔥 salen de primeros en toda la herramienta.")
+                        visitas = col3.number_input("Visitas realizadas", min_value=0,
+                                                    value=int(c.get("visitas") or 0),
+                                                    step=1, key=f"vis_{nombre}")
+
+                        # ── Financiero (valor de cierre y comisión) ──
+                        colv, colc = st.columns([1, 1])
+                        valor_cierre = colv.number_input(
+                            "Canon mensual acordado ($)" if es_arriendo
+                            else "Precio de venta final ($)",
+                            min_value=0, value=int(c.get("valor_cierre") or 0),
+                            step=100_000 if es_arriendo else 10_000_000,
+                            format="%d", key=f"val_{nombre}",
+                            help="Ajústalo al valor final negociado.")
+                        comision = colc.number_input(
+                            "Comisión ($)", min_value=0, value=int(c.get("comision") or 0),
+                            step=100_000, format="%d", key=f"com_{nombre}",
+                            help=("Comisión = primer canon, sin administración."
+                                  if es_arriendo else
+                                  f"Comisión = {COMISION_VENTA_PCT * 100:.0f}% del valor. "
+                                  "Todo es negociable: edítala si hace falta."))
+                        sug = comision_sugerida(op, c.get("valor_cierre") or 0)
+                        nota_calc = ("💡 Comisión = primer canon." if es_arriendo
+                                     else f"💡 Comisión sugerida ({COMISION_VENTA_PCT * 100:.0f}%): {matcher.formato_cop(sug)}.")
+                        st.caption(nota_calc + " Si dejas la comisión en 0, se calcula sola al guardar.")
+
+                        # Los inmuebles enviados se ven en el embudo de abajo (render_procesos);
+                        # aquí solo un resumen de lectura (antes había un cuadro que nunca se
+                        # llenaba solo y confundía).
+                        _envs = [pr for pr in (c.get("procesos") or [])
+                                 if pr.get("estado") != "descartado"]
+                        if _envs:
+                            st.caption("📤 Enviados (del embudo de abajo): "
+                                       + " · ".join((pr.get("resumen") or pr.get("post_id", ""))[:40]
+                                                    for pr in _envs[:6])
+                                       + (" …" if len(_envs) > 6 else ""))
+                        notas_crm = st.text_area("Notas de seguimiento",
+                                                 value=c.get("notas_crm", ""),
+                                                 height=70, key=f"ncrm_{nombre}")
+                        if st.form_submit_button("💾 Guardar seguimiento", type="primary"):
+                            com_final = int(comision) if int(comision) > 0 \
+                                else comision_sugerida(op, valor_cierre)
+                            mod_clientes.actualizar_crm(nombre, {
+                                "estado": estado,
+                                "prioridad": prio_crm,
+                                "visitas": int(visitas),
+                                "valor_cierre": int(valor_cierre),
+                                "comision": com_final,
+                                "notas_crm": notas_crm.strip(),
+                            })
+                            st.success(f"Seguimiento de {nombre} guardado.")
+                            st.rerun()
+
