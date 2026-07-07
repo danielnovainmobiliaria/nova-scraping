@@ -117,15 +117,42 @@ def dias_publicado(fecha_iso: str):
     return (datetime.now(timezone.utc).date() - f).days
 
 
+def color_publicacion(d) -> str:
+    """Semáforo de publicaciones: 🟢 ≤3 días · 🟡 4-10 · 🟠 11-20 · 🔴 21-30."""
+    if d is None:
+        return ""
+    if d <= 3:
+        return "🟢"
+    if d <= 10:
+        return "🟡"
+    if d <= 20:
+        return "🟠"
+    return "🔴"
+
+
 def badge_frescura(fecha_iso: str) -> str:
-    """Etiqueta con semáforo: 🟢 reciente, 🟡 unas semanas, 🔴 más viejo."""
+    """Etiqueta con el semáforo de publicaciones (escala 3/10/20/30 días)."""
     d = dias_publicado(fecha_iso)
     if d is None:
         return ""
-    emoji = "🟢" if d <= 7 else ("🟡" if d <= 21 else "🔴")
+    emoji = color_publicacion(d)
     if d <= 0:
         return f"{emoji} Publicado hoy"
     return f"{emoji} Publicado hace {d} día{'s' if d != 1 else ''}"
+
+
+def color_cliente(c) -> str:
+    """Semáforo del cliente por fecha de inclusión: 🟢 ≤10 · 🟡 11-20 · 🟠 21-30 · 🔴 +30."""
+    d = dias_publicado((c or {}).get("creado"))
+    if d is None:
+        return "🟢"
+    if d <= 10:
+        return "🟢"
+    if d <= 20:
+        return "🟡"
+    if d <= 30:
+        return "🟠"
+    return "🔴"
 
 
 # A partir de este puntaje consideramos que un inmueble es "afín" al cliente.
@@ -180,7 +207,9 @@ def dedup_posts(posts):
 
 
 def fuente_post(p) -> str:
-    """Etiqueta de la fuente del inmueble (con ícono según sea red o portal)."""
+    """Etiqueta de la fuente del inmueble (red, portal o ingresado a mano)."""
+    if str(p.get("id", "")).startswith("m_"):
+        return "🖊️ ingresado por ti"
     if es_portal_post(p):
         return f"🏠 {p.get('cuenta', 'portal')}"
     return f"📷 @{p.get('cuenta', '')}"
@@ -547,9 +576,8 @@ if correr:
             estado_scrape.update(label=f"⚠️ Ocurrió un problema: {e}", state="error")
 
 # ── Pestañas ──────────────────────────────────────────────────
-tab_fuentes, tab_clientes, tab_resultados, tab_manual, tab_crm = st.tabs(
-    ["1️⃣ Fuentes", "2️⃣ Clientes", "3️⃣ Coincidencias",
-     "🔎 Inmueble → Clientes", "4️⃣ CRM"]
+tab_fuentes, tab_clientes, tab_resultados, tab_crm = st.tabs(
+    ["1️⃣ Fuentes", "2️⃣ Clientes", "3️⃣ Coincidencias", "4️⃣ CRM"]
 )
 
 # Etiquetas visuales de los estados del negocio.
@@ -574,116 +602,95 @@ def comision_sugerida(operacion: str, valor: float) -> int:
 
 # ===== 1. FUENTES ============================================
 with tab_fuentes:
-    # ── 🔔 Centro de alertas: qué publicó cada cuenta desde tu última revisión ──
-    st.subheader("🔔 Alertas: publicaciones nuevas por cuenta")
-
-    def _alertas_vistas() -> set:
-        try:
-            return set(json.loads(db.leer_meta("alertas_vistas") or "[]"))
-        except json.JSONDecodeError:
-            return set()
-
-    _cuentas_ig = set(config.leer_cuentas())
-    _vistos_al = _alertas_vistas()
-    _posts_al = [p for p in posts_cacheados()
-                 if p.get("cuenta") in _cuentas_ig
-                 and p.get("id") not in _vistos_al
-                 and (dias_publicado(p.get("agregado") or p.get("fecha")) or 99) <= 7]
-    if not _posts_al:
-        st.caption("Sin novedades desde tu última revisión. ✅ (El robot revisa las cuentas "
-                   "cada mañana a las 8:00.)")
-    else:
-        st.caption(f"**{len(_posts_al)} publicación(es) nuevas** desde tu última revisión, "
-                   "con link directo a cada una. Estas mismas ya están cruzadas en "
-                   "3️⃣ Coincidencias; aquí puedes revisarlas manual y meter al panel 🔎 "
-                   "las que te gusten.")
-        _por_cuenta: dict = {}
-        for p in _posts_al:
-            _por_cuenta.setdefault(p["cuenta"], []).append(p)
-        for _cta, _ps in sorted(_por_cuenta.items(), key=lambda kv: -len(kv[1])):
-            with st.expander(f"🔔 @{_cta} — {len(_ps)} publicación(es) nueva(s)"):
-                for p in sorted(_ps, key=lambda x: str(x.get("fecha", "")), reverse=True):
-                    _linea = (f"• **{p.get('fecha', '')}** — "
-                              f"{esc_md((p.get('resumen') or p.get('caption', ''))[:75])}")
-                    if p.get("url"):
-                        _linea += f"  ·  [🔗 ver publicación]({p['url']})"
-                    st.markdown(_linea)
-        if st.button("✅ Marcar todo como revisado", type="primary"):
-            _vistos_al |= {p["id"] for p in _posts_al}
-            db.guardar_meta("alertas_vistas", json.dumps(list(_vistos_al)[-3000:]))
-            st.cache_data.clear()
-            st.rerun()
-    st.caption("⚠️ Ojo: las cuentas que Instagram no deja leer NO generan alerta — esas "
-               "revísalas manual en «🔗 Abrir perfiles» (van marcadas con ⚠️).")
-    st.divider()
-
-    st.subheader("📷 Cuentas de Instagram")
-    st.caption("Una cuenta por línea. Se guardan en config/cuentas.txt")
-    actuales = "\n".join(config.leer_cuentas())
-    texto = st.text_area("Cuentas", value=actuales, height=200,
-                         placeholder="arriendos_chapinero\ninmobiliaria_norte")
-    if st.button("💾 Guardar cuentas"):
-        cuentas = [l.strip().lstrip("@") for l in texto.splitlines() if l.strip()]
-        cabecera = "# Cuentas de Instagram a monitorear (una por línea)\n"
-        config.CUENTAS_FILE.write_text(cabecera + "\n".join(cuentas), encoding="utf-8")
-        st.success(f"Guardadas {len(cuentas)} cuenta(s).")
-
-    cuentas_guardadas = config.leer_cuentas()
+    st.subheader("📷 Perfiles que monitoreamos")
     try:
         _restr_urls = restringidas_cacheadas()
     except json.JSONDecodeError:
         _restr_urls = []
-    restringidas_us = {config._solo_usuario(u) for u in _restr_urls if u}
-    # Incluye los perfiles restringidos aunque ya no estén en la lista configurada.
-    perfiles_abrir = list(dict.fromkeys(
-        list(cuentas_guardadas) + [u for u in restringidas_us if u and u not in cuentas_guardadas]))
-    if perfiles_abrir:
-        n_restr = sum(1 for c in perfiles_abrir if c in restringidas_us)
-        with st.expander(f"🔗 Abrir perfiles ({len(perfiles_abrir)}) para revisar a mano",
-                         expanded=False):
-            st.caption("Clic en un perfil para abrirlo en Instagram y buscar manualmente."
-                       + (f"  ·  ⚠️ = Instagram no lo dejó leer ({n_restr}); estos son los que más "
-                          "conviene revisar aquí." if n_restr else ""))
-            st.markdown(" · ".join(
-                f"[@{c}{' ⚠️' if c in restringidas_us else ''}](https://www.instagram.com/{c}/)"
-                for c in perfiles_abrir))
+    _restr_us = {config._solo_usuario(u) for u in _restr_urls if u}
+    _cuentas = config.leer_cuentas()
+
+    # Publicaciones vigentes (≤30 días) agrupadas por perfil, con semáforo.
+    _posts_f = {}
+    for p in posts_cacheados():
+        d = dias_publicado(p.get("fecha"))
+        if p.get("cuenta") in set(_cuentas) and d is not None and d <= 30:
+            _posts_f.setdefault(p["cuenta"], []).append((d, p))
+
+    st.caption("Semáforo de publicaciones: 🟢 hasta 3 días · 🟡 4-10 · 🟠 11-20 · 🔴 21-30. "
+               "Clic en cada publicación para verla en Instagram.")
+    _orden_ctas = sorted(_cuentas, key=lambda c: (-(len(_posts_f.get(c, []))),
+                                                  c not in _restr_us))
+    for cta in _orden_ctas:
+        pubs = sorted(_posts_f.get(cta, []), key=lambda t: t[0])
+        if cta in _restr_us and not pubs:
+            with st.expander(f"⚠️ @{cta} — Instagram no la deja leer (revísala manual)"):
+                st.markdown(f"[Abrir el perfil @{cta} en Instagram]"
+                            f"(https://www.instagram.com/{cta}/)")
+            continue
+        conteo = {"🟢": 0, "🟡": 0, "🟠": 0, "🔴": 0}
+        for d, _ in pubs:
+            conteo[color_publicacion(d)] += 1
+        resumen_c = "  ".join(f"{e}{n}" for e, n in conteo.items() if n)
+        titulo = f"📷 @{cta} — {len(pubs)} publicación(es)" + (f"  ·  {resumen_c}" if resumen_c else "")
+        if not pubs:
+            titulo = f"📷 @{cta} — sin publicaciones vigentes"
+        with st.expander(titulo):
+            st.markdown(f"[Abrir el perfil @{cta} en Instagram](https://www.instagram.com/{cta}/)")
+            for d, p in pubs:
+                linea = (f"{color_publicacion(d)} **hace {d} día{'s' if d != 1 else ''}** — "
+                         f"{esc_md((p.get('resumen') or p.get('caption', ''))[:75])}")
+                if p.get("url"):
+                    linea += f"  ·  [🔗 ver publicación]({p['url']})"
+                st.markdown(linea)
+
+    with st.expander("➕ Agregar o quitar perfiles"):
+        st.caption("Una cuenta por línea (con o sin @, o pegando el link del perfil).")
+        actuales = "\n".join(config.leer_cuentas())
+        texto = st.text_area("Cuentas", value=actuales, height=200,
+                             placeholder="arriendos_chapinero\ninmobiliaria_norte")
+        if st.button("💾 Guardar cuentas"):
+            cuentas = [config._solo_usuario(l) for l in texto.splitlines() if l.strip()]
+            cabecera = "# Cuentas de Instagram a monitorear (una por línea)\n"
+            config.CUENTAS_FILE.write_text(cabecera + "\n".join(cuentas), encoding="utf-8")
+            st.success(f"Guardadas {len(cuentas)} cuenta(s).")
 
     st.divider()
-    st.subheader("🏠 Portales y sitios web")
-    st.caption("Pega la URL de tu **búsqueda** en el portal (una por línea). Ej: en Metrocuadrado "
-               "filtras *apartamentos en venta, zona norte* y copias el link de esa búsqueda. "
-               "La app abre la página con un navegador, baja los inmuebles y los lee con IA. "
-               "Funciona con Metrocuadrado, Fincaraíz y webs de agencias.")
-    portales_actuales = "\n".join(config.leer_portales())
-    texto_portales = st.text_area(
-        "Portales (una URL por línea)", value=portales_actuales, height=130,
-        placeholder="https://www.metrocuadrado.com/apartamentos/venta/bogota/chapinero/\n"
-                    "https://www.fincaraiz.com.co/...\nhttps://www.myhome.com.co/...")
-    if st.button("💾 Guardar portales"):
-        ulist = [l.strip() for l in texto_portales.splitlines() if l.strip()]
-        cab = "# Portales / sitios web a leer (una URL por línea)\n"
-        config.PORTALES_FILE.write_text(cab + "\n".join(ulist), encoding="utf-8")
-        st.success(f"Guardados {len(ulist)} portal(es).")
-    if config.leer_portales() and st.button("🏠 Leer inmuebles de portales", type="primary"):
-        registro_p = st.empty()
-        lineas_p: list[str] = []
+    with st.expander("🏠 Portales y sitios web (búsquedas que también leemos)"):
+        st.caption("Pega la URL de tu **búsqueda** en el portal (una por línea). Ej: en Metrocuadrado "
+                   "filtras *apartamentos en venta, zona norte* y copias el link de esa búsqueda. "
+                   "La app abre la página con un navegador, baja los inmuebles y los lee con IA. "
+                   "Funciona con Metrocuadrado, Fincaraíz y webs de agencias.")
+        portales_actuales = "\n".join(config.leer_portales())
+        texto_portales = st.text_area(
+            "Portales (una URL por línea)", value=portales_actuales, height=130,
+            placeholder="https://www.metrocuadrado.com/apartamentos/venta/bogota/chapinero/\n"
+                        "https://www.fincaraiz.com.co/...\nhttps://www.myhome.com.co/...")
+        if st.button("💾 Guardar portales"):
+            ulist = [l.strip() for l in texto_portales.splitlines() if l.strip()]
+            cab = "# Portales / sitios web a leer (una URL por línea)\n"
+            config.PORTALES_FILE.write_text(cab + "\n".join(ulist), encoding="utf-8")
+            st.success(f"Guardados {len(ulist)} portal(es).")
+        if config.leer_portales() and st.button("🏠 Leer inmuebles de portales", type="primary"):
+            registro_p = st.empty()
+            lineas_p: list[str] = []
 
-        def log_p(msg: str) -> None:
-            lineas_p.append(msg)
-            registro_p.code("\n".join(lineas_p[-12:]))
+            def log_p(msg: str) -> None:
+                lineas_p.append(msg)
+                registro_p.code("\n".join(lineas_p[-12:]))
 
-        try:
-            from src import scraper_portales
-            n = scraper_portales.scrapear_portales(config.leer_portales(), log=log_p)
-            st.cache_data.clear()   # que las pestañas vean lo nuevo de una
-            st.success(f"¡Listo! Se agregaron {n} inmueble(s) de portales. "
-                       "Míralos en 3️⃣ Coincidencias.")
-        except Exception as e:  # noqa: BLE001
-            st.error(f"Problema leyendo portales: {e}")
-    st.caption(f"⚙️ Tope de seguridad: {config.MAX_PAGINAS_PORTAL} páginas por corrida "
-               "(para que el gasto no se dispare). Cuesta unos centavos.")
+            try:
+                from src import scraper_portales
+                n = scraper_portales.scrapear_portales(config.leer_portales(), log=log_p)
+                st.cache_data.clear()   # que las pestañas vean lo nuevo de una
+                st.success(f"¡Listo! Se agregaron {n} inmueble(s) de portales. "
+                           "Míralos en 3️⃣ Coincidencias.")
+            except Exception as e:  # noqa: BLE001
+                st.error(f"Problema leyendo portales: {e}")
+        st.caption(f"⚙️ Tope de seguridad: {config.MAX_PAGINAS_PORTAL} páginas por corrida "
+                   "(para que el gasto no se dispare). Cuesta unos centavos.")
 
-    st.divider()
+        st.divider()
     st.subheader("🔄 Actualizar todo")
     st.caption(f"Trae los posts de los últimos {config.DIAS_RECIENTES} días "
                "y los lee con IA. Cada post se procesa una sola vez.")
@@ -705,20 +712,6 @@ with tab_fuentes:
         except Exception as e:  # noqa: BLE001
             st.error(f"Ocurrió un problema: {e}")
     col2.metric("Posts en la caché", contar_posts_cacheado())
-
-    # ── Cuentas que Instagram no dejó leer (revisar a mano) ──
-    try:
-        restr = restringidas_cacheadas()
-    except json.JSONDecodeError:
-        restr = []
-    if restr:
-        st.divider()
-        st.markdown(f"**⚠️ {len(restr)} perfil(es) que Instagram NO dejó leer** "
-                    "(ábrelos a mano para revisar su inventario):")
-        for u in restr:
-            st.markdown(f"- [{u}]({u})")
-        st.caption("Son perfiles restringidos por Instagram. No es falla de la app — "
-                   "revísalos manualmente cuando quieras.")
 
 # ===== 2. CLIENTES ===========================================
 EXTRAS_OPCIONES = [
@@ -807,7 +800,7 @@ def texto_a_lista(v) -> list[str]:
 
 
 # Columnas de la "hoja de clientes" dentro de la app.
-COLS_HOJA = ["nombre", "telefono", "operacion", "flexibilidad", "prioridad", "barrios", "zona", "presupuesto",
+COLS_HOJA = ["⏳", "nombre", "telefono", "operacion", "flexibilidad", "prioridad", "barrios", "zona", "presupuesto",
              "area_min", "area_max", "habitaciones_min", "habitaciones_max", "banos_min",
              "extras", "obligatorios", "notas"]
 
@@ -817,6 +810,7 @@ def clientes_a_df(lista):
     filas = []
     for c in lista:
         filas.append({
+            "⏳": color_cliente(c),
             "nombre": c.get("nombre", ""),
             "telefono": c.get("telefono", ""),
             "operacion": c.get("operacion", "venta"),
@@ -959,8 +953,11 @@ with tab_clientes:
             _hm = cliente_m.get("habitaciones_min"); _hx = cliente_m.get("habitaciones_max")
             if _hm: _r.append(f"{_hm:g} hab" if not _hx or _hx == _hm else f"{_hm:g}-{_hx:g} hab")
             if cliente_m.get("barrios"): _r.append(", ".join(cliente_m["barrios"][:4]))
+            _dias_c = dias_publicado(cliente_m.get("creado"))
             st.caption("📌 Hoy: " + esc_md(" · ".join(_r) if _r else "sin datos aún")
-                       + f"  ·  {ETIQUETA_PRIORIDAD.get(prioridad_de(cliente_m), '')}")
+                       + f"  ·  {ETIQUETA_PRIORIDAD.get(prioridad_de(cliente_m), '')}"
+                       + f"  ·  {color_cliente(cliente_m)} cliente desde hace "
+                       + (f"{_dias_c} día(s)" if _dias_c is not None else "hoy"))
         txt_m = st.text_area(
             "Escribe aquí (como te llegue: WhatsApp, correo, notas…)", height=140,
             key="maestro_txt",
@@ -1230,7 +1227,8 @@ with tab_clientes:
     # La tabla es SOLO para ver. (La data_editor de Streamlit no guardaba bien los
     # cambios, así que toda edición se hace con el editor "✏️" de arriba.)
     st.markdown("##### 📋 Tu lista completa")
-    st.caption("Solo para consultar. Para cambiar algo usa el editor «✏️» de arriba.")
+    st.caption("⏳ Antigüedad del cliente: 🟢 0-10 días · 🟡 11-20 · 🟠 21-30 · 🔴 +30. "
+               "Para cambiar algo usa el cuadro maestro 🤖 de arriba.")
     todos = clientes_cacheados()
     lista_ver = [c for c in todos if coincide_busqueda(c, buscar_cli)]
     st.dataframe(clientes_a_df(lista_ver), use_container_width=True, hide_index=True)
@@ -1305,13 +1303,109 @@ with tab_clientes:
         refrescar_hoja_clientes()
         st.rerun()
 
+# ===== INMUEBLE MANUAL → CLIENTES ============================
+def cargar_inmuebles_manuales():
+    try:
+        return json.loads(db.leer_meta("inmuebles_manuales") or "[]")
+    except json.JSONDecodeError:
+        return []
+
+
+def guardar_inmuebles_manuales(lista):
+    db.guardar_meta("inmuebles_manuales", json.dumps(lista, ensure_ascii=False))
+
+
+def _norm_link(u):
+    """Normaliza un link para comparar (sin http, sin www, sin / final ni parámetros)."""
+    u = (u or "").strip().lower()
+    for p in ("https://", "http://"):
+        if u.startswith(p):
+            u = u[len(p):]
+    if u.startswith("www."):
+        u = u[4:]
+    return u.split("?")[0].split("#")[0].rstrip("/")
+
+
+
 # ===== 3. RESULTADOS =========================================
 with tab_resultados:
-    st.subheader("Coincidencias por cliente")
+    st.subheader("✨ Coincidencias por cliente")
     clientes = st.session_state.get("clientes", [])
 
-    # Todos los inmuebles leídos (no se ocultan por antigüedad).
-    posts = posts_cacheados()
+    if st.session_state.get("flash_manual"):
+        st.success(st.session_state.pop("flash_manual"))
+
+    # ── Inmueble manual: lo que encuentres a mano entra al MISMO cruce ──
+    with st.expander("➕ Agregar un inmueble manual (descripción + link)"):
+        st.caption("Lo que pegues aquí entra al cruce junto con lo del scraping. "
+                   "El link evita repetidos y queda de referencia.")
+        with st.form("inmueble_manual", clear_on_submit=True):
+            desc_man = st.text_area(
+                "Descripción del inmueble", height=110,
+                placeholder="Ej: Apartamento en venta en El Nogal, 120 m², 3 habitaciones, "
+                            "2 baños, $1.800 millones, remodelado, con vista y parqueadero.")
+            link_man = st.text_input("Link (evita repetidos)", placeholder="https://…")
+            agregar_man = st.form_submit_button("➕ Agregar al cruce", type="primary")
+        if agregar_man:
+            dup_link = next(
+                (x for x in cargar_inmuebles_manuales()
+                 if link_man.strip() and _norm_link(x.get("link", "")) == _norm_link(link_man)),
+                None)
+            if not desc_man.strip():
+                st.warning("Escribe la descripción del inmueble.")
+            elif not config.ANTHROPIC_API_KEY:
+                st.error("Falta la llave de Claude. Revisa «🔑 Mis llaves».")
+            elif dup_link:
+                st.warning(f"⚠️ Ese link **ya estaba incluido** (lo agregaste el "
+                           f"{dup_link.get('fecha', '?')}). No lo dupliqué.")
+            else:
+                try:
+                    with st.spinner("Leyendo el inmueble…"):
+                        from src import extractor
+                        datos_man = extractor.interpretar_inmueble(desc_man.strip())
+                    if datos_man.get("es_inmueble") is False:
+                        st.warning("Eso no parece un inmueble concreto; revisa la descripción.")
+                    else:
+                        item_man = {
+                            "id": "m_" + hashlib.md5((desc_man + link_man).encode("utf-8")).hexdigest()[:16],
+                            "texto": desc_man.strip(), "link": link_man.strip(),
+                            "fecha": datetime.now(timezone.utc).date().isoformat(),
+                            "datos": datos_man,
+                        }
+                        lista_man = [x for x in cargar_inmuebles_manuales()
+                                     if x.get("id") != item_man["id"]]
+                        lista_man.insert(0, item_man)
+                        guardar_inmuebles_manuales(lista_man)
+                        st.session_state["flash_manual"] = ("✅ Inmueble agregado: ya está en el "
+                                                            "cruce (abajo, con la fuente 🖊️).")
+                        st.rerun()
+                except Exception as e:  # noqa: BLE001
+                    st.error(f"No se pudo interpretar: {e}")
+        _mans = cargar_inmuebles_manuales()
+        if _mans:
+            with st.popover(f"🗂️ Tus inmuebles manuales ({len(_mans)}) — administrar"):
+                for item in _mans:
+                    d_it = item.get("datos") or {}
+                    mm1, mm2 = st.columns([5, 1])
+                    mm1.markdown(f"**{esc_md(d_it.get('resumen') or item.get('texto', '')[:60])}**"
+                                 f" · {item.get('fecha', '')}"
+                                 + (f" · [link]({item['link']})" if item.get("link") else ""))
+                    if mm2.button("🗑️", key=f"delm_{item.get('id')}"):
+                        guardar_inmuebles_manuales(
+                            [x for x in cargar_inmuebles_manuales()
+                             if x.get("id") != item.get("id")])
+                        st.rerun()
+
+    # Todos los inmuebles: scraping + los tuyos manuales, en un solo cruce.
+    posts = list(posts_cacheados())
+    for item in cargar_inmuebles_manuales():
+        d_it = item.get("datos") or {}
+        if d_it.get("es_inmueble") is False:
+            continue
+        posts.append({**d_it, "id": item.get("id"), "caption": item.get("texto", ""),
+                      "url": item.get("link", ""), "fecha": item.get("fecha", ""),
+                      "agregado": item.get("fecha", ""), "cuenta": "manual",
+                      "imagen": "", "media": []})
 
     if not clientes:
         st.warning("Primero carga tus clientes en la pestaña **2️⃣ Clientes**.")
@@ -1341,7 +1435,7 @@ with tab_resultados:
                                   help="Cuánto por fuera del rango de m² se permite. "
                                        "Por defecto 20% (margen acordado).")
             st.caption("Guía de lectura — Afinidad: 🟢 muy afín (≥85%) · 🟡 afín (≥70%) · "
-                       "🟠 menos afín. Frescura: 🟢 ≤7 días · 🟡 unas semanas · 🔴 más viejo. "
+                       "🟠 menos afín. Frescura: 🟢 ≤3 días · 🟡 4-10 · 🟠 11-20 · 🔴 21-30. "
                        "Cada cliente muestra primero lo MÁS afín; los enviados/descartados "
                        "desaparecen solos.")
 
@@ -1407,13 +1501,15 @@ with tab_resultados:
         for nombre, matches in resultados.items():
             n = len(matches)
             n_portal = sum(1 for m in matches if es_portal_post(m["post"]))
-            n_ig = n - n_portal
+            n_man = sum(1 for m in matches if str(m["post"].get("id", "")).startswith("m_"))
+            n_ig = n - n_portal - n_man
             resumen.append({
                 "Cliente": nombre,
                 "Prioridad": BADGE_PRIORIDAD.get(prio_map.get(nombre, "media"), "⭐ Media"),
                 "Perfil": BADGE_FLEX.get(flex_map.get(nombre, "medio"), "⚖️ Medio"),
                 "📷 Instagram": n_ig,
                 "🏠 Portales": n_portal,
+                "🖊️ Manuales": n_man,
                 "Total": n,
                 "Cobertura": "🔴 Buscar más" if n == 0 else ("🟡 Pocos" if n <= 2 else "🟢 Bien cubierto"),
             })
@@ -1438,9 +1534,10 @@ with tab_resultados:
                            + ("  ·  con este perfil solo verás inmuebles muy acertados."
                               if perfil == "estricto" else ""))
                 _n_portal = sum(1 for m in matches if es_portal_post(m["post"]))
-                _n_ig = len(matches) - _n_portal
-                st.markdown(f"**Scraping para este cliente:** 📷 Instagram: **{_n_ig}**  ·  "
-                            f"🏠 Portales: **{_n_portal}**")
+                _n_man = sum(1 for m in matches if str(m["post"].get("id", "")).startswith("m_"))
+                _n_ig = len(matches) - _n_portal - _n_man
+                st.markdown(f"**Fuentes para este cliente:** 📷 Instagram: **{_n_ig}**  ·  "
+                            f"🏠 Portales: **{_n_portal}**  ·  🖊️ Manuales: **{_n_man}**")
                 oblig = oblig_map.get(nombre, [])
                 if oblig:
                     st.info("🔒 No negociable (filtra duro): "
@@ -1676,229 +1773,6 @@ with tab_resultados:
             csv = pd.DataFrame(filas).to_csv(index=False).encode("utf-8")
             st.download_button("⬇️ Descargar coincidencias (CSV)", csv,
                                "coincidencias.csv", "text/csv")
-
-
-# ===== INMUEBLE MANUAL → CLIENTES ============================
-def cargar_inmuebles_manuales():
-    try:
-        return json.loads(db.leer_meta("inmuebles_manuales") or "[]")
-    except json.JSONDecodeError:
-        return []
-
-
-def guardar_inmuebles_manuales(lista):
-    db.guardar_meta("inmuebles_manuales", json.dumps(lista, ensure_ascii=False))
-
-
-def _norm_link(u):
-    """Normaliza un link para comparar (sin http, sin www, sin / final ni parámetros)."""
-    u = (u or "").strip().lower()
-    for p in ("https://", "http://"):
-        if u.startswith(p):
-            u = u[len(p):]
-    if u.startswith("www."):
-        u = u[4:]
-    return u.split("?")[0].split("#")[0].rstrip("/")
-
-
-with tab_manual:
-    st.subheader("🔎 Inmuebles → Clientes (búsqueda manual)")
-    clientes_m = clientes_cacheados()
-    if not clientes_m:
-        st.warning("Primero carga tus clientes en la pestaña **2️⃣ Clientes**.")
-    else:
-        if st.session_state.get("flash_manual"):
-            st.success(st.session_state.pop("flash_manual"))
-        st.caption("Pega cada inmueble que encuentres (descripción + link) y la herramienta lo "
-                   "**reparte sola** entre los clientes a los que les sirve, con tus reglas: "
-                   "habitaciones exactas (o el rango del cliente), ±20% en presupuesto y "
-                   "metraje, y **barrio de verdad** (aquí no vale \'misma zona\').")
-
-        # ── Agregar inmueble (el link evita repetidos) ──
-        with st.form("inmueble_manual", clear_on_submit=True):
-            desc = st.text_area(
-                "Descripción del inmueble", height=120,
-                placeholder="Ej: Apartamento en venta en El Nogal, 120 m², 3 habitaciones, "
-                            "2 baños, $1.800 millones, remodelado, con vista y parqueadero.")
-            link = st.text_input("Link (evita repetidos y queda de referencia)",
-                                 placeholder="https://…")
-            enviar_m = st.form_submit_button("➕ Agregar y repartir entre clientes",
-                                             type="primary")
-        if enviar_m:
-            dup_link = next(
-                (x for x in cargar_inmuebles_manuales()
-                 if link.strip() and _norm_link(x.get("link", "")) == _norm_link(link)),
-                None)
-            if not desc.strip():
-                st.warning("Escribe la descripción del inmueble.")
-            elif not config.ANTHROPIC_API_KEY:
-                st.error("Falta la llave de Claude. Revisa «🔑 Mis llaves».")
-            elif dup_link:
-                st.warning(f"⚠️ Ese link **ya estaba incluido** (lo agregaste el "
-                           f"{dup_link.get('fecha', '?')}). No lo dupliqué.")
-            else:
-                try:
-                    with st.spinner("Leyendo el inmueble y repartiéndolo…"):
-                        from src import extractor
-                        datos = extractor.interpretar_inmueble(desc.strip())
-                    if datos.get("es_inmueble") is False:
-                        st.warning("Eso no parece un inmueble concreto; revisa la descripción.")
-                    else:
-                        item = {
-                            "id": "m_" + hashlib.md5((desc + link).encode("utf-8")).hexdigest()[:16],
-                            "texto": desc.strip(), "link": link.strip(),
-                            "fecha": datetime.now(timezone.utc).date().isoformat(),
-                            "datos": datos,
-                        }
-                        lista = [x for x in cargar_inmuebles_manuales()
-                                 if x.get("id") != item["id"]]
-                        lista.insert(0, item)
-                        guardar_inmuebles_manuales(lista)
-                        post_f = {**datos, "caption": item["texto"],
-                                  "url": item["link"], "id": item["id"]}
-                        les_sirve = []
-                        for c in clientes_m:
-                            ev = matcher.evaluar(c, post_f)
-                            if ev and ev["score"] >= max(70, matcher.perfil_flex(c)["score_min"]):
-                                if c.get("barrios"):
-                                    p_ubi, _ = matcher._match_ubicacion(c, post_f)
-                                    if p_ubi < 0.8:
-                                        continue
-                                les_sirve.append(c["nombre"])
-                        st.session_state["flash_manual"] = (
-                            ("✅ Agregado. Le sirve a " + f"{len(les_sirve)} cliente(s): "
-                             + ", ".join(les_sirve[:8])) if les_sirve else
-                            "✅ Agregado, pero por ahora no le sirve a ningún cliente "
-                            "(queda guardado por si entra uno nuevo).")
-                        st.rerun()
-                except Exception as e:  # noqa: BLE001
-                    st.error(f"No se pudo interpretar: {e}")
-
-        # ── Reparto por cliente ─────────────────────────────
-        manuales = [x for x in cargar_inmuebles_manuales()
-                    if (x.get("datos") or {}).get("es_inmueble") is not False]
-
-        def _sirve_manual(c, item):
-            """El inmueble le sirve al cliente con las reglas ESTRICTAS del panel manual."""
-            datos_i = item.get("datos") or {}
-            post_i = {**datos_i, "caption": item.get("texto", ""),
-                      "url": item.get("link", ""), "id": item.get("id")}
-            ev = matcher.evaluar(c, post_i)
-            if not ev or ev["score"] < max(70, matcher.perfil_flex(c)["score_min"]):
-                return None
-            if c.get("barrios"):
-                p_ubi, _ = matcher._match_ubicacion(c, post_i)
-                if p_ubi < 0.8:     # barrio pedido de verdad, no "misma zona"
-                    return None
-            return ev
-
-        reparto = {}
-        for c in clientes_m:
-            en_proceso = mod_clientes.ids_en_proceso(c)
-            pendientes_c = []
-            for item in manuales:
-                if item.get("id") in en_proceso:
-                    continue
-                ev = _sirve_manual(c, item)
-                if ev:
-                    pendientes_c.append((item, ev))
-            pendientes_c.sort(key=lambda t: t[1]["score"], reverse=True)
-            reparto[c["nombre"]] = pendientes_c
-
-        st.markdown("##### 👥 Tus clientes y sus opciones para compartir")
-        con_opciones = [c for c in clientes_m if reparto.get(c["nombre"])]
-        con_opciones.sort(key=lambda c: (RANGO_PRIORIDAD.get(prioridad_de(c), 1),
-                                         -len(reparto.get(c["nombre"], []))))
-        if not manuales:
-            st.info("Aún no has ingresado inmuebles: agrega el primero arriba. 👆")
-        elif not con_opciones:
-            st.info("Ninguno de tus inmuebles ingresados encaja (todavía) con un cliente.")
-
-        for c in con_opciones:
-            nombre = c["nombre"]
-            opciones = reparto[nombre]
-            icono_p = ICONO_PRIORIDAD.get(prioridad_de(c), "")
-            with st.expander(f"{icono_p}👤 {nombre} — {len(opciones)} opción(es) para compartir",
-                             expanded=False):
-                for item, ev in opciones:
-                    d = item.get("datos") or {}
-                    with st.container(border=True):
-                        i1, i2 = st.columns([4, 1])
-                        with i1:
-                            st.markdown(f"**{esc_md(d.get('resumen') or item.get('texto', '')[:80])}**")
-                            info = []
-                            if d.get("operacion"): info.append(d["operacion"].capitalize())
-                            if d.get("barrio"): info.append(d["barrio"])
-                            if d.get("precio"): info.append(matcher.formato_cop(d["precio"]))
-                            if d.get("area_m2"): info.append(f"{d['area_m2']:g} m²")
-                            if d.get("habitaciones") is not None:
-                                info.append(f"{d['habitaciones']:g} hab")
-                            if d.get("banos") is not None: info.append(f"{d['banos']:g} baños")
-                            st.caption(" · ".join(info))
-                            if item.get("link"):
-                                st.markdown(f"🔗 [Abrir inmueble (tu referencia)]({item['link']})")
-                        with i2:
-                            st.metric("Afinidad", f"{ev['score']}%")
-                        a1, a2, a3, a4 = st.columns(4)
-                        with a1.popover("⚖️ Comparar", use_container_width=True):
-                            post_cmp = {**d, "caption": item.get("texto", ""), "id": item.get("id")}
-                            st.markdown(tabla_comparativa(c, post_cmp))
-                        with a2.popover("📲 Texto", use_container_width=True):
-                            extras_txt = ", ".join(bonito(e) for e in d.get("extras", []))
-                            mensaje_m = (
-                                f"🏙️ {d.get('resumen') or 'Apartamento'}\n"
-                                + (f"📍 {d.get('barrio', '')}\n" if d.get('barrio') else "")
-                                + (f"📐 {d.get('area_m2'):g} m²  " if d.get('area_m2') else "")
-                                + (f"🛏️ {d.get('habitaciones'):g} hab  "
-                                   if d.get('habitaciones') is not None else "")
-                                + (f"🛁 {d.get('banos'):g} baños" if d.get('banos') is not None else "")
-                                + "\n" + (f"✨ {extras_txt}\n" if extras_txt else "")
-                                + (f"💰 {matcher.formato_cop(d['precio'])}\n" if d.get('precio') else "")
-                                + "\nEscríbeme para más información y agendar visita. — Nova Inmobiliaria")
-                            st.caption("Listo para tu cliente (sin link de la fuente).")
-                            st.code(mensaje_m, language=None)
-                        if a3.button("📤 Enviado", key=f"envm_{item.get('id')}_{nombre}",
-                                     use_container_width=True,
-                                     help=f"Lo pasa al seguimiento CRM de {nombre}"):
-                            post_e = {**d, "caption": item.get("texto", ""),
-                                      "url": item.get("link", ""), "id": item.get("id")}
-                            mod_clientes.agregar_proceso(nombre, proceso_de(post_e, "enviado"))
-                            st.toast(f"📤 En el seguimiento de {nombre} (míralo en 4️⃣ CRM)")
-                            st.rerun()
-                        if a4.button("🚫 No va", key=f"nova_{item.get('id')}_{nombre}",
-                                     use_container_width=True,
-                                     help=f"Lo oculta SOLO para {nombre} (a los demás les sigue)."):
-                            post_e = {**d, "caption": item.get("texto", ""),
-                                      "url": item.get("link", ""), "id": item.get("id")}
-                            mod_clientes.agregar_proceso(nombre, proceso_de(post_e, "descartado"))
-                            st.toast(f"🚫 Descartado para {nombre}")
-                            st.rerun()
-
-        sin_opciones = [c["nombre"] for c in clientes_m if not reparto.get(c["nombre"])]
-        if manuales and sin_opciones:
-            st.caption("😴 Sin opciones por ahora: " + " · ".join(sin_opciones))
-
-        # ── Administrar los inmuebles ingresados ──
-        if manuales:
-            with st.expander(f"🗂️ Inmuebles ingresados ({len(manuales)}) — administrar"):
-                st.caption("Aquí puedes borrar un inmueble por completo (de todos los clientes).")
-                for item in manuales:
-                    d = item.get("datos") or {}
-                    m1, m2 = st.columns([5, 1])
-                    n_sirve = sum(1 for c in clientes_m
-                                  for it, _ in [(item, None)] if reparto.get(c["nombre"]) and
-                                  any(x[0].get("id") == item.get("id")
-                                      for x in reparto[c["nombre"]]))
-                    with m1:
-                        st.markdown(f"**{esc_md(d.get('resumen') or item.get('texto', '')[:70])}**"
-                                    f"  ·  {item.get('fecha', '')}  ·  sirve a {n_sirve}"
-                                    + (f"  ·  [link]({item['link']})" if item.get("link") else ""))
-                    if m2.button("🗑️ Quitar", key=f"delm_{item.get('id')}",
-                                 use_container_width=True):
-                        guardar_inmuebles_manuales(
-                            [x for x in cargar_inmuebles_manuales()
-                             if x.get("id") != item.get("id")])
-                        st.rerun()
 
 
 # ===== 4. CRM (seguimiento) ==================================

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -131,6 +132,9 @@ def _con_crm(cliente: dict[str, Any]) -> dict[str, Any]:
                 cliente[campo] = {}
             else:
                 cliente[campo] = defecto
+    # Fecha de inclusión (para el semáforo de antigüedad del cliente).
+    if not cliente.get("creado"):
+        cliente["creado"] = date.today().isoformat()
     return cliente
 
 
