@@ -574,6 +574,49 @@ def comision_sugerida(operacion: str, valor: float) -> int:
 
 # ===== 1. FUENTES ============================================
 with tab_fuentes:
+    # ── 🔔 Centro de alertas: qué publicó cada cuenta desde tu última revisión ──
+    st.subheader("🔔 Alertas: publicaciones nuevas por cuenta")
+
+    def _alertas_vistas() -> set:
+        try:
+            return set(json.loads(db.leer_meta("alertas_vistas") or "[]"))
+        except json.JSONDecodeError:
+            return set()
+
+    _cuentas_ig = set(config.leer_cuentas())
+    _vistos_al = _alertas_vistas()
+    _posts_al = [p for p in posts_cacheados()
+                 if p.get("cuenta") in _cuentas_ig
+                 and p.get("id") not in _vistos_al
+                 and (dias_publicado(p.get("agregado") or p.get("fecha")) or 99) <= 7]
+    if not _posts_al:
+        st.caption("Sin novedades desde tu última revisión. ✅ (El robot revisa las cuentas "
+                   "cada mañana a las 8:00.)")
+    else:
+        st.caption(f"**{len(_posts_al)} publicación(es) nuevas** desde tu última revisión, "
+                   "con link directo a cada una. Estas mismas ya están cruzadas en "
+                   "3️⃣ Coincidencias; aquí puedes revisarlas manual y meter al panel 🔎 "
+                   "las que te gusten.")
+        _por_cuenta: dict = {}
+        for p in _posts_al:
+            _por_cuenta.setdefault(p["cuenta"], []).append(p)
+        for _cta, _ps in sorted(_por_cuenta.items(), key=lambda kv: -len(kv[1])):
+            with st.expander(f"🔔 @{_cta} — {len(_ps)} publicación(es) nueva(s)"):
+                for p in sorted(_ps, key=lambda x: str(x.get("fecha", "")), reverse=True):
+                    _linea = (f"• **{p.get('fecha', '')}** — "
+                              f"{esc_md((p.get('resumen') or p.get('caption', ''))[:75])}")
+                    if p.get("url"):
+                        _linea += f"  ·  [🔗 ver publicación]({p['url']})"
+                    st.markdown(_linea)
+        if st.button("✅ Marcar todo como revisado", type="primary"):
+            _vistos_al |= {p["id"] for p in _posts_al}
+            db.guardar_meta("alertas_vistas", json.dumps(list(_vistos_al)[-3000:]))
+            st.cache_data.clear()
+            st.rerun()
+    st.caption("⚠️ Ojo: las cuentas que Instagram no deja leer NO generan alerta — esas "
+               "revísalas manual en «🔗 Abrir perfiles» (van marcadas con ⚠️).")
+    st.divider()
+
     st.subheader("📷 Cuentas de Instagram")
     st.caption("Una cuenta por línea. Se guardan en config/cuentas.txt")
     actuales = "\n".join(config.leer_cuentas())
