@@ -967,6 +967,32 @@ with tab_clientes:
     buscar_cli = st.text_input("🔍 Buscar cliente", key="buscar_cli",
                                placeholder="Escribe un nombre, barrio, teléfono o zona…")
 
+    # ── Prioridades de un clic: tocas el nivel y queda guardado al instante ──
+    with st.expander("🎯 Prioridades rápidas (un clic por cliente)"):
+        st.caption("🔥 con afán · ⭐ normal · 🌙 sin afán — se guarda solo y ordena "
+                   "Coincidencias, Cobertura y CRM (los 🔥 siempre de primeros).")
+        _opts_p = ["🔥", "⭐", "🌙"]
+        _map_p = {"🔥": "alta", "⭐": "media", "🌙": "baja"}
+        _rev_p = {"alta": "🔥", "media": "⭐", "baja": "🌙"}
+        _lista_p = [c for c in clientes_cacheados() if coincide_busqueda(c, buscar_cli)]
+        _lista_p.sort(key=lambda c: (RANGO_PRIORIDAD.get(prioridad_de(c), 1),
+                                     str(c.get("nombre", ""))))
+        for c in _lista_p:
+            _n = c.get("nombre", "")
+            _cur = _rev_p.get(prioridad_de(c), "⭐")
+            r1, r2 = st.columns([3, 2])
+            r1.markdown(f"{color_cliente(c)} **{esc_md(_n)}**"
+                        + (f"  ·  {c.get('operacion') or ''}")
+                        + (f" · hasta {matcher.formato_cop(c.get('presupuesto_max'))}"
+                           if c.get("presupuesto_max") else ""))
+            _sel = r2.segmented_control("p", _opts_p, default=_cur,
+                                        key=f"prio_seg_{_n}",
+                                        label_visibility="collapsed")
+            if _sel and _sel != _cur:
+                mod_clientes.actualizar_crm(_n, {"prioridad": _map_p[_sel]})
+                st.toast(f"{_sel} Prioridad de {_n} actualizada")
+                st.rerun()
+
     st.markdown("##### 🤖 Cuadro maestro — crea o edita clientes escribiendo")
     with st.expander("🤖 Escribe y la IA lo organiza (crear cliente nuevo o editar uno existente)",
                      expanded=True):
