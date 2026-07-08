@@ -442,13 +442,22 @@ def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | Non
     barrios_x = _expandir_apodos(exc.get("barrios") or [])
     palabras_x = exc.get("palabras") or []
     if barrios_x:
-        candidato = " ".join(_norm(x) for x in (
-            post.get("barrio"), post.get("zona"), post.get("direccion"),
-            _zona_de(post.get("barrio") or "")))
-        for b in barrios_x:
-            nb = _norm(b)
-            if nb and nb in candidato:
-                return f"barrio excluido: {b}"
+        # REGLA DE ORO: si el aviso está en un barrio que el cliente PIDE, ninguna
+        # exclusión de barrio/zona lo puede anular (la IA a veces excluye la localidad
+        # entera —"Chapinero"— y eso mataría los propios barrios del cliente).
+        deseados = _expandir_apodos(cliente.get("barrios") or [])
+        lugares_post = [post.get("barrio") or "", post.get("zona") or ""]
+        en_barrio_pedido = any(
+            _mismo_lugar(_norm(b), _norm(pl))
+            for b in deseados for pl in lugares_post if pl)
+        if not en_barrio_pedido:
+            candidato = " ".join(_norm(x) for x in (
+                post.get("barrio"), post.get("zona"), post.get("direccion"),
+                _zona_de(post.get("barrio") or "")))
+            for b in barrios_x:
+                nb = _norm(b)
+                if nb and nb in candidato:
+                    return f"barrio excluido: {b}"
     if palabras_x:
         texto = _norm(post.get("caption", "")) + " " + _norm(post.get("resumen", ""))
         lugar = " ".join(_norm(post.get(k) or "") for k in ("barrio", "zona", "direccion"))
