@@ -433,6 +433,28 @@ def _antiguedad_estimada(post: dict[str, Any]) -> tuple[float | None, bool]:
     return None, es_viejo
 
 
+def _menciona_de_verdad(texto: str, nw: str) -> bool:
+    """¿El texto menciona la palabra SIN negarla?
+
+    'amoblado opcional', 'amoblado o sin amoblar' o 'no es primer piso' NO cuentan:
+    el aviso ofrece justamente la alternativa que el cliente quiere. Solo anula
+    cuando hay al menos una mención afirmativa de la palabra excluida."""
+    for mt in re.finditer(rf"\b{re.escape(nw)}\b", texto):
+        antes = texto[max(0, mt.start() - 22):mt.start()]
+        despues = texto[mt.end():mt.end() + 22]
+        if re.search(r"\b(sin|no|no es|nada de|tampoco)\s*$", antes):
+            continue
+        if re.search(r"^\s*(opcional|o sin|y sin|o no)\b", despues):
+            continue
+        # "amoblado/sin amoblar", "amoblado - sin muebles": la alternativa negada
+        # viene justo después con la MISMA raíz de palabra u otra equivalente.
+        raiz = re.escape(nw.split()[0][:5])
+        if re.search(rf"^\s*(sin|no)\s+{raiz}", despues):
+            continue
+        return True
+    return False
+
+
 def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | None:
     """Filtro DURO por comentarios del broker: barrios o palabras que anulan el inmueble.
 
@@ -469,7 +491,8 @@ def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | Non
                 if nb and nb in candidato:
                     return f"barrio excluido: {b}"
     if palabras_x:
-        texto = _norm(post.get("caption", "")) + " " + _norm(post.get("resumen", ""))
+        texto_cap = _norm(post.get("caption", ""))
+        texto_res = _norm(post.get("resumen", ""))
         lugar = " ".join(_norm(post.get(k) or "") for k in ("barrio", "zona", "direccion"))
         for w in palabras_x:
             nw = _norm(w)
@@ -477,8 +500,16 @@ def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | Non
                 continue
             # Palabras de zona genéricas ('norte', 'sur'…) solo aplican a la UBICACIÓN
             # del aviso, no a todo el texto ('iluminación norte' no debe anular).
-            objetivo = lugar if nw in _ZONAS_GENERICAS else texto
-            if re.search(rf"\b{re.escape(nw)}\b", objetivo):
+            if nw in _ZONAS_GENERICAS:
+                if _menciona_de_verdad(lugar, nw):
+                    return f"contiene «{w}» (excluido por ti)"
+                continue
+            # El caption es la fuente original: si ahí la palabra solo aparece negada
+            # ('amoblado/sin amoblar'), el resumen de la IA no puede anular el aviso.
+            if re.search(rf"\b{re.escape(nw)}\b", texto_cap):
+                if _menciona_de_verdad(texto_cap, nw):
+                    return f"contiene «{w}» (excluido por ti)"
+            elif _menciona_de_verdad(texto_res, nw):
                 return f"contiene «{w}» (excluido por ti)"
     # Topes numéricos duros pedidos por el broker.
     area = post.get("area_m2")

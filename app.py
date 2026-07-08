@@ -1586,15 +1586,19 @@ with tab_resultados:
         prio_map = {c["nombre"]: prioridad_de(c) for c in clientes}
         com_map = {c["nombre"]: (c.get("comentarios_ia") or []) for c in clientes}
         cli_map = {c["nombre"]: c for c in clientes}
+        en_embudo_n = {}
         for nombre in list(resultados):
             ids_oc = ocultos.get(nombre, set())
             h_oc = huellas_oc.get(nombre, set())
+            antes_n = len(resultados[nombre])
             resultados[nombre] = [
                 m for m in resultados[nombre]
                 if not (set(m["post"].get("ids_gemelos") or [m["post"].get("id")]) & ids_oc)
                 and (huella_inmueble(m["post"]) not in h_oc
                      if huella_inmueble(m["post"]) else True)
             ]
+            # Cuántos pasaron el cruce pero están ocultos porque YA los trabajaste.
+            en_embudo_n[nombre] = antes_n - len(resultados[nombre])
 
         # 📌 Inmuebles asignados a dedo por el broker (por link): entran directo a las
         # coincidencias del cliente, por encima del cruce, la frescura y el umbral.
@@ -1685,8 +1689,14 @@ with tab_resultados:
                 continue
             nombre, matches = _it
             icono_p = ICONO_PRIORIDAD.get(prio_map.get(nombre, "media"), "")
-            with st.expander(f"{icono_p}👤 {nombre} — {len(matches)} coincidencia(s)",
+            _n_emb = en_embudo_n.get(nombre, 0)
+            with st.expander(f"{icono_p}👤 {nombre} — {len(matches)} coincidencia(s)"
+                             + (f"  ·  🗂️ {_n_emb} ya trabajada(s)" if _n_emb else ""),
                              expanded=(nombre == st.session_state.get("cliente_abierto"))):
+                if _n_emb:
+                    st.caption(f"🗂️ {_n_emb} candidato(s) que pasan el cruce están ocultos "
+                               "porque ya los enviaste o descartaste — nada se pierde: "
+                               "míralos (o recupéralos) en la pestaña CRM.")
                 perfil = flex_map.get(nombre, "medio")
                 st.caption(f"Perfil de búsqueda: **{ETIQUETA_FLEX.get(perfil, perfil)}**"
                            + ("  ·  con este perfil solo verás inmuebles muy acertados."
