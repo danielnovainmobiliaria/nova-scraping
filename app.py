@@ -1965,14 +1965,25 @@ with tab_crm:
 
 
         st.divider()
-        filtro = st.radio("Ver", ["Todos", "🟡 Activos", "🟢 Ganados", "🔴 Perdidos"],
-                          horizontal=True)
+        fcrm1, fcrm2 = st.columns([2, 3])
+        buscar_crm = fcrm1.text_input("🔍 Buscar cliente", key="buscar_crm",
+                                      placeholder="Nombre, barrio, teléfono…")
+        filtro = fcrm2.radio("Ver", ["Todos", "🟡 Activos", "📭 Sin envíos",
+                                     "🟢 Ganados", "🔴 Perdidos"], horizontal=True)
         mapa_filtro = {"🟡 Activos": "activo", "🟢 Ganados": "ganado", "🔴 Perdidos": "perdido"}
 
-        crm_clientes = sorted(crm_clientes,
-                              key=lambda c: RANGO_PRIORIDAD.get(prioridad_de(c), 1))
+        # 🔥 primero; entre iguales, los SIN envíos arriba (son los descuidados).
+        crm_clientes = sorted(
+            crm_clientes,
+            key=lambda c: (RANGO_PRIORIDAD.get(prioridad_de(c), 1),
+                           cobertura[c["nombre"]][0] > 0))
         for c in crm_clientes:
-            if filtro != "Todos" and c["estado"] != mapa_filtro.get(filtro):
+            if buscar_crm and not coincide_busqueda(c, buscar_crm):
+                continue
+            if filtro == "📭 Sin envíos":
+                if cobertura[c["nombre"]][0] > 0 or c["estado"] != "activo":
+                    continue
+            elif filtro != "Todos" and c["estado"] != mapa_filtro.get(filtro):
                 continue
             nombre = c["nombre"]
             enviados = c.get("inmuebles_enviados") or []
@@ -1980,16 +1991,18 @@ with tab_crm:
             n_env, dias_ult = cobertura[nombre]
             cab = (f"{ICONO_PRIORIDAD.get(prioridad_de(c), '')}"
                    f"{ESTADOS_CRM.get(c['estado'], c['estado'])}  ·  **{nombre}**  ·  "
-                   f"{cobertura_emoji(n_env)} {n_env} envío(s)  ·  👣 {c.get('visitas', 0)} visita(s)")
+                   + ("📭 SIN ENVÍOS" if n_env == 0 else
+                      f"{cobertura_emoji(n_env)} {n_env} envío(s)")
+                   + f"  ·  👣 {c.get('visitas', 0)} visita(s)")
             if dias_ult is not None:
                 cab += f"  ·  último hace {dias_ult}d"
             if com_actual > 0:
                 cab += f"  ·  💰 {matcher.formato_cop(com_actual)}"
-            with st.container(border=True):
-                st.markdown(cab)
+            with st.expander(cab, expanded=False):
                 # Lo primero del cliente: SUS inmuebles (enviados/proceso).
                 render_procesos(c)
-                with st.expander("⚙️ Estado del negocio, visitas y comisión"):
+                with st.popover("⚙️ Estado del negocio, visitas y comisión",
+                                use_container_width=True):
 
                     op = (c.get("operacion") or "venta").lower()
                     es_arriendo = op == "arriendo"
