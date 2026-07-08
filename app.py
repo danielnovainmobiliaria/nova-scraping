@@ -1972,27 +1972,49 @@ with tab_crm:
                                      "🟢 Ganados", "🔴 Perdidos"], horizontal=True)
         mapa_filtro = {"🟡 Activos": "activo", "🟢 Ganados": "ganado", "🔴 Perdidos": "perdido"}
 
-        # 🔥 primero; entre iguales, los SIN envíos arriba (son los descuidados).
-        crm_clientes = sorted(
-            crm_clientes,
-            key=lambda c: (RANGO_PRIORIDAD.get(prioridad_de(c), 1),
-                           cobertura[c["nombre"]][0] > 0))
-        for c in crm_clientes:
+        def _pasa_crm(c):
             if buscar_crm and not coincide_busqueda(c, buscar_crm):
-                continue
+                return False
             if filtro == "📭 Sin envíos":
-                if cobertura[c["nombre"]][0] > 0 or c["estado"] != "activo":
-                    continue
-            elif filtro != "Todos" and c["estado"] != mapa_filtro.get(filtro):
+                return cobertura[c["nombre"]][0] == 0 and c["estado"] == "activo"
+            if filtro != "Todos" and c["estado"] != mapa_filtro.get(filtro):
+                return False
+            return True
+
+        # Orden pedido por Daniel: 1) prioridad 🔥, 2) valor de mayor a menor.
+        def _clave_crm(c):
+            return (RANGO_PRIORIDAD.get(prioridad_de(c), 1),
+                    -(c.get("presupuesto_max") or 0))
+
+        # Ventas y arriendos separados (ventas primero, como en la ficha de aliados).
+        _orden_crm = []
+        for _tit_g, _es_arr in [("🔑 Compra / Venta", False), ("🏠 Arriendo", True)]:
+            _vis = sorted(
+                [c for c in crm_clientes
+                 if ((c.get("operacion") or "venta") == "arriendo") == _es_arr
+                 and _pasa_crm(c)],
+                key=_clave_crm)
+            if _vis:
+                _orden_crm.append(("header", f"{_tit_g} ({len(_vis)})"))
+                _orden_crm.extend(("cliente", c) for c in _vis)
+        if not _orden_crm:
+            st.caption("Nada que mostrar con esa búsqueda/filtro.")
+        for _tipo_it, _it in _orden_crm:
+            if _tipo_it == "header":
+                st.divider()
+                st.markdown(f"##### {_it}")
                 continue
+            c = _it
             nombre = c["nombre"]
             enviados = c.get("inmuebles_enviados") or []
             com_actual = float(c.get("comision") or 0)
             n_env, dias_ult = cobertura[nombre]
             cab = (f"{ICONO_PRIORIDAD.get(prioridad_de(c), '')}"
-                   f"{ESTADOS_CRM.get(c['estado'], c['estado'])}  ·  **{nombre}**  ·  "
-                   + ("📭 SIN ENVÍOS" if n_env == 0 else
-                      f"{cobertura_emoji(n_env)} {n_env} envío(s)")
+                   f"{ESTADOS_CRM.get(c['estado'], c['estado'])}  ·  **{nombre}**"
+                   + (f"  ·  💵 {matcher.formato_cop(c.get('presupuesto_max'))}"
+                      if c.get("presupuesto_max") else "")
+                   + "  ·  " + ("📭 SIN ENVÍOS" if n_env == 0 else
+                                f"{cobertura_emoji(n_env)} {n_env} envío(s)")
                    + f"  ·  👣 {c.get('visitas', 0)} visita(s)")
             if dias_ult is not None:
                 cab += f"  ·  último hace {dias_ult}d"
