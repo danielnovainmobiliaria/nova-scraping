@@ -247,11 +247,31 @@ def quitar_proceso(nombre: str, post_id: str) -> None:
     guardar_lista(lista)
 
 
+# Motivos de descarte que hablan del AVISO y no de los gustos del cliente
+# (repetido, ya enviado, ya vendido…). No deben volverse filtros ni aprendizaje.
+_RE_MOTIVO_ADMIN = re.compile(
+    r"repetid|duplicad|dos veces|mismo (que|de|inmueble|apartamento|apto)|"
+    r"otra publicacion|otro (broker|perfil|aviso|post)|otra cuenta|"
+    r"ya (lo|la|se lo|se la) (envie|envio|mande|mando|vio|vi)|ya envi|ya mand|"
+    r"ya (esta|fue) (vendid|arrendad)|ya se (vendio|arrendo)|no disponible")
+
+
+def es_motivo_administrativo(texto: str) -> bool:
+    """True si el motivo de descarte es logístico (repetido/enviado/vendido),
+    no una preferencia del cliente. Esos motivos solo ocultan, no filtran."""
+    t = str(texto or "").lower()
+    for a, b in {"á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ñ": "n"}.items():
+        t = t.replace(a, b)
+    return bool(_RE_MOTIVO_ADMIN.search(t))
+
+
 def aprendizajes_cliente(cliente: dict[str, Any]) -> list[str]:
     """Observaciones de los inmuebles DESCARTADOS (lo que NO le gustó al cliente)."""
     notas = []
     for pr in (cliente.get("procesos") or []):
         if pr.get("estado") == "descartado" and pr.get("observaciones"):
+            if es_motivo_administrativo(pr["observaciones"]):
+                continue
             notas.append(pr["observaciones"].strip())
     return notas
 

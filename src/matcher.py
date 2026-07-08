@@ -450,6 +450,16 @@ def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | Non
         en_barrio_pedido = any(
             _mismo_lugar(_norm(b), _norm(pl))
             for b in deseados for pl in lugares_post if pl)
+        # Tiro directo: si la exclusión nombra EXACTAMENTE el barrio del aviso
+        # ('Chicó Navarra'), anula aunque el cliente pida uno parecido ('Chicó').
+        # Solo se protege si la exclusión es igual o MÁS amplia que un barrio
+        # pedido ('Chapinero' no puede anular al que pide 'Chapinero Alto').
+        tokens_post = _tokens_lugar(_norm(post.get("barrio") or ""))
+        for b in barrios_x:
+            tb = _tokens_lugar(_norm(b))
+            protege = any(tb <= _tokens_lugar(_norm(d)) for d in deseados)
+            if tb and tokens_post and tb <= tokens_post and not protege:
+                return f"barrio excluido: {b}"
         if not en_barrio_pedido:
             candidato = " ".join(_norm(x) for x in (
                 post.get("barrio"), post.get("zona"), post.get("direccion"),

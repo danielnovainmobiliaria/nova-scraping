@@ -647,6 +647,13 @@ PROHIBIDO: jamás incluyas en "excluir_barrios" un barrio que el cliente PIDE (t
 contexto), ni el nombre de la localidad que contiene sus barrios (si pide Chicó, NO excluyas
 "Chapinero"; si pide Santa Bárbara, NO excluyas "Usaquén"). Sé quirúrgico: excluye solo los
 barrios ESPECÍFICOS que el broker rechaza.
+Si el motivo del descarte NO habla de los gustos del cliente sino de un hecho del AVISO
+("está repetido", "duplicado", "es el mismo de otro broker", "ya se lo envié", "ya está
+vendido/arrendado", "ya no está disponible"), NO crees NINGÚN filtro: devuelve listas vacías,
+límites en null y tipo null.
+Cifras aproximadas NO son topes exactos: "alrededor de/unos/cerca de X m²" -> area_min = 0.8*X
+(ej. "busca algo alrededor de los 250 metros" -> area_min 200, jamás 240 ni 250). Solo usa la
+cifra tal cual si el broker dice "mínimo X" o "nada menor a X".
 Reglas: incluye SOLO exclusiones CLARAS que el broker pide quitar. Para "limites", llena solo
 los topes que el broker mencione y deja el resto en null. "metros"/"m2"/"mts" = área;
 distingue área (decenas/cientos) de precio (millones/miles de millones). Si el comentario es una

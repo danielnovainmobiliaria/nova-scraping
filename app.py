@@ -1838,7 +1838,13 @@ with tab_resultados:
                                          key=f"cdesc_{nombre}_{p.get('id','x')}"):
                                 mod_clientes.agregar_proceso(
                                     nombre, proceso_de(p, "descartado", obs))
-                                if obs.strip():
+                                if obs.strip() and mod_clientes.es_motivo_administrativo(obs):
+                                    # "repetido / ya enviado / ya vendido" habla del AVISO,
+                                    # no del cliente: solo se oculta, sin crear filtros.
+                                    st.toast("🚫 Oculto (repetido/no disponible). "
+                                             "No creé filtros: el motivo no habla de los "
+                                             "gustos del cliente.")
+                                elif obs.strip():
                                     # Le damos a la IA los datos del inmueble descartado como
                                     # referencia (así "muy grande/pequeño/caro" se vuelve un tope).
                                     ctx = (f"El inmueble que descartó tenía: "
