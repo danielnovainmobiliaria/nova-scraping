@@ -701,9 +701,11 @@ with tab_fuentes:
             st.markdown(f"[Abrir el perfil @{cta} en Instagram](https://www.instagram.com/{cta}/)")
             for d, p in pubs:
                 tomado = bool(p.get("url")) and _norm_link(p["url"]) in _tomados
-                linea = (("✅ " if tomado else "")
+                vendido = matcher.esta_vendido(p)
+                linea = (("🚫 " if vendido else "") + ("✅ " if tomado else "")
                          + f"{color_publicacion(d)} **hace {d} día{'s' if d != 1 else ''}** — "
-                         f"{esc_md((p.get('resumen') or p.get('caption', ''))[:75])}")
+                         f"{esc_md((p.get('resumen') or p.get('caption', ''))[:75])}"
+                         + ("  ·  **YA VENDIDO/ARRENDADO** (fuera del cruce)" if vendido else ""))
                 if p.get("url"):
                     linea += f"  ·  [🔗 ver publicación]({p['url']})"
                 if tomado:

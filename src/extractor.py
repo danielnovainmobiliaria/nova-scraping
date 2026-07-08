@@ -44,6 +44,8 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin texto adicional, sin ```), con 
 
 {{
   "es_inmueble": true|false,        // true solo si es la oferta de UN inmueble concreto
+  "no_disponible": true|false,      // true si dice VENDIDO/ARRENDADO/"ya no disponible"
+                                    // (muchos brokers editan el caption en vez de borrar)
   "operacion": "arriendo"|"venta"|"ambos"|null,
   "tipo": "apartamento"|"casa"|"apartaestudio"|"local"|"oficina"|"otro"|null,
   "barrio": string|null,            // nombre del barrio tal como aparece
@@ -159,6 +161,7 @@ Extrae TODOS los inmuebles concretos que encuentres.
 Devuelve ÚNICAMENTE un ARRAY JSON válido (sin texto extra, sin ```), un objeto por inmueble:
 [{{
   "operacion": "arriendo"|"venta"|null,
+  "no_disponible": true|false,      // true si el aviso dice VENDIDO/ARRENDADO/no disponible
   "tipo": "apartamento"|"casa"|"apartaestudio"|"local"|"oficina"|"otro"|null,
   "barrio": string|null, "zona": string|null, "direccion": string|null,
   "area_m2": number|null, "precio": number|null, "administracion": number|null,

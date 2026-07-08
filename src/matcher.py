@@ -140,6 +140,21 @@ def perfil_flex(cliente: dict[str, Any]) -> dict[str, Any]:
     return PERFILES_FLEX.get(clave, PERFILES_FLEX["medio"])
 
 
+# Muchos brokers editan el caption a "VENDIDO"/"ARRENDADO" en vez de borrar el post.
+# (Singular a propósito: "50 inmuebles vendidos" es publicidad, no un aviso tomado.)
+_RE_NO_DISPONIBLE = re.compile(
+    r"\b(vendido|vendida|arrendado|arrendada|ya no disponible|no disponible|"
+    r"negocio cerrado|ya se vendio|ya se arrendo)\b")
+
+
+def esta_vendido(post: dict[str, Any]) -> bool:
+    """True si el aviso ya está marcado como VENDIDO/ARRENDADO (no se ofrece)."""
+    if post.get("no_disponible") is True:
+        return True
+    texto = _norm(post.get("caption", "")) + " " + _norm(post.get("resumen", ""))
+    return bool(_RE_NO_DISPONIBLE.search(texto))
+
+
 # Por encima de este precio, en Bogotá ya es una VENTA; por debajo, un canon de
 # ARRIENDO. Sirve para deducir la operación cuando el aviso no la dice.
 PISO_VENTA = 100_000_000
@@ -717,7 +732,7 @@ def cruzar(clientes: list[dict[str, Any]], posts: list[dict[str, Any]],
         piso_score = max(score_minimo, perfil_flex(cliente)["score_min"])
         matches = []
         for post in posts:
-            if not post.get("es_inmueble", True):
+            if not post.get("es_inmueble", True) or esta_vendido(post):
                 continue
             ev = evaluar(cliente, post, flex_precio, flex_area, piso_precio)
             if ev and ev["score"] >= piso_score:
