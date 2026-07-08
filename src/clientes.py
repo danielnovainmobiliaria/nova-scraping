@@ -116,6 +116,8 @@ CRM_CAMPOS = {
     # Filtros DUROS deducidos de los comentarios: anulan inmuebles que no cumplen.
     # {"barrios": [...], "palabras": [...]}
     "exclusiones": {},
+    # Inmuebles que el broker asignó a dedo (por link) a este cliente.
+    "asignados": [],
 }
 
 # Estados del embudo de seguimiento de cada inmueble enviado a un cliente.
@@ -274,6 +276,19 @@ def aprendizajes_cliente(cliente: dict[str, Any]) -> list[str]:
                 continue
             notas.append(pr["observaciones"].strip())
     return notas
+
+
+def asignar_inmueble(nombre: str, entrada: dict[str, Any]) -> None:
+    """Asigna a dedo un inmueble (por link) a un cliente. No repite links."""
+    lista = cargar_guardados()
+    for c in lista:
+        if c.get("nombre", "").lower() == nombre.lower():
+            asig = c.get("asignados") or []
+            if not any((a.get("link") or "").strip() == (entrada.get("link") or "").strip()
+                       for a in asig):
+                asig.append(entrada)
+            c["asignados"] = asig
+    guardar_lista(lista)
 
 
 def agregar_comentario_ia(nombre: str, comentario: str) -> None:

@@ -208,6 +208,8 @@ def dedup_posts(posts):
 
 def fuente_post(p) -> str:
     """Etiqueta de la fuente del inmueble (red, portal o ingresado a mano)."""
+    if str(p.get("id", "")).startswith("asig_"):
+        return "📌 lo asignaste tú (link externo)"
     if str(p.get("id", "")).startswith("m_"):
         return "🖊️ ingresado por ti"
     if es_portal_post(p):
@@ -1594,6 +1596,44 @@ with tab_resultados:
                      if huella_inmueble(m["post"]) else True)
             ]
 
+        # 📌 Inmuebles asignados a dedo por el broker (por link): entran directo a las
+        # coincidencias del cliente, por encima del cruce, la frescura y el umbral.
+        posts_por_link = {}
+        for _p in posts:
+            _nl = _norm_link(_p.get("url") or "")
+            if _nl:
+                posts_por_link.setdefault(_nl, _p)
+        for _c in clientes:
+            _nom = _c["nombre"]
+            for _a in (_c.get("asignados") or []):
+                _nl = _norm_link(_a.get("link") or "")
+                if not _nl:
+                    continue
+                _pa = posts_por_link.get(_nl)
+                if _pa is None:
+                    _pa = {"id": "asig_" + hashlib.md5(_nl.encode()).hexdigest()[:14],
+                           "url": (_a.get("link") or "").strip(),
+                           "fecha": _a.get("fecha"),
+                           "caption": _a.get("nota") or "",
+                           "resumen": _a.get("nota")
+                           or "Inmueble que asignaste por link (fuera del catálogo)",
+                           "operacion": _c.get("operacion"), "es_inmueble": True}
+                _idsp = set(_pa.get("ids_gemelos") or [_pa.get("id")])
+                if _idsp & ocultos.get(_nom, set()):
+                    continue          # ya lo envió o lo descartó: respeta el embudo
+                _h = huella_inmueble(_pa)
+                if _h and _h in huellas_oc.get(_nom, set()):
+                    continue
+                _ya = resultados.setdefault(_nom, [])
+                _ids_ya = set()
+                for _m in _ya:
+                    _ids_ya |= set(_m["post"].get("ids_gemelos") or [_m["post"].get("id")])
+                if _idsp & _ids_ya:
+                    continue          # el cruce ya lo trae: no duplicar la tarjeta
+                _ya.insert(0, {"score": 100, "post": _pa, "asignado": True,
+                               "razones_ok": ["📌 Lo asignaste tú por link"],
+                               "razones_no": []})
+
         total = sum(len(v) for v in resultados.values())
         st.caption(f"🔎 {len(posts)} publicaciones analizadas · **{total} coincidencias pendientes**"
                    + (f" · {n_duplicados} duplicado(s) unificados" if n_duplicados else "")
@@ -1691,6 +1731,29 @@ with tab_resultados:
                     if caps_txt:
                         partes_x.append("topes: " + ", ".join(caps_txt))
                     st.error("🚫 Anulando (filtro duro) — " + "  ·  ".join(partes_x))
+                with st.popover("📌 Asignarle un inmueble por link", use_container_width=True):
+                    st.caption("Pega el link de un inmueble que TÚ ves que le sirve — uno que "
+                               "encontraste por fuera o uno que la herramienta no le asignó. "
+                               "Queda fijado arriba de sus coincidencias. (Si es externo y "
+                               "quieres ficha completa con datos, mejor usa «➕ Agregar un "
+                               "inmueble manual» arriba.)")
+                    _lk = st.text_input("Link del inmueble", key=f"asig_lk_{nombre}",
+                                        placeholder="https://…")
+                    _nota_a = st.text_input("Nota para ti (opcional)", key=f"asig_nota_{nombre}",
+                                            placeholder="ej: me lo pasó un aliado · 3 hab · $1.400M")
+                    if st.button("📌 Asignar", key=f"asig_btn_{nombre}"):
+                        if not (_lk or "").strip():
+                            st.warning("Pega primero el link.")
+                        elif _norm_link(_lk) in {_norm_link(a.get("link") or "") for a in
+                                                 (cli_map.get(nombre, {}).get("asignados") or [])}:
+                            st.warning("Ese link ya está asignado a este cliente.")
+                        else:
+                            mod_clientes.asignar_inmueble(nombre, {
+                                "link": _lk.strip(), "nota": _nota_a.strip(),
+                                "fecha": datetime.now(timezone.utc).date().isoformat()})
+                            st.toast(f"📌 Asignado a {nombre}")
+                            st.session_state["cliente_abierto"] = nombre
+                            st.rerun()
                 with st.popover("🤖 Afinar con IA — ¿los resultados no son buenos?",
                                 use_container_width=True):
                     st.caption("Escribe qué está mal o qué buscas. La IA **anula de una** lo que no "
@@ -1811,8 +1874,12 @@ with tab_resultados:
                                 with st.popover("📥 Descargar foto/video", use_container_width=True):
                                     render_descargas(p, f"{nombre}_{p.get('id', 'x')}")
                     with c2:
-                        st.metric("Coincidencia", f"{m['score']}%")
-                        st.markdown(f"**{badge_afinidad(m['score'])}**")
+                        if m.get("asignado"):
+                            st.metric("Coincidencia", "📌")
+                            st.markdown("**Asignado por ti**")
+                        else:
+                            st.metric("Coincidencia", f"{m['score']}%")
+                            st.markdown(f"**{badge_afinidad(m['score'])}**")
                         if p.get("url"):
                             st.link_button("🔗 Ver original (solo tú)", p["url"],
                                            use_container_width=True,
