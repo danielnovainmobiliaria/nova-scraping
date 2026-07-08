@@ -1624,10 +1624,26 @@ with tab_resultados:
                        "buscarles más (incluso manual o ampliando criterios con los deslizadores).")
 
         # Orden de los clientes: 🔥 primero; a igual prioridad, más coincidencias arriba.
-        orden_clientes = sorted(
-            resultados.items(),
-            key=lambda kv: (RANGO_PRIORIDAD.get(prio_map.get(kv[0], "media"), 1), -len(kv[1])))
-        for nombre, matches in orden_clientes:
+        def _clave_coin(kv):
+            return (RANGO_PRIORIDAD.get(prio_map.get(kv[0], "media"), 1), -len(kv[1]))
+
+        # Ventas y arriendos separados (ventas primero, igual que en el CRM).
+        _orden_coin = []
+        for _tit_g, _es_arr in [("🔑 Compra / Venta", False), ("🏠 Arriendo", True)]:
+            _grupo = sorted(
+                [kv for kv in resultados.items()
+                 if ((cli_map.get(kv[0], {}).get("operacion") or "venta")
+                     == "arriendo") == _es_arr],
+                key=_clave_coin)
+            if _grupo:
+                _orden_coin.append(("header", f"{_tit_g} ({len(_grupo)} cliente(s))"))
+                _orden_coin.extend(("cliente", kv) for kv in _grupo)
+        for _tipo_it, _it in _orden_coin:
+            if _tipo_it == "header":
+                st.divider()
+                st.markdown(f"##### {_it}")
+                continue
+            nombre, matches = _it
             icono_p = ICONO_PRIORIDAD.get(prio_map.get(nombre, "media"), "")
             with st.expander(f"{icono_p}👤 {nombre} — {len(matches)} coincidencia(s)",
                              expanded=(nombre == st.session_state.get("cliente_abierto"))):

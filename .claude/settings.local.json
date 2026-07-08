@@ -41,7 +41,8 @@
       "Bash(grep -vE \"ScriptRunContext|Warning:|streamlit run|^\\\\s*$|^2026-\" \"/Users/danielmejianauffal/.claude/projects/-Users-danielmejianauffal-Documents-Nova-Scraping/e13bacb8-616b-476b-a422-589bb92b1ae2/tool-results/brircf51b.txt\")",
       "Bash(pkill -f \"streamlit run app.py\")",
       "Bash(grep -n 'BADGE_FLEX = \\\\|e_flex = g2.selectbox\\\\|z_flex = st.selectbox\\\\|nuevos\\\\[0\\\\]\\\\[\"flexibilidad\"\\\\]\\\\|\"flexibilidad\": c.get\\(\"flexibilidad\"\\)\\\\|for nombre, matches in resultados.items\\(\\):\\\\|resumen.append\\({\\\\|crm_clientes = \\\\|cab = \\(f\"\\\\|st.markdown\\(f\"- {badge_afinidad' app.py)",
-      "Bash(grep -n 'st.markdown\\(f\"\\\\*\\\\*{p.get\\(.resumen.\\)\\\\|a1, a2 = st.columns\\(2\\)\\\\|def bonito' app.py)"
+      "Bash(grep -n 'st.markdown\\(f\"\\\\*\\\\*{p.get\\(.resumen.\\)\\\\|a1, a2 = st.columns\\(2\\)\\\\|def bonito' app.py)",
+      "Bash(awk 'NR>=1405 && NR<=1877 && \\(/sorted|for c/ || /expander/ || /prioridad/ || /RANGO/\\)' app.py)"
     ]
   }
 }
