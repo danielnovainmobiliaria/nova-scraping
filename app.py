@@ -1412,10 +1412,12 @@ with tab_resultados:
         st.success(st.session_state.pop("flash_manual"))
 
     # ── Inmueble manual: lo que encuentres a mano entra al MISMO cruce ──
-    with st.expander("➕ Agregar un inmueble manual (de WhatsApp, aliados o cuentas ⚠️)"):
-        st.caption("El scraping ya entra solo al cruce; usa este cajón para inmuebles que la "
-                   "máquina no ve (WhatsApp, aliados, cuentas restringidas ⚠️). Si el link "
-                   "viene del catálogo, basta pegarlo; si no, pega también la descripción.")
+    with st.expander("➕ Meter un inmueble manual (link + descripción) — te digo al instante "
+                     "a quién le puede servir"):
+        st.caption("Para inmuebles que la máquina no ve (WhatsApp, aliados, cuentas ⚠️). "
+                   "Pega la descripción y el link; al guardarlo te digo **de una** con qué "
+                   "clientes hace match. Si el link ya está en el catálogo de Fuentes, basta "
+                   "pegarlo (reutilizo datos y fotos).")
         with st.form("inmueble_manual", clear_on_submit=True):
             desc_man = st.text_area(
                 "Descripción del inmueble", height=110,
@@ -1477,10 +1479,50 @@ with tab_resultados:
                                      if x.get("id") != item_man["id"]]
                         lista_man.insert(0, item_man)
                         guardar_inmuebles_manuales(lista_man)
-                        st.session_state["flash_manual"] = (
-                            "✅ Inmueble agregado al cruce"
-                            + (" (tomado del catálogo, con sus fotos)" if scr and not desc_man.strip() else "")
-                            + ". En Fuentes quedó marcado con ✅.")
+                        # 🎯 Respuesta inmediata: ¿con qué clientes hace match?
+                        post_eval = {**datos_man, "id": item_man["id"],
+                                     "caption": texto_man, "url": link_man.strip(),
+                                     "fecha": fecha_man, "agregado": hoy_iso,
+                                     "cuenta": item_man["cuenta"],
+                                     "imagen": item_man["imagen"],
+                                     "media": item_man["media"]}
+                        ganadores = []
+                        try:
+                            res_ya = matcher.cruzar(clientes, [post_eval], score_minimo=70)
+                            _h_eval = huella_inmueble(post_eval)
+                            for _cli in clientes:
+                                _ms = res_ya.get(_cli["nombre"]) or []
+                                if not _ms:
+                                    continue
+                                _h_oc = {pr.get("huella")
+                                         for pr in (_cli.get("procesos") or [])
+                                         if pr.get("huella")}
+                                if (post_eval["id"] in mod_clientes.ids_en_proceso(_cli)
+                                        or (_h_eval and _h_eval in _h_oc)):
+                                    continue    # ya se lo enviaste/descartaste antes
+                                ganadores.append((_ms[0]["score"],
+                                                  prioridad_de(_cli), _cli["nombre"]))
+                        except Exception:  # noqa: BLE001 - el aviso nunca daña el guardado
+                            pass
+                        ganadores.sort(reverse=True)
+                        base_g = ("✅ Inmueble agregado"
+                                  + (" (tomado del catálogo, con sus fotos)"
+                                     if scr and not desc_man.strip() else "")
+                                  + ". En Fuentes quedó marcado con ✅.")
+                        if ganadores:
+                            lista_g = "  ·  ".join(
+                                f"{ICONO_PRIORIDAD.get(pr_g, '')}**{n_g}** ({s_g}%)"
+                                for s_g, pr_g, n_g in ganadores[:8])
+                            extra_g = (f" y {len(ganadores) - 8} más"
+                                       if len(ganadores) > 8 else "")
+                            st.session_state["flash_manual"] = (
+                                base_g + f"\n\n🎯 **Le puede servir a:** {lista_g}{extra_g}. "
+                                "Ábrelos abajo para enviar o descartar.")
+                        else:
+                            st.session_state["flash_manual"] = (
+                                base_g + "\n\n😕 Por ahora **no hace match** con ningún "
+                                "cliente (revisa el ⚙️ umbral si te sorprende). Queda "
+                                "guardado: si entra un cliente que encaje, aparecerá solo.")
                         st.rerun()
                 except Exception as e:  # noqa: BLE001
                     st.error(f"No se pudo interpretar: {e}")
@@ -1545,6 +1587,8 @@ with tab_resultados:
                        "desaparecen solos.")
 
         def _pasa_frescura(p):
+            if str(p.get("id", "")).startswith(("m_", "asig_")):
+                return True    # lo metiste tú a mano: no caduca por frescura
             d = dias_publicado(p.get("fecha"))
             if d is None:
                 return True
