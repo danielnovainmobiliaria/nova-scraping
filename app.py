@@ -694,6 +694,28 @@ with tab_fuentes:
                 if x.get("link")}
     _orden_ctas = sorted(_cuentas, key=lambda c: (-(len(_posts_f.get(c, []))),
                                                   c not in _restr_us))
+
+    # 📄 PDF interno con TODAS las fuentes y sus links (para revisión manual).
+    try:
+        import base64 as _b64f
+        _logo_b64f = db.leer_meta("logo_png_b64")
+        _logo_f = _b64f.b64decode(_logo_b64f) if _logo_b64f else None
+        _stats_f = []
+        for cta in _orden_ctas:
+            _pubs_c = _posts_f.get(cta, [])
+            _stats_f.append({"usuario": cta, "n_vigentes": len(_pubs_c),
+                             "dias_ultima": min((d for d, _ in _pubs_c), default=None),
+                             "restringida": cta in _restr_us})
+        st.download_button(
+            "📄 Descargar PDF con todas las fuentes y sus links (revisión manual)",
+            fichas.pdf_fuentes(_stats_f, config.leer_portales(), logo_png=_logo_f),
+            f"fuentes_nova_{datetime.now(timezone.utc).date().isoformat()}.pdf",
+            "application/pdf",
+            help="Documento INTERNO: trae los links clicables de cada perfil y portal. "
+                 "No lo compartas — revela tus fuentes.")
+    except Exception as _e_pdf:  # noqa: BLE001 - el PDF nunca debe tumbar la pestaña
+        st.caption(f"⚠️ No pude armar el PDF de fuentes: {_e_pdf}")
+
     for cta in _orden_ctas:
         pubs = sorted(_posts_f.get(cta, []), key=lambda t: t[0])
         if cta in _restr_us and not pubs:

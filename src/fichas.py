@@ -273,3 +273,94 @@ def generar_pdf(clientes: list[dict[str, Any]], quien: str = "Nova Inmobiliaria"
                                 "búsquedas, escríbenos y coordinamos en alianza. - "
                                 f"{quien}"))
     return bytes(pdf.output())
+
+def pdf_fuentes(cuentas: list[dict[str, Any]], portales: list[str],
+                logo_png: bytes | None = None) -> bytes:
+    """PDF interno con TODAS las fuentes y sus links, para revisión manual.
+
+    `cuentas`: [{"usuario", "n_vigentes", "dias_ultima", "restringida"}]
+    OJO: es de uso interno del broker (revela las fuentes) — no circular.
+    """
+    hoy = date.today().strftime("%d/%m/%Y")
+    pdf = FPDF(format="A4")
+    pdf.set_auto_page_break(auto=True, margin=16)
+    pdf.add_page()
+
+    if logo_png:
+        try:
+            pdf.image(io.BytesIO(logo_png), x=12, y=5, h=17)
+        except Exception:  # noqa: BLE001
+            _logo_texto(pdf, 12, 6)
+    else:
+        _logo_texto(pdf, 12, 6)
+    pdf.set_text_color(*GRIS_CALIDO)
+    pdf.set_font("helvetica", "", 9)
+    pdf.set_xy(-58, 8)
+    pdf.cell(46, 5, _latin(f"Corte: {hoy}"), align="R")
+    pdf.set_text_color(*CAFE_MEDIO)
+    pdf.set_font("helvetica", "I", 10.5)
+    pdf.set_xy(12, 24)
+    pdf.cell(0, 5, _latin("Fuentes que monitoreamos - documento INTERNO "
+                          "(revela las fuentes: no circular)"))
+    pdf.set_draw_color(*DORADO)
+    pdf.set_line_width(0.5)
+    pdf.line(10, 32, 200, 32)
+    pdf.set_y(38)
+
+    def titulo_seccion(texto: str) -> None:
+        if pdf.get_y() > 255:
+            pdf.add_page()
+            pdf.set_y(14)
+        pdf.set_text_color(*TERRACOTA)
+        pdf.set_font("helvetica", "B", 13)
+        t = _latin(texto)
+        pdf.cell(pdf.get_string_width(t) + 2, 8, t)
+        y_lin = pdf.get_y() + 4.5
+        pdf.set_draw_color(*DORADO_SUAVE)
+        pdf.set_line_width(0.3)
+        pdf.line(pdf.get_x() + 3, y_lin, 200, y_lin)
+        pdf.ln(10)
+
+    titulo_seccion(f"Perfiles de Instagram  ({len(cuentas)})")
+    for c in cuentas:
+        if pdf.get_y() > 270:
+            pdf.add_page()
+            pdf.set_y(14)
+        url = f"https://www.instagram.com/{c['usuario']}/"
+        pdf.set_text_color(*CAFE)
+        pdf.set_font("helvetica", "B", 10.5)
+        etiqueta = "@" + c["usuario"] + ("   [!] restringida - revisar manual"
+                                         if c.get("restringida") else "")
+        pdf.cell(92, 6, _latin(etiqueta), link=url)
+        pdf.set_font("helvetica", "", 9)
+        pdf.set_text_color(*CAFE_MEDIO)
+        detalle = f"{c.get('n_vigentes', 0)} publicacion(es) vigentes"
+        if c.get("dias_ultima") is not None:
+            detalle += f" - ultima hace {c['dias_ultima']} dia(s)"
+        pdf.cell(60, 6, _latin(detalle))
+        pdf.set_text_color(*DORADO)
+        pdf.set_font("helvetica", "U", 8.5)
+        pdf.cell(0, 6, "abrir perfil", link=url, align="R")
+        pdf.ln(6.5)
+
+    pdf.ln(4)
+    titulo_seccion(f"Portales y sitios web  ({len(portales)})")
+    for u in portales:
+        if pdf.get_y() > 270:
+            pdf.add_page()
+            pdf.set_y(14)
+        pdf.set_text_color(*CAFE)
+        pdf.set_font("helvetica", "", 9.5)
+        pdf.cell(4, 6, "-")
+        pdf.set_text_color(*TERRACOTA)
+        pdf.set_font("helvetica", "U", 9.5)
+        pdf.cell(0, 6, _latin(u if len(u) <= 95 else u[:92] + "..."), link=u)
+        pdf.ln(6.5)
+
+    pdf.ln(6)
+    pdf.set_text_color(*GRIS_CALIDO)
+    pdf.set_font("helvetica", "I", 8.5)
+    pdf.multi_cell(0, 4.5, _latin("Los links son clicables. Semaforo de la app: "
+                                  "verde hasta 3 dias, amarillo 4-10, naranja 11-20, "
+                                  "rojo 21-30. Generado por Nova Scraping."))
+    return bytes(pdf.output())
