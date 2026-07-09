@@ -30,11 +30,19 @@ jobs:
         run: python job_actualizar.py
       # GitHub desactiva los crons tras 60 días sin actividad en el repo; este paso
       # hace un mini-commit de mantenimiento cuando hace falta para que NUNCA se apague.
+      # (Sin acciones de terceros: GitHub las bloqueó y tumbaba TODO el robot.)
       - name: Mantener vivo el robot (keepalive)
         if: success()
-        uses: gautamkrishnar/keepalive-workflow@v2
-        with:
-          time_elapsed: 40
+        run: |
+          DIAS=$(( ( $(date +%s) - $(git log -1 --format=%ct) ) / 86400 ))
+          if [ "$DIAS" -ge 40 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "🤖 keepalive: mantener activo el robot diario"
+            git push
+          else
+            echo "Último commit hace $DIAS día(s): no hace falta keepalive."
+          fi
       # Si el día falló por completo, abre un Issue para que quede una alerta visible.
       - name: Avisar si falló
         if: failure()

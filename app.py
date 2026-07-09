@@ -541,9 +541,23 @@ def render_descargas(p: dict, prefijo: str) -> None:
 
 
 def actualizar_publicaciones(log) -> None:
-    """Trae los posts de Instagram y los lee con IA (usado por los botones)."""
-    from src import extractor, scraper
-    scraper.scrapear_cuentas(config.leer_cuentas(), log=log)
+    """Trae TODO: Instagram + portales, y lee lo pendiente con IA.
+
+    Cada fuente va por separado: si una falla, las demás siguen (igual que el robot).
+    """
+    from src import extractor, scraper, scraper_portales
+    try:
+        log("📷 Instagram…")
+        scraper.scrapear_cuentas(config.leer_cuentas(), log=log)
+    except Exception as e:  # noqa: BLE001
+        log(f"⚠️ Instagram falló: {e} — sigo con los portales.")
+    urls_p = config.leer_portales()
+    if urls_p:
+        try:
+            log(f"🏠 Portales ({len(urls_p)})…")
+            scraper_portales.scrapear_portales(urls_p, log=log)
+        except Exception as e:  # noqa: BLE001
+            log(f"⚠️ Portales fallaron: {e}")
     extractor.extraer_pendientes(log=log)
 
 
@@ -573,14 +587,14 @@ st.sidebar.caption(
 # ── Botón principal: correr el scraping ──
 st.sidebar.divider()
 st.sidebar.markdown("**▶️ Buscar inmuebles**")
-correr = st.sidebar.button("🔄 Traer y leer publicaciones",
+correr = st.sidebar.button("🔄 Actualizar todo (IG + portales)",
                            type="primary", use_container_width=True)
 st.sidebar.caption(f"📦 {contar_posts_cacheado()} inmuebles en memoria")
 
 # ── Acción del botón: traer + leer publicaciones ──────────────
 if correr:
-    with st.status("Trayendo y leyendo publicaciones de Instagram… "
-                   "(puede tardar 3-5 min, no cierres la pestaña)", expanded=True) as estado_scrape:
+    with st.status("Trayendo y leyendo Instagram y portales… "
+                   "(puede tardar 5-10 min, no cierres la pestaña)", expanded=True) as estado_scrape:
         _lineas: list[str] = []
 
         def _log(m: str) -> None:
@@ -753,7 +767,7 @@ with tab_fuentes:
     st.caption(f"Trae los posts de los últimos {config.DIAS_RECIENTES} días "
                "y los lee con IA. Cada post se procesa una sola vez.")
     col1, col2 = st.columns(2)
-    if col1.button("🔄 Traer y leer publicaciones", type="primary"):
+    if col1.button("🔄 Actualizar todo (Instagram + portales)", type="primary"):
         registro = st.empty()
         lineas: list[str] = []
 
@@ -762,11 +776,9 @@ with tab_fuentes:
             registro.code("\n".join(lineas[-12:]))
 
         try:
-            from src import extractor, scraper
-            scraper.scrapear_cuentas(config.leer_cuentas(), log=log)
-            extractor.extraer_pendientes(log=log)
+            actualizar_publicaciones(log)
             st.cache_data.clear()   # que las pestañas vean lo nuevo de una
-            st.success("¡Actualización completa!")
+            st.success("¡Actualización completa! (Instagram + portales)")
         except Exception as e:  # noqa: BLE001
             st.error(f"Ocurrió un problema: {e}")
     col2.metric("Posts en la caché", contar_posts_cacheado())
