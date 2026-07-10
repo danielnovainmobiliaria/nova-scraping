@@ -42,6 +42,30 @@ h2, h3 { color: #6B4F3A; }
 hr { border-color: #B08D57; }
 /* Menos espacio muerto arriba */
 .block-container { padding-top: 2.4rem; }
+
+/* ══ CELULAR (pantallas angostas) ══════════════════════════ */
+@media (max-width: 640px) {
+  /* Aprovechar todo el ancho */
+  .block-container { padding-left: 0.8rem; padding-right: 0.8rem; padding-top: 3.2rem; }
+  /* Columnas: APILAR en vez de apretar (tarjetas legibles) */
+  div[data-testid="stHorizontalBlock"] { flex-wrap: wrap; gap: 0.4rem; }
+  div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
+    flex: 1 1 100%; width: 100%; min-width: 100%;
+  }
+  /* …pero las métricas van de a DOS por fila (no gastan una fila entera) */
+  div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:has(div[data-testid="stMetric"]) {
+    flex: 1 1 47%; min-width: 47%;
+  }
+  /* Pestañas compactas y deslizables con el dedo */
+  .stTabs [data-baseweb="tab-list"] { overflow-x: auto; flex-wrap: nowrap; }
+  .stTabs [data-baseweb="tab"] { font-size: 0.88rem; padding: 0.45rem 0.6rem; white-space: nowrap; }
+  /* Botones altos = fáciles de tocar con el dedo */
+  .stButton > button, .stDownloadButton > button, .stFormSubmitButton > button,
+  .stLinkButton > a { min-height: 46px; }
+  /* Fotos y tablas nunca se desbordan */
+  img { max-width: 100% !important; height: auto; }
+  div[data-testid="stMetricValue"] { font-size: 1.5rem; }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -698,6 +722,7 @@ with tab_fuentes:
     # 📄 PDF interno con TODAS las fuentes y sus links (para revisión manual).
     try:
         import base64 as _b64f
+        from src import fichas as _fichas_f
         _logo_b64f = db.leer_meta("logo_png_b64")
         _logo_f = _b64f.b64decode(_logo_b64f) if _logo_b64f else None
         _stats_f = []
@@ -708,7 +733,7 @@ with tab_fuentes:
                              "restringida": cta in _restr_us})
         st.download_button(
             "📄 Descargar PDF con todas las fuentes y sus links (revisión manual)",
-            fichas.pdf_fuentes(_stats_f, config.leer_portales(), logo_png=_logo_f),
+            _fichas_f.pdf_fuentes(_stats_f, config.leer_portales(), logo_png=_logo_f),
             f"fuentes_nova_{datetime.now(timezone.utc).date().isoformat()}.pdf",
             "application/pdf",
             help="Documento INTERNO: trae los links clicables de cada perfil y portal. "
@@ -1338,6 +1363,11 @@ with tab_clientes:
         df_tabla, key=_key_t, hide_index=True, use_container_width=True,
         disabled=[c for c in df_tabla.columns if c not in ("prioridad", "flexibilidad")],
         column_config={
+            "⏳": st.column_config.TextColumn("⏳", pinned=True, width="small"),
+            "nombre": st.column_config.TextColumn(
+                "nombre", pinned=True,
+                help="Fijado a la izquierda: al deslizar la tabla (sobre todo en el "
+                     "celular) siempre ves de quién es la fila."),
             "prioridad": st.column_config.SelectboxColumn(
                 "prioridad", options=list(_PRIO_VISTA.values()), required=True,
                 help="🔥 con afán · ⭐ normal · 🌙 sin afán — ordena toda la herramienta."),

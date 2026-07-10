@@ -42,7 +42,8 @@
       "Bash(pkill -f \"streamlit run app.py\")",
       "Bash(grep -n 'BADGE_FLEX = \\\\|e_flex = g2.selectbox\\\\|z_flex = st.selectbox\\\\|nuevos\\\\[0\\\\]\\\\[\"flexibilidad\"\\\\]\\\\|\"flexibilidad\": c.get\\(\"flexibilidad\"\\)\\\\|for nombre, matches in resultados.items\\(\\):\\\\|resumen.append\\({\\\\|crm_clientes = \\\\|cab = \\(f\"\\\\|st.markdown\\(f\"- {badge_afinidad' app.py)",
       "Bash(grep -n 'st.markdown\\(f\"\\\\*\\\\*{p.get\\(.resumen.\\)\\\\|a1, a2 = st.columns\\(2\\)\\\\|def bonito' app.py)",
-      "Bash(awk 'NR>=1405 && NR<=1877 && \\(/sorted|for c/ || /expander/ || /prioridad/ || /RANGO/\\)' app.py)"
+      "Bash(awk 'NR>=1405 && NR<=1877 && \\(/sorted|for c/ || /expander/ || /prioridad/ || /RANGO/\\)' app.py)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:8812)"
     ]
   }
 }
