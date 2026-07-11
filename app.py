@@ -1870,6 +1870,9 @@ with tab_resultados:
                                 "link": _lk.strip(), "nota": _nota_a.strip(),
                                 "fecha": datetime.now(timezone.utc).date().isoformat()})
                             st.toast(f"📌 Asignado a {nombre}")
+                            # Despejar los campos para el siguiente inmueble.
+                            st.session_state.pop(f"asig_lk_{nombre}", None)
+                            st.session_state.pop(f"asig_nota_{nombre}", None)
                             st.session_state["cliente_abierto"] = nombre
                             st.rerun()
                 with st.popover("🤖 Afinar con IA — ¿los resultados no son buenos?",
