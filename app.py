@@ -112,10 +112,53 @@ if not getattr(mod_clientes.guardar_lista, "_con_cache", False):
 
     def _guardar_lista_y_refrescar(lista):
         _guardar_lista_original(lista)
-        st.cache_data.clear()
+        # Solo se invalida lo que CAMBIÓ (los clientes). El catálogo de inmuebles
+        # no se toca: así descartar/enviar/asignar no re-descarga todo de la nube.
+        clientes_cacheados.clear()
 
     _guardar_lista_y_refrescar._con_cache = True
     mod_clientes.guardar_lista = _guardar_lista_y_refrescar
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _manuales_cacheados():
+    try:
+        return json.loads(db.leer_meta("inmuebles_manuales") or "[]")
+    except json.JSONDecodeError:
+        return []
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def logo_bytes_cacheado():
+    import base64 as _b64l
+    crudo = db.leer_meta("logo_png_b64")
+    return _b64l.b64decode(crudo) if crudo else None
+
+
+# El CRUCE es lo más pesado de cada recarga. Se cachea por CRITERIOS de búsqueda:
+# descartar/enviar/asignar/cambiar prioridad NO cambia los criterios → no recalcula.
+@st.cache_data(ttl=300, show_spinner=False, max_entries=3)
+def cruce_cacheado(clave_criterios, clave_posts, score_min, fp, fa, pp,
+                   _clientes, _posts):
+    return matcher.cruzar(_clientes, _posts, score_minimo=score_min,
+                          flex_precio=fp, flex_area=fa, piso_precio=pp)
+
+
+@st.cache_data(ttl=300, show_spinner=False, max_entries=2)
+def pdf_aliados_cacheado(clave, _todos, _logo):
+    from src import fichas as _f
+    return _f.generar_pdf(_todos, logo_png=_logo)
+
+
+@st.cache_data(ttl=300, show_spinner=False, max_entries=2)
+def pdf_fuentes_cacheado(stats, portales, logo_len, _logo):
+    from src import fichas as _f
+    return _f.pdf_fuentes(stats, portales, logo_png=_logo)
+
+
+@st.cache_data(ttl=300, show_spinner=False, max_entries=2)
+def excel_clientes_cacheado(clave, _df):
+    return excel_bytes(_df)
 
 EXTRAS_LEGIBLES = {
     "cuarto_servicio": "cuarto de servicio", "balcon": "balcón",
@@ -636,14 +679,12 @@ if correr:
 
 # ===== INMUEBLE MANUAL → CLIENTES ============================
 def cargar_inmuebles_manuales():
-    try:
-        return json.loads(db.leer_meta("inmuebles_manuales") or "[]")
-    except json.JSONDecodeError:
-        return []
+    return _manuales_cacheados()
 
 
 def guardar_inmuebles_manuales(lista):
     db.guardar_meta("inmuebles_manuales", json.dumps(lista, ensure_ascii=False))
+    _manuales_cacheados.clear()
 
 
 def _norm_link(u):
@@ -721,10 +762,7 @@ with tab_fuentes:
 
     # 📄 PDF interno con TODAS las fuentes y sus links (para revisión manual).
     try:
-        import base64 as _b64f
-        from src import fichas as _fichas_f
-        _logo_b64f = db.leer_meta("logo_png_b64")
-        _logo_f = _b64f.b64decode(_logo_b64f) if _logo_b64f else None
+        _logo_f = logo_bytes_cacheado()
         _stats_f = []
         for cta in _orden_ctas:
             _pubs_c = _posts_f.get(cta, [])
@@ -733,7 +771,8 @@ with tab_fuentes:
                              "restringida": cta in _restr_us})
         st.download_button(
             "📄 Descargar PDF con todas las fuentes y sus links (revisión manual)",
-            _fichas_f.pdf_fuentes(_stats_f, config.leer_portales(), logo_png=_logo_f),
+            pdf_fuentes_cacheado(_stats_f, config.leer_portales(),
+                                 len(_logo_f or b""), _logo_f),
             f"fuentes_nova_{datetime.now(timezone.utc).date().isoformat()}.pdf",
             "application/pdf",
             help="Documento INTERNO: trae los links clicables de cada perfil y portal. "
@@ -949,8 +988,8 @@ def clientes_a_df(lista):
 
 
 def refrescar_hoja_clientes():
-    """Limpia la caché de datos para que la interfaz muestre lo último guardado."""
-    st.cache_data.clear()
+    """Refresca los clientes en pantalla (sin botar el catálogo de inmuebles)."""
+    clientes_cacheados.clear()
 
 
 def coincide_busqueda(cliente, q):
@@ -1404,12 +1443,11 @@ with tab_clientes:
     # Ficha elegante para compartir con otras inmobiliarias: clientes ACTIVOS,
     # nombre anonimizado ("Alfonso R.") y sin teléfonos ni notas privadas.
     try:
-        import base64 as _b64
-        from src import fichas
-        _logo_b64 = db.leer_meta("logo_png_b64")
-        _logo = _b64.b64decode(_logo_b64) if _logo_b64 else None
+        _logo = logo_bytes_cacheado()
+        _clave_cli = hashlib.md5((json.dumps(todos, ensure_ascii=False, default=str)
+                                  + str(len(_logo or b""))).encode()).hexdigest()
         c1.download_button(
-            "📄 Ficha para aliados (PDF)", fichas.generar_pdf(todos, logo_png=_logo),
+            "📄 Ficha para aliados (PDF)", pdf_aliados_cacheado(_clave_cli, todos, _logo),
             f"busquedas_nova_{datetime.now(timezone.utc).date().isoformat()}.pdf",
             "application/pdf", use_container_width=True,
             help="Diseño listo para enviar a otras inmobiliarias: búsquedas activas con "
@@ -1421,7 +1459,11 @@ with tab_clientes:
         todos, key=lambda c: ((c.get("operacion") or "venta") == "arriendo",
                               -(c.get("presupuesto_max") or 0)))
     c2.download_button(
-        "⬇️ Copia de respaldo (Excel)", excel_bytes(clientes_a_df(_orden_aliados)),
+        "⬇️ Copia de respaldo (Excel)",
+        excel_clientes_cacheado(
+            hashlib.md5(json.dumps(_orden_aliados, ensure_ascii=False,
+                                   default=str).encode()).hexdigest(),
+            clientes_a_df(_orden_aliados)),
         "clientes.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
@@ -1677,11 +1719,19 @@ with tab_resultados:
         if n_nuevos:
             st.success(f"🆕 **{n_nuevos} inmueble(s) entraron en las últimas 24 horas.** "
                        "En las tarjetas los reconoces por la insignia 🆕.")
-        resultados = matcher.cruzar(
-            clientes, posts, score_minimo=score_min,
-            flex_precio=flex_precio / 100, flex_area=flex_area / 100,
-            piso_precio=piso_precio / 100,
-        )
+        _CAMPOS_CRUCE = ("nombre", "operacion", "tipo", "barrios", "zona",
+                         "presupuesto_min", "presupuesto_max", "habitaciones_min",
+                         "habitaciones_max", "area_min", "area_max", "banos_min",
+                         "extras", "obligatorios", "flexibilidad",
+                         "exclusiones", "preferencias_evitar")
+        _crit = json.dumps([[c.get(k) for k in _CAMPOS_CRUCE] for c in clientes],
+                           ensure_ascii=False, default=str)
+        _clave_posts = f"{len(posts)}|" + hashlib.md5(
+            "|".join(str(p.get("id")) for p in posts).encode()).hexdigest()
+        resultados = cruce_cacheado(
+            hashlib.md5(_crit.encode()).hexdigest(), _clave_posts, score_min,
+            flex_precio / 100, flex_area / 100, piso_precio / 100,
+            clientes, posts)
 
         # Ocultar inmuebles que ya están en el embudo de seguimiento del cliente
         # (por id, por sus copias gemelas en otras fuentes, y por huella).
