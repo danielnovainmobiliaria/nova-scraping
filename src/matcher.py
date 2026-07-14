@@ -614,7 +614,12 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
         precio_total = precio + admin
     peso_total += 30
     if presupuesto and precio:
-        factor, razon, ok = _factor_precio(precio_total, presupuesto, flex_precio, piso_precio)
+        # Si el broker dio un MÍNIMO explícito ("de 2.700 a 3.600"), ese manda
+        # sobre el piso automático del 80%.
+        pmin = cliente.get("presupuesto_min")
+        piso_efectivo = (pmin / presupuesto) if pmin else piso_precio
+        factor, razon, ok = _factor_precio(precio_total, presupuesto, flex_precio,
+                                           piso_efectivo)
         if factor < 0:
             return None  # fuera del rango (muy caro o muy barato)
         if precio_total != precio:
