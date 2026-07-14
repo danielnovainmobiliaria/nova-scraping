@@ -454,3 +454,51 @@ def eliminar(nombre: str) -> None:
     lista = [c for c in cargar_guardados()
              if c.get("nombre", "").lower() != nombre.lower()]
     guardar_lista(lista)
+    # Lápida: recuerda que se borró a propósito, para que una re-importación
+    # (CSV de Zoho / Excel de respaldo) no lo reviva sin querer.
+    _guardar_borrados(nombres_borrados() | {_norm_nombre(nombre)})
+
+
+def nombres_borrados() -> set[str]:
+    """Nombres (normalizados) de clientes que el broker borró a propósito."""
+    try:
+        from . import db
+        return set(json.loads(db.leer_meta("clientes_borrados") or "[]"))
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def _guardar_borrados(nombres: set[str]) -> None:
+    try:
+        from . import db
+        db.guardar_meta("clientes_borrados", json.dumps(sorted(nombres),
+                                                        ensure_ascii=False))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def revivir(nombre: str) -> None:
+    """Quita la lápida (cuando el broker RE-CREA al cliente a propósito)."""
+    b = nombres_borrados()
+    n = _norm_nombre(nombre)
+    if n in b:
+        b.discard(n)
+        _guardar_borrados(b)
+
+
+def filtrar_borrados(nuevos: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Separa de una importación los clientes que el broker borró antes.
+
+    Devuelve (los_que_pasan, nombres_omitidos). Si el cliente está VIVO en la
+    lista actual, pasa siempre (es una actualización, no una resurrección)."""
+    vivos = {_norm_nombre(c.get("nombre", "")) for c in cargar_guardados()}
+    b = nombres_borrados()
+    dentro: list[dict[str, Any]] = []
+    fuera: list[str] = []
+    for c in nuevos:
+        n = _norm_nombre(c.get("nombre", ""))
+        if n in b and n not in vivos:
+            fuera.append(c.get("nombre", ""))
+        else:
+            dentro.append(c)
+    return dentro, fuera

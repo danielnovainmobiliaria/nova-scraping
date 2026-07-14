@@ -1147,6 +1147,10 @@ with tab_clientes:
                         st.warning("No encontré datos de clientes en el texto. "
                                    "Incluye al menos un nombre.")
                     else:
+                        # Crear desde el cuadro maestro es intención explícita:
+                        # si el cliente estaba borrado, se le quita la lápida.
+                        for _c_n in nuevos:
+                            mod_clientes.revivir(_c_n.get("nombre", ""))
                         existentes = mod_clientes.cargar_guardados()
                         antes = len(existentes)
                         nombres_previos = {mod_clientes._norm_nombre(c.get("nombre", ""))
@@ -1356,6 +1360,13 @@ with tab_clientes:
 
                     from src import extractor
                     nuevos = extractor.interpretar_clientes(textos, log=log_ia)
+                    # Los que borraste a propósito NO reviven por un archivo.
+                    nuevos, _omitidos_b = mod_clientes.filtrar_borrados(nuevos)
+                    if _omitidos_b:
+                        st.info("🪦 Omití " + ", ".join(_omitidos_b[:8])
+                                + (" y más" if len(_omitidos_b) > 8 else "")
+                                + " porque los borraste antes. Si quieres revivir a "
+                                  "alguno, créalo con el cuadro maestro 🤖.")
                     existentes = mod_clientes.cargar_guardados()
                     nombres_previos = {mod_clientes._norm_nombre(c.get("nombre", ""))
                                        for c in existentes}
@@ -1475,8 +1486,12 @@ with tab_clientes:
             try:
                 # Conserva el seguimiento CRM (procesos, exclusiones, comisiones) de los
                 # clientes que ya existían: el Excel solo trae los requerimientos.
-                mod_clientes.guardar_lista(
-                    mod_clientes.fusionar_crm(mod_clientes.cargar_clientes(archivo)))
+                _desde_excel, _omitidos_x = mod_clientes.filtrar_borrados(
+                    mod_clientes.cargar_clientes(archivo))
+                mod_clientes.guardar_lista(mod_clientes.fusionar_crm(_desde_excel))
+                if _omitidos_x:
+                    st.info("🪦 Omití " + ", ".join(_omitidos_x[:8])
+                            + " (los borraste antes; revívelos con el cuadro maestro).")
                 st.success("¡Restaurado! (El seguimiento CRM de tus clientes se conservó.)")
                 refrescar_hoja_clientes()
                 st.rerun()
