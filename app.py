@@ -2422,6 +2422,14 @@ with tab_busqueda:
         _visitas_b = _cli_b.get("visitas_fuentes") or {}
         _hoy_b = datetime.now(timezone.utc).date()
 
+        # Última visita GENERAL a cada fuente (sin importar el cliente): útil para
+        # saber que ya pasaste por ahí ayer aunque fuera buscando para otro.
+        _global_vis = {}
+        for _c_g in clientes_cacheados():
+            for _fid_g, _fch_g in (_c_g.get("visitas_fuentes") or {}).items():
+                if _fid_g not in _global_vis or str(_fch_g) > str(_global_vis[_fid_g][0]):
+                    _global_vis[_fid_g] = (_fch_g, _c_g.get("nombre", ""))
+
         def _dias_visita(fid):
             try:
                 return (_hoy_b - date.fromisoformat(str(_visitas_b.get(fid)))).days
@@ -2450,6 +2458,16 @@ with tab_busqueda:
             _texto_v = ("**nunca** la has revisado para este cliente" if _d_b is None
                         else ("visitada **hoy**" if _d_b == 0
                               else f"última visita **hace {_d_b} día{'s' if _d_b != 1 else ''}**"))
+            _g_v = _global_vis.get(_f["id"])
+            if _g_v and str(_visitas_b.get(_f["id"]) or "") < str(_g_v[0]):
+                try:
+                    _dg_v = (_hoy_b - date.fromisoformat(str(_g_v[0]))).days
+                    _texto_v += (" · 👁️ la abriste "
+                                 + ("hoy" if _dg_v == 0 else f"hace {_dg_v} día"
+                                    + ("s" if _dg_v != 1 else ""))
+                                 + f" buscando para {esc_md(_g_v[1])}")
+                except ValueError:
+                    pass
             _cb1.markdown(f"{_sem_visita(_d_b)} {_f['tipo']} **{esc_md(_f['id'])}** — {_texto_v}")
             _kf = hashlib.md5((_nom_b + _f["id"]).encode()).hexdigest()[:10]
             if _f["url"]:
