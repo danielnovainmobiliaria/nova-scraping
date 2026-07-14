@@ -1224,8 +1224,8 @@ with tab_clientes:
             else:
                 with st.form("form_manual"):
                     g1, g2 = st.columns(2)
-                    e_nombre = g1.text_input("Nombre", value=cliente_m.get("nombre", ""))
-                    e_tel = g2.text_input("Teléfono", value=cliente_m.get("telefono", ""))
+                    e_nombre = g1.text_input("Nombre", value=cliente_m.get("nombre") or "")
+                    e_tel = g2.text_input("Teléfono", value=cliente_m.get("telefono") or "")
                     g1, g2, g3 = st.columns(3)
                     e_op = g1.selectbox("Compra / Arriendo", ["venta", "arriendo"],
                                         index=0 if (cliente_m.get("operacion") or "venta") == "venta" else 1)
@@ -1237,7 +1237,7 @@ with tab_clientes:
                     e_prio = g3.selectbox("Prioridad", PRIORIDAD_OPCIONES,
                                           index=PRIORIDAD_OPCIONES.index(prioridad_de(cliente_m)),
                                           format_func=lambda x: BADGE_PRIORIDAD.get(x, x))
-                    e_zona = st.text_input("Zona", value=cliente_m.get("zona", ""))
+                    e_zona = st.text_input("Zona", value=cliente_m.get("zona") or "")
                     e_barrios = st.text_input("Barrios", value=lista_a_texto(cliente_m.get("barrios")))
                     e_pres = st.text_input("Presupuesto",
                                            value=matcher.formato_cop(cliente_m.get("presupuesto_max")))
@@ -1256,7 +1256,7 @@ with tab_clientes:
                         "🔒 No negociable", OBLIGATORIOS_OPCIONES,
                         format_func=lambda x: ETIQUETA_OBLIGATORIO.get(x, x),
                         default=[x for x in (cliente_m.get("obligatorios") or []) if x in OBLIGATORIOS_OPCIONES])
-                    e_notas = st.text_input("Notas", value=cliente_m.get("notas", ""))
+                    e_notas = st.text_input("Notas", value=cliente_m.get("notas") or "")
                     if st.form_submit_button("💾 Guardar cambios manuales", type="primary"):
                         clientes_g = mod_clientes.cargar_guardados()
                         colision = any(
@@ -1270,13 +1270,13 @@ with tab_clientes:
                             st.stop()
                         for c in clientes_g:
                             if c.get("nombre") == sel_m:
-                                c["nombre"] = e_nombre.strip()
-                                c["telefono"] = "".join(ch for ch in e_tel if ch.isdigit())
+                                c["nombre"] = (e_nombre or "").strip()
+                                c["telefono"] = "".join(ch for ch in (e_tel or "") if ch.isdigit())
                                 c["operacion"] = e_op
                                 c["flexibilidad"] = e_flex
                                 c["prioridad"] = e_prio
                                 c["barrios"] = texto_a_lista(e_barrios)
-                                c["zona"] = e_zona.strip()
+                                c["zona"] = (e_zona or "").strip()
                                 c["presupuesto_max"] = parse_cop(e_pres)
                                 c["area_min"] = num_o_none(e_amin)
                                 c["area_max"] = num_o_none(e_amax)
