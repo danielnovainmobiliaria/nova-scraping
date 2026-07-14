@@ -18,6 +18,7 @@ from datetime import date, datetime, timedelta, timezone
 import pandas as pd
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
 from src import clientes as mod_clientes
 from src import config, db, matcher
@@ -2369,10 +2370,10 @@ def _guardar_fuentes_extra(lista):
 
 with tab_busqueda:
     st.subheader("🔍 Búsqueda manual por cliente")
-    st.caption("Elige un cliente, abre cada fuente con 🔗 y, cuando la revises, dale "
-               "**✔ La revisé hoy**. La herramienta recuerda cuándo revisaste cada fuente "
-               "**para ese cliente** y te pone de primeras las olvidadas. El estado real "
-               "está en el semáforo de cada fila (⚫ = sin visitar).")
+    st.caption("Elige un cliente y dale **🔗 Abrir**: el perfil se abre en pestaña nueva "
+               "y la visita **se registra sola** para ese cliente. El semáforo de cada "
+               "fila muestra el estado (⚫ = sin visitar) y las olvidadas van de primeras. "
+               "El ✔ es por si quieres marcarla sin abrirla.")
 
     _activos_b = [c for c in clientes_cacheados()
                   if (c.get("estado") or "activo") == "activo"]
@@ -2445,20 +2446,39 @@ with tab_busqueda:
                                           else _dias_visita(f["id"])))
         for _f in _orden_b:
             _d_b = _dias_visita(_f["id"])
-            _cb1, _cb2, _cb3 = st.columns([5, 2, 2])
+            _cb1, _cb2, _cb3 = st.columns([5, 2.4, 1.6])
             _texto_v = ("**nunca** la has revisado para este cliente" if _d_b is None
                         else ("visitada **hoy**" if _d_b == 0
                               else f"última visita **hace {_d_b} día{'s' if _d_b != 1 else ''}**"))
             _cb1.markdown(f"{_sem_visita(_d_b)} {_f['tipo']} **{esc_md(_f['id'])}** — {_texto_v}")
-            if _f["url"]:
-                _cb2.link_button("🔗 Abrir", _f["url"], use_container_width=True)
             _kf = hashlib.md5((_nom_b + _f["id"]).encode()).hexdigest()[:10]
-            if _cb3.button("✔ La revisé hoy", key=f"bmv_{_kf}", use_container_width=True,
-                           help="Dale clic DESPUÉS de revisar esta fuente: apunta hoy "
-                                f"como tu última visita buscando para {_nom_b}."):
-                mod_clientes.marcar_visita_fuente(_nom_b, _f["id"], _hoy_b.isoformat())
-                st.toast(f"✅ {_f['id']} visitada hoy para {_nom_b}")
-                st.rerun()
+            if _f["url"]:
+                # UN solo clic: abre el perfil en pestaña nueva Y le da clic al botón
+                # ✔ de esta misma fila (la marca sola, sin recargar la página).
+                _url_js = json.dumps(_f["url"].replace("'", "%27"))
+                _sel_js = json.dumps(f'div[class*="st-key-autov{_kf}"] button')
+                with _cb2:
+                    components.html(
+                        "<body style='margin:0'><a href='#' onclick='"
+                        f"try {{ window.parent.open({_url_js}, \"_blank\"); }}"
+                        f" catch(e) {{ window.open({_url_js}, \"_blank\"); }}"
+                        f" try {{ const b = window.parent.document.querySelector({_sel_js});"
+                        " if (b) b.click(); } catch(e) {} return false;'"
+                        " style=\"display:flex;align-items:center;justify-content:center;"
+                        "height:38px;border:1px solid #B08D57;border-radius:10px;"
+                        "color:#3E2F25;text-decoration:none;background:transparent;"
+                        "font-family:'Source Sans Pro',sans-serif;font-size:14px;"
+                        "font-weight:600;\">🔗 Abrir (se marca sola)</a></body>",
+                        height=42)
+            with _cb3:
+                with st.container(key=f"autov{_kf}"):
+                    if st.button("✔", key=f"bmv_{_kf}", use_container_width=True,
+                                 help="Marcarla sin abrirla (o por si el registro "
+                                      "automático no corrió)."):
+                        mod_clientes.marcar_visita_fuente(_nom_b, _f["id"],
+                                                          _hoy_b.isoformat())
+                        st.toast(f"✅ {_f['id']} visitada hoy para {_nom_b}")
+                        st.rerun()
 
         st.divider()
         with st.expander("➕ Fuentes extra solo para búsqueda manual "
