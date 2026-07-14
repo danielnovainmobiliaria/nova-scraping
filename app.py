@@ -2369,9 +2369,10 @@ def _guardar_fuentes_extra(lista):
 
 with tab_busqueda:
     st.subheader("🔍 Búsqueda manual por cliente")
-    st.caption("Elige un cliente, abre cada fuente con su link y márcala **✅ Visitada**. "
-               "La herramienta recuerda cuándo revisaste cada fuente **para ese cliente** "
-               "y te pone de primeras las olvidadas.")
+    st.caption("Elige un cliente, abre cada fuente con 🔗 y, cuando la revises, dale "
+               "**✔ La revisé hoy**. La herramienta recuerda cuándo revisaste cada fuente "
+               "**para ese cliente** y te pone de primeras las olvidadas. El estado real "
+               "está en el semáforo de cada fila (⚫ = sin visitar).")
 
     _activos_b = [c for c in clientes_cacheados()
                   if (c.get("estado") or "activo") == "activo"]
@@ -2452,9 +2453,9 @@ with tab_busqueda:
             if _f["url"]:
                 _cb2.link_button("🔗 Abrir", _f["url"], use_container_width=True)
             _kf = hashlib.md5((_nom_b + _f["id"]).encode()).hexdigest()[:10]
-            if _cb3.button("✅ Visitada", key=f"bmv_{_kf}", use_container_width=True,
-                           help="Apunta HOY como tu última revisión de esta fuente "
-                                f"buscando para {_nom_b}."):
+            if _cb3.button("✔ La revisé hoy", key=f"bmv_{_kf}", use_container_width=True,
+                           help="Dale clic DESPUÉS de revisar esta fuente: apunta hoy "
+                                f"como tu última visita buscando para {_nom_b}."):
                 mod_clientes.marcar_visita_fuente(_nom_b, _f["id"], _hoy_b.isoformat())
                 st.toast(f"✅ {_f['id']} visitada hoy para {_nom_b}")
                 st.rerun()
