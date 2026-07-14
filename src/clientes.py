@@ -118,6 +118,9 @@ CRM_CAMPOS = {
     "exclusiones": {},
     # Inmuebles que el broker asignó a dedo (por link) a este cliente.
     "asignados": [],
+    # Búsqueda manual: cuándo visitó el broker cada fuente PARA este cliente.
+    # {"@perfil": "2026-07-10", "https://portal...": "2026-07-08"}
+    "visitas_fuentes": {},
 }
 
 # Estados del embudo de seguimiento de cada inmueble enviado a un cliente.
@@ -276,6 +279,17 @@ def aprendizajes_cliente(cliente: dict[str, Any]) -> list[str]:
                 continue
             notas.append(pr["observaciones"].strip())
     return notas
+
+
+def marcar_visita_fuente(nombre: str, fuente: str, fecha: str) -> None:
+    """Apunta que el broker visitó una fuente buscando para un cliente."""
+    lista = cargar_guardados()
+    for c in lista:
+        if c.get("nombre", "").lower() == nombre.lower():
+            v = c.get("visitas_fuentes") or {}
+            v[fuente] = fecha
+            c["visitas_fuentes"] = v
+    guardar_lista(lista)
 
 
 def asignar_inmueble(nombre: str, entrada: dict[str, Any]) -> None:

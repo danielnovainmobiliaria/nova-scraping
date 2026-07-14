@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 import requests
@@ -701,8 +701,8 @@ def _norm_link(u):
 
 
 # ── Pestañas ──────────────────────────────────────────────────
-tab_fuentes, tab_clientes, tab_resultados, tab_crm = st.tabs(
-    ["1️⃣ Fuentes", "2️⃣ Clientes", "3️⃣ Coincidencias", "4️⃣ CRM"]
+tab_fuentes, tab_clientes, tab_resultados, tab_crm, tab_busqueda = st.tabs(
+    ["1️⃣ Fuentes", "2️⃣ Clientes", "3️⃣ Coincidencias", "4️⃣ CRM", "5️⃣ Búsqueda manual"]
 )
 
 # Etiquetas visuales de los estados del negocio.
@@ -2351,3 +2351,135 @@ with tab_crm:
                             st.success(f"Seguimiento de {nombre} guardado.")
                             st.rerun()
 
+
+
+# ===== 5. BÚSQUEDA MANUAL POR CLIENTE ========================
+@st.cache_data(ttl=120, show_spinner=False)
+def _fuentes_extra_cacheadas():
+    try:
+        return json.loads(db.leer_meta("fuentes_busqueda_extra") or "[]")
+    except json.JSONDecodeError:
+        return []
+
+
+def _guardar_fuentes_extra(lista):
+    db.guardar_meta("fuentes_busqueda_extra", json.dumps(lista, ensure_ascii=False))
+    _fuentes_extra_cacheadas.clear()
+
+
+with tab_busqueda:
+    st.subheader("🔍 Búsqueda manual por cliente")
+    st.caption("Elige un cliente, abre cada fuente con su link y márcala **✅ Visitada**. "
+               "La herramienta recuerda cuándo revisaste cada fuente **para ese cliente** "
+               "y te pone de primeras las olvidadas.")
+
+    _activos_b = [c for c in clientes_cacheados()
+                  if (c.get("estado") or "activo") == "activo"]
+    _activos_b = sorted(_activos_b,
+                        key=lambda c: (RANGO_PRIORIDAD.get(prioridad_de(c), 1),
+                                       c.get("nombre", "")))
+    if not _activos_b:
+        st.info("No hay clientes activos. Créalos en la pestaña **2️⃣ Clientes**.")
+    else:
+        _ops_b = {f"{ICONO_PRIORIDAD.get(prioridad_de(c), '')}{c['nombre']}": c
+                  for c in _activos_b}
+        _sel_b = st.selectbox("👤 ¿Para quién vas a buscar?", list(_ops_b),
+                              key="bm_cliente")
+        _cli_b = _ops_b[_sel_b]
+        _nom_b = _cli_b["nombre"]
+
+        # La ficha del cliente a la vista mientras buscas.
+        _pide = []
+        if _cli_b.get("operacion"):
+            _pide.append(("🔑 Compra" if _cli_b["operacion"] != "arriendo"
+                          else "🏠 Arriendo"))
+        if _cli_b.get("barrios"):
+            _pide.append("📍 " + ", ".join(_cli_b["barrios"]))
+        _pmin_b, _pmax_b = _cli_b.get("presupuesto_min"), _cli_b.get("presupuesto_max")
+        if _pmax_b:
+            _pide.append("💵 " + (f"{matcher.formato_cop(_pmin_b)} - " if _pmin_b else "hasta ")
+                         + f"{matcher.formato_cop(_pmax_b)}")
+        _hmin_b, _hmax_b = _cli_b.get("habitaciones_min"), _cli_b.get("habitaciones_max")
+        if _hmin_b:
+            _pide.append(f"🛏️ {_hmin_b:g}" + (f"-{_hmax_b:g}" if _hmax_b and _hmax_b != _hmin_b
+                                              else "") + " hab")
+        if _cli_b.get("area_min") or _cli_b.get("area_max"):
+            _pide.append(f"📐 {_cli_b.get('area_min') or '?'}-{_cli_b.get('area_max') or '?'} m²")
+        if _pide:
+            st.info("**Busca:**  " + "  ·  ".join(_pide)
+                    + (f"\n\n📝 {_cli_b['notas']}" if _cli_b.get("notas") else ""))
+
+        # Todas las fuentes: perfiles IG + portales + extras que alimentes aquí.
+        _fuentes_b = [{"id": f"@{u}", "url": f"https://www.instagram.com/{u}/",
+                       "tipo": "📷"} for u in config.leer_cuentas()]
+        _fuentes_b += [{"id": u.replace("https://", "").replace("http://", "").rstrip("/"),
+                        "url": u, "tipo": "🏠"} for u in config.leer_portales()]
+        _fuentes_b += [{"id": (x.get("nombre") or x.get("url", "")), "url": x.get("url", ""),
+                        "tipo": "🔗"} for x in _fuentes_extra_cacheadas() if x.get("url")]
+
+        _visitas_b = _cli_b.get("visitas_fuentes") or {}
+        _hoy_b = datetime.now(timezone.utc).date()
+
+        def _dias_visita(fid):
+            try:
+                return (_hoy_b - date.fromisoformat(str(_visitas_b.get(fid)))).days
+            except (TypeError, ValueError):
+                return None
+
+        def _sem_visita(d):
+            if d is None:
+                return "⚫"
+            return "🟢" if d <= 2 else ("🟡" if d <= 7 else ("🟠" if d <= 14 else "🔴"))
+
+        _nunca_n = sum(1 for f in _fuentes_b if _dias_visita(f["id"]) is None)
+        _viejas_n = sum(1 for f in _fuentes_b
+                        if (_dias_visita(f["id"]) or 0) > 7 and _dias_visita(f["id"]) is not None)
+        st.caption(f"🗺️ {len(_fuentes_b)} fuente(s) para **{_nom_b}** · "
+                   f"⚫ {_nunca_n} sin visitar · 🔴🟠 {_viejas_n} con más de una semana. "
+                   "Orden: primero las más olvidadas.")
+
+        # Primero las nunca visitadas, luego de la visita más vieja a la más reciente.
+        _orden_b = sorted(_fuentes_b,
+                          key=lambda f: -(10**6 if _dias_visita(f["id"]) is None
+                                          else _dias_visita(f["id"])))
+        for _f in _orden_b:
+            _d_b = _dias_visita(_f["id"])
+            _cb1, _cb2, _cb3 = st.columns([5, 2, 2])
+            _texto_v = ("**nunca** la has revisado para este cliente" if _d_b is None
+                        else ("visitada **hoy**" if _d_b == 0
+                              else f"última visita **hace {_d_b} día{'s' if _d_b != 1 else ''}**"))
+            _cb1.markdown(f"{_sem_visita(_d_b)} {_f['tipo']} **{esc_md(_f['id'])}** — {_texto_v}")
+            if _f["url"]:
+                _cb2.link_button("🔗 Abrir", _f["url"], use_container_width=True)
+            _kf = hashlib.md5((_nom_b + _f["id"]).encode()).hexdigest()[:10]
+            if _cb3.button("✅ Visitada", key=f"bmv_{_kf}", use_container_width=True,
+                           help="Apunta HOY como tu última revisión de esta fuente "
+                                f"buscando para {_nom_b}."):
+                mod_clientes.marcar_visita_fuente(_nom_b, _f["id"], _hoy_b.isoformat())
+                st.toast(f"✅ {_f['id']} visitada hoy para {_nom_b}")
+                st.rerun()
+
+        st.divider()
+        with st.expander("➕ Fuentes extra solo para búsqueda manual "
+                         "(grupos de Facebook, páginas que el robot no lee, etc.)"):
+            st.caption("Los perfiles de Instagram y portales se administran en **1️⃣ Fuentes** "
+                       "y aparecen aquí solos. Esto es para links adicionales tuyos.")
+            with st.form("form_fuente_extra", clear_on_submit=True):
+                _fx_nom = st.text_input("Nombre corto", placeholder="ej: Grupo FB Chicó")
+                _fx_url = st.text_input("Link", placeholder="https://…")
+                if st.form_submit_button("➕ Agregar fuente") and _fx_url.strip():
+                    _lista_fx = _fuentes_extra_cacheadas()
+                    if any(x.get("url") == _fx_url.strip() for x in _lista_fx):
+                        st.warning("Ese link ya está en la lista.")
+                    else:
+                        _lista_fx.append({"nombre": _fx_nom.strip(),
+                                          "url": _fx_url.strip()})
+                        _guardar_fuentes_extra(_lista_fx)
+                        st.rerun()
+            _lista_fx = _fuentes_extra_cacheadas()
+            for _i_fx, _x_fx in enumerate(_lista_fx):
+                _cx1, _cx2 = st.columns([6, 1])
+                _cx1.markdown(f"🔗 [{esc_md(_x_fx.get('nombre') or _x_fx['url'])}]({_x_fx['url']})")
+                if _cx2.button("🗑️", key=f"del_fx_{_i_fx}", help="Quitar esta fuente extra"):
+                    _guardar_fuentes_extra([x for j, x in enumerate(_lista_fx) if j != _i_fx])
+                    st.rerun()
