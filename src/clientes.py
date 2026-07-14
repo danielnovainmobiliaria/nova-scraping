@@ -453,10 +453,24 @@ def agregar_o_actualizar(cliente: dict[str, Any]) -> None:
 def eliminar(nombre: str) -> None:
     lista = [c for c in cargar_guardados()
              if c.get("nombre", "").lower() != nombre.lower()]
+    borrados = [c for c in cargar_guardados()
+                if c.get("nombre", "").lower() == nombre.lower()]
     guardar_lista(lista)
     # Lápida: recuerda que se borró a propósito, para que una re-importación
     # (CSV de Zoho / Excel de respaldo) no lo reviva sin querer.
     _guardar_borrados(nombres_borrados() | {_norm_nombre(nombre)})
+    # Papelera: copia COMPLETA del cliente (requerimientos + CRM + procesos),
+    # por si el broker se arrepiente o el cliente vuelve a escribir.
+    if borrados:
+        try:
+            from . import db
+            pap = json.loads(db.leer_meta("clientes_papelera") or "[]")
+            pap = [x for x in pap
+                   if _norm_nombre(x.get("nombre", "")) != _norm_nombre(nombre)]
+            pap.insert(0, {**borrados[0], "_borrado_el": date.today().isoformat()})
+            db.guardar_meta("clientes_papelera", json.dumps(pap[:20], ensure_ascii=False))
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def nombres_borrados() -> set[str]:
@@ -484,6 +498,35 @@ def revivir(nombre: str) -> None:
     if n in b:
         b.discard(n)
         _guardar_borrados(b)
+
+
+def papelera() -> list[dict[str, Any]]:
+    """Clientes borrados recientemente (máx. 20), con todo su historial."""
+    try:
+        from . import db
+        return json.loads(db.leer_meta("clientes_papelera") or "[]")
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def restaurar_de_papelera(nombre: str) -> bool:
+    """Revive un cliente desde la papelera con TODO su historial."""
+    from . import db
+    pap = papelera()
+    objetivo = next((x for x in pap
+                     if _norm_nombre(x.get("nombre", "")) == _norm_nombre(nombre)), None)
+    if objetivo is None:
+        return False
+    objetivo = {k: v for k, v in objetivo.items() if k != "_borrado_el"}
+    lista = cargar_guardados()
+    if not any(_norm_nombre(c.get("nombre", "")) == _norm_nombre(nombre) for c in lista):
+        lista.append(_con_crm(objetivo))
+        guardar_lista(lista)
+    revivir(nombre)
+    db.guardar_meta("clientes_papelera", json.dumps(
+        [x for x in pap if _norm_nombre(x.get("nombre", "")) != _norm_nombre(nombre)],
+        ensure_ascii=False))
+    return True
 
 
 def filtrar_borrados(nuevos: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:

@@ -1514,6 +1514,26 @@ with tab_clientes:
     st.session_state["clientes"] = clientes_cacheados()
     cols_pie = st.columns([2, 1])
     cols_pie[0].caption(f"👥 {len(st.session_state['clientes'])} cliente(s) guardado(s).")
+    _pap = mod_clientes.papelera()
+    if _pap:
+        with st.expander(f"♻️ Papelera de clientes ({len(_pap)}) — restaurar borrados"):
+            st.caption("Copia completa de los últimos borrados (requerimientos, "
+                       "seguimiento e inmuebles trabajados). Restaurar lo revive TODO.")
+            for _x_p in _pap:
+                _cp1, _cp2 = st.columns([5, 2])
+                _cp1.markdown(f"👤 **{esc_md(_x_p.get('nombre', '?'))}** · "
+                              f"{'🏠 arriendo' if (_x_p.get('operacion') or 'venta') == 'arriendo' else '🔑 compra'} · "
+                              f"{len(_x_p.get('procesos') or [])} inmueble(s) trabajados · "
+                              f"borrado el {_x_p.get('_borrado_el', '?')}")
+                if _cp2.button("♻️ Restaurar",
+                               key=f"rest_{mod_clientes._norm_nombre(_x_p.get('nombre', ''))}",
+                               use_container_width=True):
+                    if mod_clientes.restaurar_de_papelera(_x_p.get("nombre", "")):
+                        refrescar_hoja_clientes()
+                        st.success(f"«{_x_p.get('nombre')}» restaurado con todo su "
+                                   "historial. ✅")
+                        st.rerun()
+
     if cols_pie[1].button("🧹 Unir duplicados", use_container_width=True,
                           help="Junta clientes repetidos (mismo nombre o teléfono) en uno solo."):
         actuales = mod_clientes.cargar_guardados()
