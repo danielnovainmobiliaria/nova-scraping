@@ -2377,13 +2377,17 @@ with tab_busqueda:
 
     _activos_b = [c for c in clientes_cacheados()
                   if (c.get("estado") or "activo") == "activo"]
+    # Compras primero, luego arriendos (igual que CRM y Coincidencias);
+    # dentro de cada grupo por prioridad 🔥 y nombre.
     _activos_b = sorted(_activos_b,
-                        key=lambda c: (RANGO_PRIORIDAD.get(prioridad_de(c), 1),
+                        key=lambda c: ((c.get("operacion") or "venta") == "arriendo",
+                                       RANGO_PRIORIDAD.get(prioridad_de(c), 1),
                                        c.get("nombre", "")))
     if not _activos_b:
         st.info("No hay clientes activos. Créalos en la pestaña **2️⃣ Clientes**.")
     else:
-        _ops_b = {f"{ICONO_PRIORIDAD.get(prioridad_de(c), '')}{c['nombre']}": c
+        _ops_b = {(f"{'🏠' if (c.get('operacion') or 'venta') == 'arriendo' else '🔑'} "
+                   f"{ICONO_PRIORIDAD.get(prioridad_de(c), '')}{c['nombre']}"): c
                   for c in _activos_b}
         _sel_b = st.selectbox("👤 ¿Para quién vas a buscar?", list(_ops_b),
                               key="bm_cliente")
