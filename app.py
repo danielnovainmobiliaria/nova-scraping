@@ -957,7 +957,7 @@ def texto_a_lista(v) -> list[str]:
 
 
 # Columnas de la "hoja de clientes" dentro de la app.
-COLS_HOJA = ["⏳", "🔍", "nombre", "telefono", "operacion", "flexibilidad", "prioridad", "barrios", "zona", "presupuesto",
+COLS_HOJA = ["⏳", "🔍", "🗑️", "nombre", "telefono", "operacion", "flexibilidad", "prioridad", "barrios", "zona", "presupuesto",
              "area_min", "area_max", "habitaciones_min", "habitaciones_max", "banos_min",
              "extras", "obligatorios", "notas"]
 
@@ -969,6 +969,7 @@ def clientes_a_df(lista):
         filas.append({
             "⏳": color_cliente(c),
             "🔍": not c.get("en_pausa", False),
+            "🗑️": False,
             "nombre": c.get("nombre", ""),
             "telefono": c.get("telefono", ""),
             "operacion": c.get("operacion", "venta"),
@@ -1414,13 +1415,17 @@ with tab_clientes:
     st.data_editor(
         df_tabla, key=_key_t, hide_index=True, use_container_width=True,
         disabled=[c for c in df_tabla.columns
-                  if c not in ("prioridad", "flexibilidad", "🔍")],
+                  if c not in ("prioridad", "flexibilidad", "🔍", "🗑️")],
         column_config={
             "⏳": st.column_config.TextColumn("⏳", pinned=True, width="small"),
             "🔍": st.column_config.CheckboxColumn(
                 "🔍 buscar", pinned=True, width="small",
                 help="Prendido = entra al cruce y a la búsqueda manual. Apágalo "
                      "para pausar a este cliente sin perder nada (queda 💤 en el CRM)."),
+            "🗑️": st.column_config.CheckboxColumn(
+                "🗑️", pinned=True, width="small",
+                help="Márcalo para eliminarlo: abajo te pido UNA confirmación. "
+                     "Queda copia completa en la ♻️ Papelera."),
             "nombre": st.column_config.TextColumn(
                 "nombre", pinned=True,
                 help="Fijado a la izquierda: al deslizar la tabla (sobre todo en el "
@@ -1433,6 +1438,7 @@ with tab_clientes:
                 help="🔒 solo lo muy acertado · ⚖️ equilibrado · 🌊 abierto a más opciones."),
         })
     _delta_t = (st.session_state.get(_key_t) or {}).get("edited_rows") or {}
+    _para_borrar = []
     if _delta_t:
         _lista_g = mod_clientes.cargar_guardados()
         _cambiados = []
@@ -1441,6 +1447,8 @@ with tab_clientes:
                 _nom = df_tabla.iloc[int(_idx)]["nombre"]
             except Exception:  # noqa: BLE001
                 continue
+            if _cambios.get("🗑️"):
+                _para_borrar.append(_nom)
             for _c_g in _lista_g:
                 if _c_g.get("nombre") == _nom:
                     if "prioridad" in _cambios:
@@ -1450,10 +1458,25 @@ with tab_clientes:
                     if "🔍" in _cambios:
                         _c_g["en_pausa"] = not bool(_cambios["🔍"])
                     _cambiados.append(_nom)
-        if _cambiados:
+        if _cambiados and not _para_borrar:
             mod_clientes.guardar_lista(_lista_g)
             st.session_state["tabla_ver"] = _ver_t + 1
             st.toast("✅ Guardado: " + ", ".join(dict.fromkeys(_cambiados)))
+            st.rerun()
+    if _para_borrar:
+        st.error("🗑️ Vas a eliminar a: **" + ", ".join(_para_borrar)
+                 + "**. Quedará copia completa en la ♻️ Papelera por si te arrepientes.")
+        _cd1, _cd2, _ = st.columns([2, 1, 3])
+        if _cd1.button(f"🗑️ Sí, eliminar ({len(_para_borrar)})", type="primary"):
+            for _n_d in _para_borrar:
+                mod_clientes.eliminar(_n_d)
+            refrescar_hoja_clientes()
+            st.session_state["tabla_ver"] = _ver_t + 1
+            st.toast("🗑️ Eliminado(s): " + ", ".join(_para_borrar)
+                     + " · ♻️ recuperables en la Papelera")
+            st.rerun()
+        if _cd2.button("Cancelar"):
+            st.session_state["tabla_ver"] = _ver_t + 1
             st.rerun()
     if buscar_cli:
         st.caption(f"Mostrando {len(lista_ver)} de {len(todos)} clientes que coinciden "
