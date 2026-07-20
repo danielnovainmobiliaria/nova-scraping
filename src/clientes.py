@@ -118,6 +118,9 @@ CRM_CAMPOS = {
     "exclusiones": {},
     # Inmuebles que el broker asignó a dedo (por link) a este cliente.
     "asignados": [],
+    # Interruptor de búsqueda: en pausa = no entra al cruce ni a la búsqueda
+    # manual (el CRM lo conserva intacto con etiqueta 💤).
+    "en_pausa": False,
     # Búsqueda manual: cuándo visitó el broker cada fuente PARA este cliente.
     # {"@perfil": "2026-07-10", "https://portal...": "2026-07-08"}
     "visitas_fuentes": {},

@@ -957,7 +957,7 @@ def texto_a_lista(v) -> list[str]:
 
 
 # Columnas de la "hoja de clientes" dentro de la app.
-COLS_HOJA = ["⏳", "nombre", "telefono", "operacion", "flexibilidad", "prioridad", "barrios", "zona", "presupuesto",
+COLS_HOJA = ["⏳", "🔍", "nombre", "telefono", "operacion", "flexibilidad", "prioridad", "barrios", "zona", "presupuesto",
              "area_min", "area_max", "habitaciones_min", "habitaciones_max", "banos_min",
              "extras", "obligatorios", "notas"]
 
@@ -968,6 +968,7 @@ def clientes_a_df(lista):
     for c in lista:
         filas.append({
             "⏳": color_cliente(c),
+            "🔍": not c.get("en_pausa", False),
             "nombre": c.get("nombre", ""),
             "telefono": c.get("telefono", ""),
             "operacion": c.get("operacion", "venta"),
@@ -1412,9 +1413,14 @@ with tab_clientes:
     _key_t = f"tabla_clientes_{_ver_t}"
     st.data_editor(
         df_tabla, key=_key_t, hide_index=True, use_container_width=True,
-        disabled=[c for c in df_tabla.columns if c not in ("prioridad", "flexibilidad")],
+        disabled=[c for c in df_tabla.columns
+                  if c not in ("prioridad", "flexibilidad", "🔍")],
         column_config={
             "⏳": st.column_config.TextColumn("⏳", pinned=True, width="small"),
+            "🔍": st.column_config.CheckboxColumn(
+                "🔍 buscar", pinned=True, width="small",
+                help="Prendido = entra al cruce y a la búsqueda manual. Apágalo "
+                     "para pausar a este cliente sin perder nada (queda 💤 en el CRM)."),
             "nombre": st.column_config.TextColumn(
                 "nombre", pinned=True,
                 help="Fijado a la izquierda: al deslizar la tabla (sobre todo en el "
@@ -1441,6 +1447,8 @@ with tab_clientes:
                         _c_g["prioridad"] = str(_cambios["prioridad"]).split()[-1]
                     if "flexibilidad" in _cambios:
                         _c_g["flexibilidad"] = str(_cambios["flexibilidad"]).split()[-1]
+                    if "🔍" in _cambios:
+                        _c_g["en_pausa"] = not bool(_cambios["🔍"])
                     _cambiados.append(_nom)
         if _cambiados:
             mod_clientes.guardar_lista(_lista_g)
@@ -1456,10 +1464,14 @@ with tab_clientes:
     # nombre anonimizado ("Alfonso R.") y sin teléfonos ni notas privadas.
     try:
         _logo = logo_bytes_cacheado()
-        _clave_cli = hashlib.md5((json.dumps(todos, ensure_ascii=False, default=str)
+        # En pausa = búsqueda dormida: no circula entre aliados (pero el Excel
+        # de respaldo de abajo sí lleva a TODOS, es una copia de seguridad).
+        _todos_pdf = [c for c in todos if not c.get("en_pausa")]
+        _clave_cli = hashlib.md5((json.dumps(_todos_pdf, ensure_ascii=False, default=str)
                                   + str(len(_logo or b""))).encode()).hexdigest()
         c1.download_button(
-            "📄 Ficha para aliados (PDF)", pdf_aliados_cacheado(_clave_cli, todos, _logo),
+            "📄 Ficha para aliados (PDF)",
+            pdf_aliados_cacheado(_clave_cli, _todos_pdf, _logo),
             f"busquedas_nova_{datetime.now(timezone.utc).date().isoformat()}.pdf",
             "application/pdf", use_container_width=True,
             help="Diseño listo para enviar a otras inmobiliarias: búsquedas activas con "
@@ -1549,6 +1561,11 @@ with tab_clientes:
 with tab_resultados:
     st.subheader("✨ Coincidencias por cliente")
     clientes = st.session_state.get("clientes", [])
+    _n_pausa = sum(1 for c in clientes if c.get("en_pausa"))
+    clientes = [c for c in clientes if not c.get("en_pausa")]
+    if _n_pausa:
+        st.caption(f"💤 {_n_pausa} cliente(s) en pausa no entran al cruce — "
+                   "préndelos con la casilla 🔍 en la pestaña Clientes.")
 
     if st.session_state.get("flash_manual"):
         st.success(st.session_state.pop("flash_manual"))
@@ -2305,7 +2322,8 @@ with tab_crm:
             enviados = c.get("inmuebles_enviados") or []
             com_actual = float(c.get("comision") or 0)
             n_env, dias_ult = cobertura[nombre]
-            cab = (f"{ICONO_PRIORIDAD.get(prioridad_de(c), '')}"
+            cab = (("💤 " if c.get("en_pausa") else "")
+                   + f"{ICONO_PRIORIDAD.get(prioridad_de(c), '')}"
                    f"{ESTADOS_CRM.get(c['estado'], c['estado'])}  ·  **{nombre}**"
                    + (f"  ·  💵 {matcher.formato_cop(c.get('presupuesto_max'))}"
                       if c.get("presupuesto_max") else "")
@@ -2411,7 +2429,8 @@ with tab_busqueda:
                "El ✔ es por si quieres marcarla sin abrirla.")
 
     _activos_b = [c for c in clientes_cacheados()
-                  if (c.get("estado") or "activo") == "activo"]
+                  if (c.get("estado") or "activo") == "activo"
+                  and not c.get("en_pausa")]
     # Compras primero, luego arriendos (igual que CRM y Coincidencias);
     # dentro de cada grupo por prioridad 🔥 y nombre.
     _activos_b = sorted(_activos_b,

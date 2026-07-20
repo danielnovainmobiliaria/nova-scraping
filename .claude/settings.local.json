@@ -43,7 +43,27 @@
       "Bash(grep -n 'BADGE_FLEX = \\\\|e_flex = g2.selectbox\\\\|z_flex = st.selectbox\\\\|nuevos\\\\[0\\\\]\\\\[\"flexibilidad\"\\\\]\\\\|\"flexibilidad\": c.get\\(\"flexibilidad\"\\)\\\\|for nombre, matches in resultados.items\\(\\):\\\\|resumen.append\\({\\\\|crm_clientes = \\\\|cab = \\(f\"\\\\|st.markdown\\(f\"- {badge_afinidad' app.py)",
       "Bash(grep -n 'st.markdown\\(f\"\\\\*\\\\*{p.get\\(.resumen.\\)\\\\|a1, a2 = st.columns\\(2\\)\\\\|def bonito' app.py)",
       "Bash(awk 'NR>=1405 && NR<=1877 && \\(/sorted|for c/ || /expander/ || /prioridad/ || /RANGO/\\)' app.py)",
-      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:8812)"
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:8812)",
+      "Bash(mdfind -name \"listing\" -onlyin ~)",
+      "Bash(mv src/routes/app.inmuebles.new.tsx src/routes/app.inmuebles_.new.tsx)",
+      "Bash(sed -i '' 's|createFileRoute\\(\"/app/inmuebles/new\"\\)|createFileRoute\\(\"/app/inmuebles_/new\"\\)|' src/routes/app.inmuebles_.new.tsx)",
+      "Bash(grep -n 'brochures/$id' src/routeTree.gen.ts)",
+      "Bash(grep -n 'brochures/\\\\$id' src/routeTree.gen.ts)",
+      "Bash(cd \"/Users/danielmejianauffal/Proyectos/Listing Colombia/luxe-listing-link-main\" && sed -n '70,110p' src/routes/app.inmuebles.\\\\$id.edit.tsx)",
+      "Bash(cd \"/Users/danielmejianauffal/Proyectos/Listing Colombia/luxe-listing-link-main\" && grep -n \"roleLoading\\\\|hasRole\" src/routes/app.inmuebles.\\\\$id.edit.tsx)",
+      "Bash(cd \"/Users/danielmejianauffal/Proyectos/Listing Colombia/luxe-listing-link-main\" && sed -n '175,195p' src/routes/app.inmuebles.\\\\$id.edit.tsx)",
+      "Bash(npx tsc *)",
+      "Bash(cd \"/Users/danielmejianauffal/Proyectos/Listing Colombia/luxe-listing-link-main\" && grep -n \"validateSearch\" -A 8 src/routes/p.\\\\$slug.tsx | head -20 && sed -n '305,315p' src/routes/app.inmuebles.tsx && echo \"=== agente 460-475 ===\" && sed -n '460,475p' src/routes/agente.\\\\$slug.tsx && echo \"=== listings 388-400 ===\" && sed -n '388,400p' src/routes/listings.tsx)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(cd \"/Users/danielmejianauffal/Proyectos/Listing Colombia/luxe-listing-link-main\" && grep -n \"brand_palette\\\\|resolvePaletteVars\\\\|profiles\" src/routes/listings.\\\\$slug.tsx | head -10 && echo \"=== agente prop \\(referencia\\) ===\" && grep -n \"resolvePaletteVars\" src/routes/agente.\\\\$slug.p.\\\\$prop.tsx | head -5)",
+      "Bash(cd \"/Users/danielmejianauffal/Proyectos/Listing Colombia/luxe-listing-link-main\" && sed -n '185,230p' src/routes/agente.\\\\$slug.p.\\\\$prop.tsx && grep -n \"FONT_PAIRS\" src/lib/brochure-palettes.ts src/lib/*.ts | head -5)",
+      "Bash(echo \"TSC EXIT: $?\")",
+      "Read(//Users/danielmejianauffal/Documents/Nova Scraping/src/routes/**)",
+      "Bash(cd \"/Users/danielmejianauffal/Proyectos/Listing Colombia/luxe-listing-link-main\" && grep -n \"publicUrl\\\\|brokerUrl\" src/routes/app.brochures.\\\\$id.tsx | head -8)",
+      "Bash(cd \"/Users/danielmejianauffal/Proyectos/Listing Colombia/luxe-listing-link-main\" && sed -n '103,110p' src/routes/app.brochures.\\\\$id.tsx)",
+      "Bash(cd \"/Users/danielmejianauffal/Proyectos/Listing Colombia/luxe-listing-link-main\" && sed -n '193,215p' src/routes/app.inmuebles.\\\\$id.edit.tsx)",
+      "Bash(npm run *)",
+      "Bash(rm -rf \"/Users/danielmejianauffal/Proyectos/Listing Colombia/luxe-listing-link-main/node_modules/.vite\")"
     ]
   }
 }
