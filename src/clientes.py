@@ -453,11 +453,16 @@ def agregar_o_actualizar(cliente: dict[str, Any]) -> None:
     guardar_lista(lista)
 
 
+def _vacio(valor: Any) -> bool:
+    """True si el campo no tiene información real (para no pisar datos buenos)."""
+    return valor in (None, "", [], {}, 0, False)
+
+
 def eliminar(nombre: str) -> None:
-    lista = [c for c in cargar_guardados()
-             if c.get("nombre", "").lower() != nombre.lower()]
-    borrados = [c for c in cargar_guardados()
-                if c.get("nombre", "").lower() == nombre.lower()]
+    _n = _norm_nombre(nombre)
+    _actuales = cargar_guardados()
+    lista = [c for c in _actuales if _norm_nombre(c.get("nombre", "")) != _n]
+    borrados = [c for c in _actuales if _norm_nombre(c.get("nombre", "")) == _n]
     guardar_lista(lista)
     # Lápida: recuerda que se borró a propósito, para que una re-importación
     # (CSV de Zoho / Excel de respaldo) no lo reviva sin querer.
@@ -468,9 +473,22 @@ def eliminar(nombre: str) -> None:
         try:
             from . import db
             pap = json.loads(db.leer_meta("clientes_papelera") or "[]")
-            pap = [x for x in pap
-                   if _norm_nombre(x.get("nombre", "")) != _norm_nombre(nombre)]
-            pap.insert(0, {**borrados[0], "_borrado_el": date.today().isoformat()})
+            previo = next((x for x in pap
+                           if _norm_nombre(x.get("nombre", "")) == _n), None)
+            entrada = {**borrados[0], "_borrado_el": date.today().isoformat()}
+            if previo:
+                # Ya había una copia de alguien con ese mismo nombre (homónimo o
+                # borrado anterior): se FUSIONA para no perder ese historial.
+                for campo, valor in previo.items():
+                    if campo in ("nombre", "_borrado_el"):
+                        continue
+                    if campo == "procesos":
+                        entrada["procesos"] = _unir_listas(entrada.get("procesos") or [],
+                                                           valor or [])
+                    elif _vacio(entrada.get(campo)) and not _vacio(valor):
+                        entrada[campo] = valor
+            pap = [x for x in pap if _norm_nombre(x.get("nombre", "")) != _n]
+            pap.insert(0, entrada)
             db.guardar_meta("clientes_papelera", json.dumps(pap[:20], ensure_ascii=False))
         except Exception:  # noqa: BLE001
             pass
@@ -512,24 +530,45 @@ def papelera() -> list[dict[str, Any]]:
         return []
 
 
-def restaurar_de_papelera(nombre: str) -> bool:
-    """Revive un cliente desde la papelera con TODO su historial."""
+def restaurar_de_papelera(nombre: str) -> str:
+    """Revive un cliente desde la papelera con TODO su historial.
+
+    Devuelve: "restaurado" (volvió tal cual), "fusionado" (ya existía uno con
+    ese nombre y se le devolvió el historial que le faltaba) o "" si no estaba.
+
+    NUNCA borra la copia de la papelera sin haberla devuelto antes: es la única
+    copia que queda del cliente.
+    """
     from . import db
+    _n = _norm_nombre(nombre)
     pap = papelera()
-    objetivo = next((x for x in pap
-                     if _norm_nombre(x.get("nombre", "")) == _norm_nombre(nombre)), None)
+    objetivo = next((x for x in pap if _norm_nombre(x.get("nombre", "")) == _n), None)
     if objetivo is None:
-        return False
+        return ""
     objetivo = {k: v for k, v in objetivo.items() if k != "_borrado_el"}
     lista = cargar_guardados()
-    if not any(_norm_nombre(c.get("nombre", "")) == _norm_nombre(nombre) for c in lista):
+    vivo = next((c for c in lista if _norm_nombre(c.get("nombre", "")) == _n), None)
+    if vivo is None:
         lista.append(_con_crm(objetivo))
-        guardar_lista(lista)
+        resultado = "restaurado"
+    else:
+        # Ya existe (lo re-crearon a mano): se le devuelve TODO lo que le falta
+        # sin pisar lo que el broker haya escrito de nuevo.
+        resultado = "fusionado"
+        for campo, valor in objetivo.items():
+            if campo == "nombre":
+                continue
+            if campo == "procesos":
+                vivo["procesos"] = _unir_listas(vivo.get("procesos") or [],
+                                                valor or [])
+            elif _vacio(vivo.get(campo)) and not _vacio(valor):
+                vivo[campo] = valor
+    guardar_lista(lista)
     revivir(nombre)
     db.guardar_meta("clientes_papelera", json.dumps(
-        [x for x in pap if _norm_nombre(x.get("nombre", "")) != _norm_nombre(nombre)],
+        [x for x in pap if _norm_nombre(x.get("nombre", "")) != _n],
         ensure_ascii=False))
-    return True
+    return resultado
 
 
 def filtrar_borrados(nuevos: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:

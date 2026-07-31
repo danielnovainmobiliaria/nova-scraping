@@ -1512,6 +1512,8 @@ with tab_clientes:
             st.rerun()
 
     # ── Sección: clientes borrados (revivirlos es un clic) ──
+    if st.session_state.get("flash_restaurar"):
+        st.success(st.session_state.pop("flash_restaurar"))
     _pap = mod_clientes.papelera()
     if _pap:
         with st.expander(f"🗂️ CLIENTES BORRADOS ({len(_pap)}) — revive al que quieras"):
@@ -1528,10 +1530,15 @@ with tab_clientes:
                 if _cp2.button("♻️ Restaurar",
                                key=f"rest_{mod_clientes._norm_nombre(_x_p.get('nombre', ''))}",
                                use_container_width=True):
-                    if mod_clientes.restaurar_de_papelera(_x_p.get("nombre", "")):
+                    _res_r = mod_clientes.restaurar_de_papelera(_x_p.get("nombre", ""))
+                    if _res_r:
                         refrescar_hoja_clientes()
-                        st.success(f"«{_x_p.get('nombre')}» restaurado con todo su "
-                                   "historial. ✅")
+                        st.session_state["flash_restaurar"] = (
+                            f"♻️ «{_x_p.get('nombre')}» restaurado con todo su historial. ✅"
+                            if _res_r == "restaurado" else
+                            f"♻️ Ya existía un cliente llamado «{_x_p.get('nombre')}»: le "
+                            "devolví el historial que le faltaba (inmuebles trabajados, "
+                            "seguimiento y filtros) sin pisar lo que escribiste. ✅")
                         st.rerun()
     if buscar_cli:
         st.caption(f"Mostrando {len(lista_ver)} de {len(todos)} clientes que coinciden "
@@ -1626,6 +1633,9 @@ with tab_resultados:
     if _foco and not _cli_foco:          # lo borraron o renombraron: se suelta el foco
         st.session_state.pop("foco_cliente", None)
         _foco = None
+    # El aviso "a quién le sirve" de los inmuebles manuales debe mirar SIEMPRE a
+    # todos los clientes activos, aunque haya una búsqueda individual en curso.
+    _clientes_todos = [c for c in clientes if not c.get("en_pausa")]
     if _foco:
         clientes = _cli_foco
         _fc1, _fc2 = st.columns([4, 1])
@@ -1724,9 +1734,10 @@ with tab_resultados:
                                      "media": item_man["media"]}
                         ganadores = []
                         try:
-                            res_ya = matcher.cruzar(clientes, [post_eval], score_minimo=70)
+                            res_ya = matcher.cruzar(_clientes_todos, [post_eval],
+                                                    score_minimo=70)
                             _h_eval = huella_inmueble(post_eval)
-                            for _cli in clientes:
+                            for _cli in _clientes_todos:
                                 _ms = res_ya.get(_cli["nombre"]) or []
                                 if not _ms:
                                     continue
