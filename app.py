@@ -1091,6 +1091,38 @@ with tab_clientes:
     buscar_cli = st.text_input("🔍 Buscar cliente", key="buscar_cli",
                                placeholder="Escribe un nombre, barrio, teléfono o zona…")
 
+    # ── Búsqueda individual: cruza UN solo cliente y salta a Coincidencias ──
+    with st.container(border=True):
+        _bi1, _bi2 = st.columns([3, 2])
+        _todos_bi = clientes_cacheados()
+        _ops_bi = {(f"{'🏠' if (c.get('operacion') or 'venta') == 'arriendo' else '🔑'} "
+                    f"{ICONO_PRIORIDAD.get(prioridad_de(c), '')}{c['nombre']}"
+                    + ("  💤" if c.get("en_pausa") else "")): c["nombre"]
+                   for c in sorted(_todos_bi,
+                                   key=lambda c: ((c.get("operacion") or "venta") == "arriendo",
+                                                  RANGO_PRIORIDAD.get(prioridad_de(c), 1),
+                                                  c.get("nombre", "")))}
+        _sel_bi = _bi1.selectbox("🎯 Búsqueda individual — mira las coincidencias de UNA persona",
+                                 list(_ops_bi) or ["—"], key="sel_busq_individual",
+                                 help="Cruza solo a este cliente: más rápido y sin ruido. "
+                                      "Funciona incluso si está en pausa 💤.")
+        _bi2.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        if _bi2.button("🎯 Buscar solo para esta persona", type="primary",
+                       use_container_width=True, disabled=not _ops_bi):
+            st.session_state["foco_cliente"] = _ops_bi[_sel_bi]
+            st.session_state["cliente_abierto"] = _ops_bi[_sel_bi]
+            st.session_state["saltar_a_coincidencias"] = True
+            st.rerun()
+    # Salto automático a la pestaña 3️⃣ (una sola vez, tras pulsar el botón).
+    if st.session_state.pop("saltar_a_coincidencias", False):
+        components.html(
+            """<script>
+            const tabs = window.parent.document.querySelectorAll('button[data-baseweb="tab"]');
+            for (const t of tabs) {
+              if (t.innerText.includes("Coincidencias")) { t.click(); break; }
+            }
+            </script>""", height=0)
+
     st.markdown("##### 🤖 Cuadro maestro — crea o edita clientes escribiendo")
     with st.expander("🤖 Escribe y la IA lo organiza (crear cliente nuevo o editar uno existente)",
                      expanded=True):
@@ -1587,11 +1619,30 @@ with tab_clientes:
 with tab_resultados:
     st.subheader("✨ Coincidencias por cliente")
     clientes = st.session_state.get("clientes", [])
-    _n_pausa = sum(1 for c in clientes if c.get("en_pausa"))
-    clientes = [c for c in clientes if not c.get("en_pausa")]
-    if _n_pausa:
-        st.caption(f"💤 {_n_pausa} cliente(s) en pausa no entran al cruce — "
-                   "préndelos con la casilla 🔍 en la pestaña Clientes.")
+    # 🎯 Búsqueda individual: si hay foco, solo se cruza a ESE cliente (aunque
+    # esté en pausa: elegirlo a dedo es una orden explícita del broker).
+    _foco = st.session_state.get("foco_cliente")
+    _cli_foco = [c for c in clientes if c.get("nombre") == _foco] if _foco else []
+    if _foco and not _cli_foco:          # lo borraron o renombraron: se suelta el foco
+        st.session_state.pop("foco_cliente", None)
+        _foco = None
+    if _foco:
+        clientes = _cli_foco
+        _fc1, _fc2 = st.columns([4, 1])
+        _fc1.info(f"🎯 **Búsqueda individual: {esc_md(_foco)}** — solo se está cruzando "
+                  "a esta persona."
+                  + ("  ·  💤 está en pausa, pero la pediste a dedo."
+                     if _cli_foco[0].get("en_pausa") else ""))
+        if _fc2.button("👥 Ver todos", use_container_width=True,
+                       help="Vuelve al cruce con todos los clientes activos."):
+            st.session_state.pop("foco_cliente", None)
+            st.rerun()
+    else:
+        _n_pausa = sum(1 for c in clientes if c.get("en_pausa"))
+        clientes = [c for c in clientes if not c.get("en_pausa")]
+        if _n_pausa:
+            st.caption(f"💤 {_n_pausa} cliente(s) en pausa no entran al cruce — "
+                       "préndelos con la casilla 🔍 en la pestaña Clientes.")
 
     if st.session_state.get("flash_manual"):
         st.success(st.session_state.pop("flash_manual"))
