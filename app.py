@@ -18,7 +18,6 @@ from datetime import date, datetime, timedelta, timezone
 import pandas as pd
 import requests
 import streamlit as st
-import streamlit.components.v1 as components
 
 from src import clientes as mod_clientes
 from src import config, db, matcher
@@ -656,7 +655,7 @@ st.sidebar.caption(
 st.sidebar.divider()
 st.sidebar.markdown("**▶️ Buscar inmuebles**")
 correr = st.sidebar.button("🔄 Actualizar todo (IG + portales)",
-                           type="primary", use_container_width=True)
+                           type="primary", width="stretch")
 st.sidebar.caption(f"📦 {contar_posts_cacheado()} inmuebles en memoria")
 
 # ── Acción del botón: traer + leer publicaciones ──────────────
@@ -1095,33 +1094,45 @@ with tab_clientes:
     with st.container(border=True):
         _bi1, _bi2 = st.columns([3, 2])
         _todos_bi = clientes_cacheados()
-        _ops_bi = {(f"{'🏠' if (c.get('operacion') or 'venta') == 'arriendo' else '🔑'} "
-                    f"{ICONO_PRIORIDAD.get(prioridad_de(c), '')}{c['nombre']}"
-                    + ("  💤" if c.get("en_pausa") else "")): c["nombre"]
-                   for c in sorted(_todos_bi,
-                                   key=lambda c: ((c.get("operacion") or "venta") == "arriendo",
-                                                  RANGO_PRIORIDAD.get(prioridad_de(c), 1),
-                                                  c.get("nombre", "")))}
+        _meta_bi = {c["nombre"]: c for c in _todos_bi}
+        # OJO: las opciones son los NOMBRES (identidad estable). Si la etiqueta
+        # llevara prioridad/pausa, editar a esa persona cambiaría la etiqueta y
+        # Streamlit saltaría en silencio a otro cliente.
+        _nombres_bi = [c["nombre"] for c in
+                       sorted(_todos_bi,
+                              key=lambda c: ((c.get("operacion") or "venta") == "arriendo",
+                                             RANGO_PRIORIDAD.get(prioridad_de(c), 1),
+                                             c.get("nombre", "")))]
+
+        def _etiqueta_bi(n):
+            c = _meta_bi.get(n)
+            if not c:
+                return n
+            return (f"{'🏠' if (c.get('operacion') or 'venta') == 'arriendo' else '🔑'} "
+                    f"{ICONO_PRIORIDAD.get(prioridad_de(c), '')}{n}"
+                    + ("  💤" if c.get("en_pausa") else ""))
+
         _sel_bi = _bi1.selectbox("🎯 Búsqueda individual — mira las coincidencias de UNA persona",
-                                 list(_ops_bi) or ["—"], key="sel_busq_individual",
+                                 _nombres_bi or ["—"], key="sel_busq_individual",
+                                 format_func=_etiqueta_bi,
                                  help="Cruza solo a este cliente: más rápido y sin ruido. "
                                       "Funciona incluso si está en pausa 💤.")
         _bi2.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
         if _bi2.button("🎯 Buscar solo para esta persona", type="primary",
-                       use_container_width=True, disabled=not _ops_bi):
-            st.session_state["foco_cliente"] = _ops_bi[_sel_bi]
-            st.session_state["cliente_abierto"] = _ops_bi[_sel_bi]
+                       width="stretch", disabled=not _nombres_bi):
+            st.session_state["foco_cliente"] = _sel_bi
+            st.session_state["cliente_abierto"] = _sel_bi
             st.session_state["saltar_a_coincidencias"] = True
             st.rerun()
     # Salto automático a la pestaña 3️⃣ (una sola vez, tras pulsar el botón).
     if st.session_state.pop("saltar_a_coincidencias", False):
-        components.html(
+        st.iframe(
             """<script>
             const tabs = window.parent.document.querySelectorAll('button[data-baseweb="tab"]');
             for (const t of tabs) {
               if (t.innerText.includes("Coincidencias")) { t.click(); break; }
             }
-            </script>""", height=0)
+            </script>""", height=1)
 
     st.markdown("##### 🤖 Cuadro maestro — crea o edita clientes escribiendo")
     with st.expander("🤖 Escribe y la IA lo organiza (crear cliente nuevo o editar uno existente)",
@@ -1160,9 +1171,9 @@ with tab_clientes:
                          "ahora quiere 3 habitaciones exactas, agrega el barrio Rosales y "
                          "tiene afán."))
         bm1, bm2 = st.columns(2)
-        crear_m = bm1.button("➕ Crear cliente(s) nuevo(s)", use_container_width=True,
+        crear_m = bm1.button("➕ Crear cliente(s) nuevo(s)", width="stretch",
                              type="primary" if es_nuevo_m else "secondary")
-        editar_m = bm2.button("✏️ Aplicar cambios al cliente elegido", use_container_width=True,
+        editar_m = bm2.button("✏️ Aplicar cambios al cliente elegido", width="stretch",
                               type="secondary" if es_nuevo_m else "primary",
                               disabled=es_nuevo_m,
                               help="Elige un cliente arriba para poder editarlo.")
@@ -1252,7 +1263,7 @@ with tab_clientes:
                     st.error(f"No se pudo editar: {e}")
 
         # Ajuste manual fino (campos exactos) y eliminar, sin salir del cuadro.
-        with st.popover("⚙️ Ajuste manual (campos exactos) · 🗑️ eliminar", use_container_width=True):
+        with st.popover("⚙️ Ajuste manual (campos exactos) · 🗑️ eliminar", width="stretch"):
             if not cliente_m:
                 st.caption("Elige un cliente arriba (no 🆕) para ajustarlo a mano o eliminarlo.")
             else:
@@ -1345,11 +1356,11 @@ with tab_clientes:
         comparar = importar = False
         if archivo_ia is not None:
             bcol1, bcol2 = st.columns(2)
-            comparar = bcol1.button("🔍 Comparar sin guardar", use_container_width=True,
+            comparar = bcol1.button("🔍 Comparar sin guardar", width="stretch",
                                     help="Coteja el archivo contra tus clientes actuales y "
                                          "muestra quién falta en cada lado. No cambia NADA.")
             importar = bcol2.button("🤖 Interpretar y agregar con IA", type="primary",
-                                    use_container_width=True)
+                                    width="stretch")
         if comparar:
             try:
                 dif = comparar_clientes_archivo(leer_tabla(archivo_ia), clientes_cacheados())
@@ -1445,7 +1456,7 @@ with tab_clientes:
     _ver_t = st.session_state.get("tabla_ver", 0)
     _key_t = f"tabla_clientes_{_ver_t}"
     st.data_editor(
-        df_tabla, key=_key_t, hide_index=True, use_container_width=True,
+        df_tabla, key=_key_t, hide_index=True, width="stretch",
         disabled=[c for c in df_tabla.columns
                   if c not in ("prioridad", "flexibilidad", "🔍", "🗑️")],
         column_config={
@@ -1529,7 +1540,7 @@ with tab_clientes:
                               f"borrado el {_x_p.get('_borrado_el', '?')}")
                 if _cp2.button("♻️ Restaurar",
                                key=f"rest_{mod_clientes._norm_nombre(_x_p.get('nombre', ''))}",
-                               use_container_width=True):
+                               width="stretch"):
                     _res_r = mod_clientes.restaurar_de_papelera(_x_p.get("nombre", ""))
                     if _res_r:
                         refrescar_hoja_clientes()
@@ -1558,7 +1569,7 @@ with tab_clientes:
             "📄 Ficha para aliados (PDF)",
             pdf_aliados_cacheado(_clave_cli, _todos_pdf, _logo),
             f"busquedas_nova_{datetime.now(timezone.utc).date().isoformat()}.pdf",
-            "application/pdf", use_container_width=True,
+            "application/pdf", width="stretch",
             help="Diseño listo para enviar a otras inmobiliarias: búsquedas activas con "
                  "nombre anonimizado (Alfonso R.), sin teléfonos ni notas.")
     except Exception as e:  # noqa: BLE001
@@ -1575,9 +1586,9 @@ with tab_clientes:
             clientes_a_df(_orden_aliados)),
         "clientes.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
+        width="stretch",
     )
-    with c3.popover("⬆️ Restaurar desde Excel", use_container_width=True):
+    with c3.popover("⬆️ Restaurar desde Excel", width="stretch"):
         archivo = st.file_uploader("Sube tu copia (.xlsx)", type=["xlsx"])
         if archivo is not None and st.button("Restaurar ahora"):
             try:
@@ -1611,7 +1622,7 @@ with tab_clientes:
     st.session_state["clientes"] = clientes_cacheados()
     cols_pie = st.columns([2, 1])
     cols_pie[0].caption(f"👥 {len(st.session_state['clientes'])} cliente(s) guardado(s).")
-    if cols_pie[1].button("🧹 Unir duplicados", use_container_width=True,
+    if cols_pie[1].button("🧹 Unir duplicados", width="stretch",
                           help="Junta clientes repetidos (mismo nombre o teléfono) en uno solo."):
         actuales = mod_clientes.cargar_guardados()
         unidos = mod_clientes.fusionar_duplicados(actuales)
@@ -1643,7 +1654,7 @@ with tab_resultados:
                   "a esta persona."
                   + ("  ·  💤 está en pausa, pero la pediste a dedo."
                      if _cli_foco[0].get("en_pausa") else ""))
-        if _fc2.button("👥 Ver todos", use_container_width=True,
+        if _fc2.button("👥 Ver todos", width="stretch",
                        help="Vuelve al cruce con todos los clientes activos."):
             st.session_state.pop("foco_cliente", None)
             st.rerun()
@@ -1962,7 +1973,7 @@ with tab_resultados:
         resumen.sort(key=lambda r: (RANGO_PRIORIDAD.get(prio_map.get(r["Cliente"], "media"), 1),
                                     r["Total"]))
         with st.expander("📋 Cobertura por cliente (cuántos inmuebles potenciales hay)", expanded=True):
-            st.dataframe(pd.DataFrame(resumen), hide_index=True, use_container_width=True)
+            st.dataframe(pd.DataFrame(resumen), hide_index=True, width="stretch")
             st.caption("Ordenado de menos a más. Los 🔴/🟡 son a quienes conviene "
                        "buscarles más (incluso manual o ampliando criterios con los deslizadores).")
 
@@ -2040,7 +2051,7 @@ with tab_resultados:
                     if caps_txt:
                         partes_x.append("topes: " + ", ".join(caps_txt))
                     st.error("🚫 Anulando (filtro duro) — " + "  ·  ".join(partes_x))
-                with st.popover("📌 Asignarle un inmueble por link", use_container_width=True):
+                with st.popover("📌 Asignarle un inmueble por link", width="stretch"):
                     st.caption("Pega el link de un inmueble que TÚ ves que le sirve — uno que "
                                "encontraste por fuera o uno que la herramienta no le asignó. "
                                "Queda fijado arriba de sus coincidencias. (Si es externo y "
@@ -2067,7 +2078,7 @@ with tab_resultados:
                             st.session_state["cliente_abierto"] = nombre
                             st.rerun()
                 with st.popover("🤖 Afinar con IA — ¿los resultados no son buenos?",
-                                use_container_width=True):
+                                width="stretch"):
                     st.caption("Escribe qué está mal o qué buscas. La IA **anula de una** lo que no "
                                "cumpla y agrega criterios nuevos. Ej: *«solo apartamentos, nada de "
                                "casas»*, *«exactamente 2 habitaciones»*, *«nada después de la calle "
@@ -2083,7 +2094,7 @@ with tab_resultados:
                                        placeholder="ej: nada después de la 100; prioriza vista y que sea remodelado")
                     ccol1, ccol2 = st.columns(2)
                     if ccol1.button("✨ Afinar este cliente", key=f"afinar_btn_{nombre}",
-                                    type="primary", use_container_width=True):
+                                    type="primary", width="stretch"):
                         if not config.ANTHROPIC_API_KEY:
                             st.error("Falta la llave de Claude para afinar. Revisa «🔑 Mis llaves».")
                         elif not txt.strip():
@@ -2105,7 +2116,7 @@ with tab_resultados:
                                 st.rerun()
                     if hay_exc and ccol2.button(
                             "♻️ Quitar exclusiones", key=f"afinar_clr_{nombre}",
-                            use_container_width=True,
+                            width="stretch",
                             help="Vuelve a mostrar los inmuebles que habías anulado."):
                         mod_clientes.limpiar_exclusiones(nombre)
                         st.session_state.pop(f"afin_res_{nombre}", None)
@@ -2172,18 +2183,18 @@ with tab_resultados:
                         )
                         a0, a1, a2 = st.columns(3)
                         with a0:
-                            with st.popover("⚖️ Comparativo", use_container_width=True):
+                            with st.popover("⚖️ Comparativo", width="stretch"):
                                 st.markdown(f"**⚖️ Este inmueble vs lo que pide {nombre}**")
                                 st.markdown(tabla_comparativa(cli_map.get(nombre, {}), p))
                                 st.caption("⚠️ confirmar = el aviso no trae ese dato: "
                                            "verifícalo antes de enviarlo.")
                         with a1:
-                            with st.popover("📲 Texto para compartir", use_container_width=True):
+                            with st.popover("📲 Texto para compartir", width="stretch"):
                                 st.caption("Listo para tu cliente: solo datos + tu marca, sin link ni fuente.")
                                 st.code(mensaje, language=None)
                         with a2:
                             if p.get("media"):
-                                with st.popover("📥 Descargar foto/video", use_container_width=True):
+                                with st.popover("📥 Descargar foto/video", width="stretch"):
                                     render_descargas(p, f"{nombre}_{p.get('id', 'x')}")
                     with c2:
                         if m.get("asignado"):
@@ -2194,16 +2205,16 @@ with tab_resultados:
                             st.markdown(f"**{badge_afinidad(m['score'])}**")
                         if p.get("url"):
                             st.link_button("🔗 Ver original (solo tú)", p["url"],
-                                           use_container_width=True,
+                                           width="stretch",
                                            help="Para que TÚ verifiques el inmueble. No lo compartas: revela la fuente.")
                         if st.button("📤 Marcar enviado", key=f"env_{nombre}_{p.get('id','x')}",
                                      help=f"Pasa al seguimiento de {nombre} (lo ves en el CRM)",
-                                     use_container_width=True):
+                                     width="stretch"):
                             mod_clientes.agregar_proceso(nombre, proceso_de(p, "enviado"))
                             st.toast(f"📤 En seguimiento de {nombre}")
                             st.session_state["cliente_abierto"] = nombre
                             st.rerun()
-                        with st.popover("🚫 Descartar", use_container_width=True):
+                        with st.popover("🚫 Descartar", width="stretch"):
                             st.caption("Escribe **por qué** no le sirvió. La IA lo convierte en filtro "
                                        "para este cliente y **anula inmuebles parecidos** (los de "
                                        "ahora y los que lleguen). Ej: *«primer piso»*, *«nada después "
@@ -2426,7 +2437,7 @@ with tab_crm:
                 # Lo primero del cliente: SUS inmuebles (enviados/proceso).
                 render_procesos(c)
                 with st.popover("⚙️ Estado del negocio, visitas y comisión",
-                                use_container_width=True):
+                                width="stretch"):
 
                     op = (c.get("operacion") or "venta").lower()
                     es_arriendo = op == "arriendo"
@@ -2528,11 +2539,18 @@ with tab_busqueda:
     if not _activos_b:
         st.info("No hay clientes activos. Créalos en la pestaña **2️⃣ Clientes**.")
     else:
-        _ops_b = {(f"{'🏠' if (c.get('operacion') or 'venta') == 'arriendo' else '🔑'} "
-                   f"{ICONO_PRIORIDAD.get(prioridad_de(c), '')}{c['nombre']}"): c
-                  for c in _activos_b}
+        _ops_b = {c["nombre"]: c for c in _activos_b}
+
+        def _etiqueta_b(n):
+            c = _ops_b.get(n)
+            if not c:
+                return n
+            return (f"{'🏠' if (c.get('operacion') or 'venta') == 'arriendo' else '🔑'} "
+                    f"{ICONO_PRIORIDAD.get(prioridad_de(c), '')}{n}")
+
+        # Igual que arriba: la opción es el NOMBRE, no la etiqueta decorada.
         _sel_b = st.selectbox("👤 ¿Para quién vas a buscar?", list(_ops_b),
-                              key="bm_cliente")
+                              key="bm_cliente", format_func=_etiqueta_b)
         _cli_b = _ops_b[_sel_b]
         _nom_b = _cli_b["nombre"]
 
@@ -2622,7 +2640,7 @@ with tab_busqueda:
                 _url_js = json.dumps(_f["url"].replace("'", "%27"))
                 _sel_js = json.dumps(f'div[class*="st-key-autov{_kf}"] button')
                 with _cb2:
-                    components.html(
+                    st.iframe(
                         "<body style='margin:0'><a href='#' onclick='"
                         f"try {{ window.parent.open({_url_js}, \"_blank\"); }}"
                         f" catch(e) {{ window.open({_url_js}, \"_blank\"); }}"
@@ -2636,7 +2654,7 @@ with tab_busqueda:
                         height=42)
             with _cb3:
                 with st.container(key=f"autov{_kf}"):
-                    if st.button("✔", key=f"bmv_{_kf}", use_container_width=True,
+                    if st.button("✔", key=f"bmv_{_kf}", width="stretch",
                                  help="Marcarla sin abrirla (o por si el registro "
                                       "automático no corrió)."):
                         mod_clientes.marcar_visita_fuente(_nom_b, _f["id"],

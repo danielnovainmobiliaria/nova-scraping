@@ -282,7 +282,20 @@
       "Bash(grep -roh '.\\\\{700\\\\}acceptNewOptions.\\\\{900\\\\}' __TRACKED_VAR__/static/static/js/index.dkY5s53S.js)",
       "Bash(./.venv/bin/python \"/private/tmp/claude-501/-Users-danielmejianauffal-Documents-Nova-Scraping/e13bacb8-616b-476b-a422-589bb92b1ae2/scratchpad/bench_cruce.py\")",
       "Bash(.venv/bin/python -c \"import cachetools,streamlit;print\\('cachetools',cachetools.__version__,'streamlit',streamlit.__version__\\)\")",
-      "Bash(./.venv/bin/python \"/private/tmp/claude-501/-Users-danielmejianauffal-Documents-Nova-Scraping/e13bacb8-616b-476b-a422-589bb92b1ae2/scratchpad/run_test2.py\")"
+      "Bash(./.venv/bin/python \"/private/tmp/claude-501/-Users-danielmejianauffal-Documents-Nova-Scraping/e13bacb8-616b-476b-a422-589bb92b1ae2/scratchpad/run_test2.py\")",
+      "Bash(./.venv/bin/python \"/private/tmp/claude-501/-Users-danielmejianauffal-Documents-Nova-Scraping/e13bacb8-616b-476b-a422-589bb92b1ae2/scratchpad/sim_lru.py\")",
+      "Bash(./.venv/bin/python \"/private/tmp/claude-501/-Users-danielmejianauffal-Documents-Nova-Scraping/e13bacb8-616b-476b-a422-589bb92b1ae2/scratchpad/peso_entrada.py\")",
+      "Bash(./.venv/bin/python -c \"import streamlit; print\\(streamlit.__version__\\)\")",
+      "Bash(cd \"/Users/danielmejianauffal/Documents/Nova Scraping\" && sed -n '1,80p' .venv/lib/python3*/site-packages/streamlit/elements/lib/utils.py | head -100; echo \"=== SERDE ===\"; grep -n \"class SingleSelectSerde\" -A 60 .venv/lib/python3*/site-packages/streamlit/elements/lib/utils.py)",
+      "Bash(sed -n '78,140p' .venv/lib/python3*/site-packages/streamlit/elements/widgets/selectbox.py)",
+      "Bash(sed -n '600,720p' .venv/lib/python3*/site-packages/streamlit/elements/widgets/selectbox.py)",
+      "Bash(./.venv/bin/python \"/private/tmp/claude-501/-Users-danielmejianauffal-Documents-Nova-Scraping/e13bacb8-616b-476b-a422-589bb92b1ae2/scratchpad/run_bi.py\")",
+      "Bash(./.venv/bin/python \"/private/tmp/claude-501/-Users-danielmejianauffal-Documents-Nova-Scraping/e13bacb8-616b-476b-a422-589bb92b1ae2/scratchpad/bench_delta.py\")",
+      "Bash(.venv/bin/python -)",
+      "Bash(pkill -f \"index.*\\\\.js\")",
+      "Bash(awk 'NR>=1124 && NR<=1625' app.py)",
+      "Bash(grep -vc \"^#\\\\|^$\" config/cuentas.txt)",
+      "Bash(grep -vc \"^#\\\\|^$\" config/portales.txt)"
     ]
   }
 }
