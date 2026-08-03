@@ -295,7 +295,8 @@
       "Bash(pkill -f \"index.*\\\\.js\")",
       "Bash(awk 'NR>=1124 && NR<=1625' app.py)",
       "Bash(grep -vc \"^#\\\\|^$\" config/cuentas.txt)",
-      "Bash(grep -vc \"^#\\\\|^$\" config/portales.txt)"
+      "Bash(grep -vc \"^#\\\\|^$\" config/portales.txt)",
+      "Bash(grep -o '\"titulo\": *\"[^\"]\\\\{10,140\\\\}\"' /private/tmp/claude-501/-Users-danielmejianauffal-Documents-Nova-Scraping/e13bacb8-616b-476b-a422-589bb92b1ae2/tasks/wlmirgtnv.output)"
     ]
   }
 }

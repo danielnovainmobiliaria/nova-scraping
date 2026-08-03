@@ -2520,6 +2520,19 @@ def _guardar_fuentes_extra(lista):
     _fuentes_extra_cacheadas.clear()
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def _orden_fuentes_guardado():
+    try:
+        return json.loads(db.leer_meta("orden_fuentes_manual") or "[]")
+    except json.JSONDecodeError:
+        return []
+
+
+def _guardar_orden_fuentes(ids):
+    db.guardar_meta("orden_fuentes_manual", json.dumps(ids, ensure_ascii=False))
+    _orden_fuentes_guardado.clear()
+
+
 with tab_busqueda:
     st.subheader("🔍 Búsqueda manual por cliente")
     st.caption("Elige un cliente y dale **🔗 Abrir**: el perfil se abre en pestaña nueva "
@@ -2609,13 +2622,64 @@ with tab_busqueda:
         _viejas_n = sum(1 for f in _fuentes_b
                         if (_dias_visita(f["id"]) or 0) > 7 and _dias_visita(f["id"]) is not None)
         st.caption(f"🗺️ {len(_fuentes_b)} fuente(s) para **{_nom_b}** · "
-                   f"⚫ {_nunca_n} sin visitar · 🔴🟠 {_viejas_n} con más de una semana. "
-                   "Orden: primero las más olvidadas.")
+                   f"⚫ {_nunca_n} sin visitar · 🔴🟠 {_viejas_n} con más de una semana.")
 
-        # Primero las nunca visitadas, luego de la visita más vieja a la más reciente.
-        _orden_b = sorted(_fuentes_b,
-                          key=lambda f: -(10**6 if _dias_visita(f["id"]) is None
-                                          else _dias_visita(f["id"])))
+        # ── Orden de la lista: el TUYO (priorizas las que mejor funcionan) o
+        #    por olvido (las que llevas más tiempo sin revisar, arriba). ──
+        _orden_ids = _orden_fuentes_guardado()
+        if st.session_state.pop("poner_mi_orden", False):
+            st.session_state["modo_orden_fuentes"] = "🎯 Mi orden"
+        _modo_orden = st.radio(
+            "Orden", ["🎯 Mi orden", "🕰️ Más olvidadas primero"], horizontal=True,
+            index=0 if _orden_ids else 1, key="modo_orden_fuentes",
+            help="«Mi orden» es el que armas arrastrando en el cajón ↕️ de abajo. "
+                 "Las fuentes nuevas que aún no ordenes van al final.")
+
+        _tipo_de = {f["id"]: f["tipo"] for f in _fuentes_b}
+        _pos_g = {fid: i for i, fid in enumerate(_orden_ids)}
+        with st.expander("↕️ Ordenar mis fuentes — arrastra y suelta para priorizar"):
+            st.caption("Arrastra hacia ARRIBA las que mejor te funcionan con los clientes. "
+                       "El orden se guarda en la nube y aplica a todos los clientes "
+                       "cuando la lista está en «🎯 Mi orden».")
+            _ids_orden0 = sorted([f["id"] for f in _fuentes_b],
+                                 key=lambda x: _pos_g.get(x, 10**6))
+            try:
+                from streamlit_sortables import sort_items
+                _etiquetas0 = [f"{_tipo_de.get(x, '')} {x}" for x in _ids_orden0]
+                _etiquetas1 = sort_items(_etiquetas0, direction="vertical",
+                                         key="sort_fuentes")
+                _ids_nuevo = [e.split(" ", 1)[1] if " " in e else e
+                              for e in (_etiquetas1 or [])]
+                if _ids_nuevo and _ids_nuevo != _ids_orden0:
+                    _guardar_orden_fuentes(_ids_nuevo)
+                    st.session_state["poner_mi_orden"] = True
+                    st.toast("↕️ Orden guardado — la lista ya lo sigue.")
+                    st.rerun()
+            except Exception:  # noqa: BLE001 - sin el componente: respaldo con ⬆️
+                st.caption("⚠️ El arrastre no está disponible; usa ⬆️ para subir una fuente.")
+                for _i_o, _x_o in enumerate(list(_ids_orden0)):
+                    _co1, _co2 = st.columns([6, 1])
+                    _co1.markdown(f"{_i_o + 1}. {_tipo_de.get(_x_o, '')} {esc_md(_x_o)}")
+                    if _i_o > 0 and _co2.button(
+                            "⬆️", key=f"sube_{hashlib.md5(_x_o.encode()).hexdigest()[:8]}"):
+                        _ids_orden0[_i_o - 1], _ids_orden0[_i_o] = (
+                            _ids_orden0[_i_o], _ids_orden0[_i_o - 1])
+                        _guardar_orden_fuentes(_ids_orden0)
+                        st.session_state["poner_mi_orden"] = True
+                        st.rerun()
+
+        if _modo_orden == "🎯 Mi orden":
+            # Tu prioridad manda; las fuentes aún sin ordenar van al final,
+            # de más olvidada a más reciente.
+            _orden_b = sorted(_fuentes_b,
+                              key=lambda f: (_pos_g.get(f["id"], 10**6),
+                                             -(10**6 if _dias_visita(f["id"]) is None
+                                               else _dias_visita(f["id"]))))
+        else:
+            # Primero las nunca visitadas, luego de la visita más vieja a la más reciente.
+            _orden_b = sorted(_fuentes_b,
+                              key=lambda f: -(10**6 if _dias_visita(f["id"]) is None
+                                              else _dias_visita(f["id"])))
         for _f in _orden_b:
             _d_b = _dias_visita(_f["id"])
             _cb1, _cb2, _cb3 = st.columns([5, 2.4, 1.6])
