@@ -1854,6 +1854,7 @@ with tab_resultados:
             limite = dias_arriendo if op == "arriendo" else dias_venta
             return d <= limite
 
+        _posts_catalogo = list(posts)   # catálogo completo (para 📌 asignados)
         posts = [p for p in posts if _pasa_frescura(p)]
         # El mismo inmueble visto en varias fuentes (IG + portal) se muestra UNA vez.
         n_antes = len(posts)
@@ -1913,7 +1914,9 @@ with tab_resultados:
         # 📌 Inmuebles asignados a dedo por el broker (por link): entran directo a las
         # coincidencias del cliente, por encima del cruce, la frescura y el umbral.
         posts_por_link = {}
-        for _p in posts:
+        # OJO: del catálogo COMPLETO (sin filtro de frescura): un 📌 asignado
+        # viejo debe llegar con su ficha entera (datos, fotos), no pelado.
+        for _p in _posts_catalogo:
             _nl = _norm_link(_p.get("url") or "")
             if _nl:
                 posts_por_link.setdefault(_nl, _p)
