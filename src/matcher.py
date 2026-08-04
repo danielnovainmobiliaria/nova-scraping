@@ -518,8 +518,17 @@ def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | Non
     if exc.get("area_min") and area and area < exc["area_min"]:
         return f"{area:g} m²: por debajo del mínimo ({exc['area_min']:g} m²)"
     precio = post.get("precio")
-    if exc.get("precio_max") and precio and precio > exc["precio_max"]:
-        return f"precio por encima del tope ({formato_cop(exc['precio_max'])})"
+    if exc.get("precio_max") and precio:
+        # REGLA DE ORO del presupuesto: un tope aprendido jamás puede quedar POR
+        # DEBAJO del presupuesto declarado — mataría el margen de negociación
+        # (+20%) que el presupuesto ya contempla. Un tope así se IGNORA y el
+        # precio lo juzga el presupuesto normal; un tope explícito por encima
+        # del presupuesto sí se respeta tal cual.
+        tope = exc["precio_max"]
+        pmax_cli = cliente.get("presupuesto_max")
+        if not (pmax_cli and tope < pmax_cli):
+            if precio > tope:
+                return f"precio por encima del tope ({formato_cop(tope)})"
     habs = post.get("habitaciones")
     if exc.get("habitaciones_min") and habs is not None and habs < exc["habitaciones_min"]:
         return f"menos de {exc['habitaciones_min']:g} habitaciones"

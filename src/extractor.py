@@ -642,6 +642,12 @@ Si el broker DESCARTA un inmueble de referencia por ser "muy grande/pequeño/car
 los datos de ese inmueble como límite, pero PON EL TOPE UN POCO POR DENTRO para que ese mismo
 inmueble y los similares queden fuera. Ej: descartó uno de 300 m² por muy grande -> area_max 290;
 descartó uno de $2.500M por muy caro -> precio_max ~2.400.000.000.
+EXCEPCIÓN con el precio: si el motivo solo dice que el inmueble SE PASA DEL PRESUPUESTO del
+cliente ("presupuesto máximo 7.500.000", "está por encima de lo que tiene", "muy caro para su
+presupuesto"), NO crees precio_max: la ficha del cliente ya tiene su presupuesto y el sistema
+le da un margen de negociación del +20% por encima. Un tope nuevo mataría ese margen. Solo crea
+precio_max si el broker fija un tope DISTINTO y explícito ("no le muestres nada de más de X"),
+y JAMÁS por debajo del presupuesto declarado del cliente.
 Apodo bogotano: "las santas" = Santa Bibiana, San Patricio, Santa Paula y Santa Bárbara.
 PROHIBIDO: jamás incluyas en "excluir_barrios" un barrio que el cliente PIDE (te paso su
 contexto), ni el nombre de la localidad que contiene sus barrios (si pide Chicó, NO excluyas
