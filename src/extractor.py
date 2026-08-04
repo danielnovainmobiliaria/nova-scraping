@@ -323,6 +323,9 @@ Reglas de interpretación (mercado bogotano):
 - "mts2"/"m2"/"mtrs"/"metros" = área. "mín 60 m2" -> area_min 60.
   "entre 60 y 90 m2" -> area_min 60, area_max 90. "máx 120" -> area_max 120.
 - "cuarto de servicio"/"alcoba de servicio" -> "cuarto_servicio".
+- "obligatorios": palabras SUAVES como "preferible", "preferiblemente", "idealmente",
+  "ojalá", "sería bueno", "le gustaría" JAMÁS generan obligatorios (son deseos: van en
+  extras/notas y suman puntaje, no filtran).
 - "obligatorios": SOLO si el texto usa palabras EXPLÍCITAS de exigencia: "sí o sí",
   "indispensable", "obligatorio", "innegociable", "solo"/"únicamente". OJO: pedir
   "3 habitaciones" o "mínimo 100 m2" NO es obligatorio por sí solo (eso ya lo filtra el
