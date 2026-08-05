@@ -4,6 +4,8 @@ Trae las publicaciones nuevas de Instagram, las lee con IA y las guarda en la ba
 de datos en la nube. Como el scraping es incremental, solo trae lo nuevo desde la
 última vez (barato). Las llaves vienen de los Secrets de GitHub Actions.
 """
+from datetime import date
+
 from src import config, db, extractor, scraper, scraper_portales
 
 
@@ -24,12 +26,21 @@ def main() -> None:
         print(f"⚠️ Problema con Instagram (los portales igual se intentan): {e}", flush=True)
 
     try:
-        extractor.extraer_pendientes(log=print)
+        # Modo LOTE: nadie espera al robot → tarifa del 50% en la lectura IA.
+        extractor.extraer_pendientes(log=print, lote=True)
     except Exception as e:  # noqa: BLE001
         errores.append(f"Lectura IA: {e}")
         print(f"⚠️ Problema leyendo captions con IA: {e}", flush=True)
 
     portales = config.leer_portales()
+    # La VENTA se mueve lento: sus búsquedas corren un día sí, un día no
+    # (los arriendos, que vuelan, corren a diario). Ahorra ~la mitad de Apify.
+    if date.today().toordinal() % 2:
+        descansan = [u for u in portales if "venta" in u.lower()]
+        if descansan:
+            print(f"↔️ Hoy descansan {len(descansan)} búsqueda(s) de VENTA "
+                  "(corren mañana; los arriendos van a diario).", flush=True)
+            portales = [u for u in portales if "venta" not in u.lower()]
     if portales:
         try:
             scraper_portales.scrapear_portales(portales, log=print)

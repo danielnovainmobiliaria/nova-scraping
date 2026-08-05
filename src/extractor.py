@@ -7,6 +7,7 @@ operación, barrio, metraje, precio, habitaciones, baños, extras, etc.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import anthropic
@@ -85,13 +86,92 @@ Reglas:
 """
 
 
+# ── Dieta de tokens: recorta murallas de hashtags y emojis repetidos ──
+_RE_HASHTAG = re.compile(r"#\w+")
+_RE_MURALLA = re.compile(r"(?:#\w+[\s.,]*){2,}")
+_RE_EMOJI_REP = re.compile(
+    r"([\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF]\uFE0F?)\1{2,}")
+
+
+def _dieta(texto: str) -> str:
+    """Adelgaza el caption antes de mandarlo a la IA: quita murallas de hashtags
+    (conservando las primeras etiquetas, que a veces traen barrio/operación) y
+    emojis repetidos. Mismos datos, ~20-30% menos tokens."""
+    t = texto or ""
+    tags = _RE_HASHTAG.findall(t)
+    if len(tags) > 5:
+        t = _RE_MURALLA.sub(" ", t)
+        t += "\nEtiquetas: " + " ".join(x[1:] for x in tags[:8])
+    t = _RE_EMOJI_REP.sub(r"\1", t)
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    return t.strip()
+
+
+# ── Lectura en GRUPO: varios avisos por llamada (instrucciones se pagan 1 vez) ──
+SYSTEM_LOTE = SYSTEM_PROMPT + """
+
+Si recibes VARIOS avisos separados por '=== AVISO N ===', devuelve ÚNICAMENTE un
+ARRAY JSON con un objeto por aviso, EN EL MISMO ORDEN (AVISO 1 → posición 0).
+Sin texto fuera del array. Si un aviso no es un inmueble, su objeto lleva
+"es_inmueble": false."""
+
+TAM_GRUPO = 8    # avisos por llamada (equilibrio costo/robustez)
+
+
+def _params_grupo(captions: list[str]) -> dict[str, Any]:
+    """Parámetros de la llamada agrupada (los usa el modo normal Y el modo lote)."""
+    cuerpo = "\n\n".join(f"=== AVISO {i + 1} ===\n{_dieta(c)[:3000]}"
+                          for i, c in enumerate(captions))
+    return {
+        "model": config.ANTHROPIC_MODEL,
+        "max_tokens": min(8000, 500 + 700 * len(captions)),
+        # El caché de prompt hace que las instrucciones cuesten ~10% tras la 1ª llamada.
+        "system": [{"type": "text", "text": SYSTEM_LOTE,
+                    "cache_control": {"type": "ephemeral"}}],
+        "messages": [{"role": "user", "content": cuerpo}],
+    }
+
+
+def _parsear_grupo(texto: str, n: int) -> list[dict[str, Any] | None]:
+    """Convierte la respuesta del grupo en una lista de n resultados (None = falló)."""
+    t = texto.strip()
+    if t.startswith("```"):
+        t = t.strip("`")
+    ini, fin = t.find("["), t.rfind("]")
+    if ini < 0 or fin <= ini:
+        return [None] * n
+    try:
+        arr = json.loads(t[ini:fin + 1])
+    except json.JSONDecodeError:
+        return [None] * n
+    out: list[dict[str, Any] | None] = []
+    for d in arr[:n]:
+        try:
+            d["extras"] = [e for e in (d.get("extras") or []) if e in EXTRAS_VALIDOS]
+            out.append(_validar_precio(d))
+        except Exception:  # noqa: BLE001
+            out.append(None)
+    out.extend([None] * (n - len(out)))
+    return out
+
+
+def _extraer_grupo(client: anthropic.Anthropic, captions: list[str]
+                   ) -> list[dict[str, Any] | None]:
+    """Lee un grupo de captions en UNA llamada. None por aviso que no se pudo."""
+    msg = client.messages.create(**_params_grupo(captions))
+    if msg.stop_reason == "max_tokens":
+        return [None] * len(captions)
+    return _parsear_grupo(msg.content[0].text, len(captions))
+
+
 def _extraer_uno(client: anthropic.Anthropic, caption: str) -> dict[str, Any]:
     """Llama a Claude para extraer los datos de un solo caption."""
     msg = client.messages.create(
         model=config.ANTHROPIC_MODEL,
         max_tokens=700,
         system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": caption.strip()[:4000]}],
+        messages=[{"role": "user", "content": _dieta(caption)[:4000]}],
     )
     texto = msg.content[0].text.strip()
     # Por si el modelo envuelve la respuesta en ```json … ```
@@ -115,10 +195,11 @@ def interpretar_inmueble(texto: str) -> dict[str, Any]:
     return _extraer_uno(client, texto)
 
 
-def extraer_pendientes(log=print) -> int:
+def extraer_pendientes(log=print, lote: bool = False) -> int:
     """Procesa todos los posts de la caché que aún no tienen extracción.
 
-    Devuelve cuántos captions se procesaron.
+    Con lote=True usa la Batches API (50% de descuento) — para el robot diario,
+    donde nadie está esperando. Devuelve cuántos captions se procesaron.
     """
     if not config.ANTHROPIC_API_KEY:
         raise RuntimeError(
@@ -131,24 +212,96 @@ def extraer_pendientes(log=print) -> int:
         log("No hay captions nuevos por leer.")
         return 0
 
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    grupos = [pendientes[i:i + TAM_GRUPO] for i in range(0, len(pendientes), TAM_GRUPO)]
+
+    if lote and len(pendientes) >= TAM_GRUPO:
+        try:
+            return _extraer_por_lote(client, grupos, len(pendientes), log)
+        except Exception as e:  # noqa: BLE001 - el lote nunca puede costar el día
+            log(f"⚠️ El modo lote falló ({e}); sigo en modo normal.")
+
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     procesados = 0
-    # Varios captions a la vez (antes iba uno por uno: 5-6x más lento).
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        futuros = {pool.submit(_extraer_uno, client, fila["caption"]): fila
-                   for fila in pendientes}
+    # Grupos de captions en paralelo: las instrucciones se pagan 1 vez por grupo
+    # (no por aviso) y el caché de prompt abarata el resto.
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futuros = {pool.submit(_extraer_grupo, client,
+                               [f["caption"] for f in g]): g for g in grupos}
         for fut in as_completed(futuros):
-            fila = futuros[fut]
+            grupo = futuros[fut]
             try:
-                datos = fut.result()
+                resultados = fut.result()
+            except Exception as e:  # noqa: BLE001
+                log(f"  ⚠️ Grupo completo falló ({e}); reintento uno a uno.")
+                resultados = [None] * len(grupo)
+            for fila, datos in zip(grupo, resultados):
+                if datos is None:      # rescate individual del aviso que falló
+                    try:
+                        datos = _extraer_uno(client, fila["caption"])
+                    except Exception as e:  # noqa: BLE001
+                        log(f"  ⚠️ No se pudo leer un post de @{fila['cuenta']}: {e}")
+                        continue
                 db.guardar_extraccion(fila["id"], datos)
                 procesados += 1
-                log(f"Leído post de @{fila['cuenta']} ({procesados}/{len(pendientes)})")
-            except Exception as e:  # noqa: BLE001 - no queremos que un post tumbe todo
-                log(f"  ⚠️ No se pudo leer un post de @{fila['cuenta']}: {e}")
+            log(f"Leídos {procesados}/{len(pendientes)} captions…")
     log(f"Listo. Se leyeron {procesados} captions.")
+    return procesados
+
+
+def _extraer_por_lote(client: anthropic.Anthropic, grupos, total: int, log) -> int:
+    """Modo LOTE (Batches API): mismas lecturas a MITAD de precio.
+
+    Pensado para el robot de la madrugada, donde nadie espera la respuesta.
+    Espera hasta ~40 min; si el lote no termina, se cancela y el que llama
+    hace el trabajo en modo normal.
+    """
+    import time
+
+    requests = [{"custom_id": f"g{i}",
+                 "params": _params_grupo([f["caption"] for f in g])}
+                for i, g in enumerate(grupos)]
+    batch = client.messages.batches.create(requests=requests)
+    log(f"📦 Lote enviado ({len(requests)} grupos, {total} captions) — tarifa 50%…")
+
+    inicio = time.time()
+    while True:
+        b = client.messages.batches.retrieve(batch.id)
+        if b.processing_status == "ended":
+            break
+        if time.time() - inicio > 40 * 60:
+            try:
+                client.messages.batches.cancel(batch.id)
+            except Exception:  # noqa: BLE001
+                pass
+            raise RuntimeError("el lote no terminó en 40 min")
+        time.sleep(20)
+
+    procesados = 0
+    por_id = {f"g{i}": g for i, g in enumerate(grupos)}
+    fallidos: list[dict] = []
+    for entrada in client.messages.batches.results(batch.id):
+        grupo = por_id.get(entrada.custom_id) or []
+        if entrada.result.type == "succeeded":
+            msg = entrada.result.message
+            resultados = ([None] * len(grupo) if msg.stop_reason == "max_tokens"
+                          else _parsear_grupo(msg.content[0].text, len(grupo)))
+        else:
+            resultados = [None] * len(grupo)
+        for fila, datos in zip(grupo, resultados):
+            if datos is None:
+                fallidos.append(fila)
+                continue
+            db.guardar_extraccion(fila["id"], datos)
+            procesados += 1
+    for fila in fallidos:      # rescate individual (pocos, a tarifa normal)
+        try:
+            db.guardar_extraccion(fila["id"], _extraer_uno(client, fila["caption"]))
+            procesados += 1
+        except Exception as e:  # noqa: BLE001
+            log(f"  ⚠️ No se pudo leer un post de @{fila['cuenta']}: {e}")
+    log(f"📦 Lote listo: {procesados}/{total} captions a mitad de tarifa.")
     return procesados
 
 

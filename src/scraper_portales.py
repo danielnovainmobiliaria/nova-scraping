@@ -43,25 +43,14 @@ def _id_inmueble(d: dict, pagina_url: str) -> str:
     return "portal_" + hashlib.md5(base.encode("utf-8")).hexdigest()[:18]
 
 
-def _urls_paginadas(urls: list[str], max_paginas: int) -> list[str]:
-    """Expande cada búsqueda a varias páginas de resultados (verificado por portal).
-
-    Antes solo se leía la página 1 de cada búsqueda (~20 avisos de miles). Ahora el
-    tope de páginas se reparte entre las búsquedas con patrón de paginación conocido:
-    Metrocuadrado usa ?page=N y Fincaraíz /paginaN. Sitios sin patrón quedan con su URL.
-    """
-    conocidos = [u for u in urls if "metrocuadrado.com" in u or "fincaraiz.com" in u]
-    extra = max(0, max_paginas - len(urls))
-    por_busqueda = (extra // len(conocidos)) if conocidos else 0
-    out: list[str] = []
-    for u in urls:
-        out.append(u)
-        base = u.split("?")[0].rstrip("/")
-        if "metrocuadrado.com" in u:
-            out.extend(f"{base}/?page={n}" for n in range(2, 2 + por_busqueda))
-        elif "fincaraiz.com" in u:
-            out.extend(f"{base}/pagina{n}" for n in range(2, 2 + por_busqueda))
-    return out[:max_paginas]
+def _paginas_extra(url: str, cuantas: int) -> list[str]:
+    """Páginas 2..N de una búsqueda (patrones verificados por portal)."""
+    base = url.split("?")[0].rstrip("/")
+    if "metrocuadrado.com" in url:
+        return [f"{base}/?page={n}" for n in range(2, 2 + cuantas)]
+    if "fincaraiz.com" in url:
+        return [f"{base}/pagina{n}" for n in range(2, 2 + cuantas)]
+    return []
 
 
 def _fecha_publicacion(d: dict, hoy) -> tuple[str, bool]:
@@ -92,29 +81,25 @@ def scrapear_portales(urls: list[str], log=print, max_paginas: int | None = None
         return 0
 
     max_paginas = max_paginas or config.MAX_PAGINAS_PORTAL
-    paginas = _urls_paginadas(urls, max_paginas)
     cliente = ApifyClient(config.APIFY_TOKEN)
-    run_input = {
-        "startUrls": [{"url": u} for u in paginas],
-        "maxCrawlPages": max_paginas,
-        "maxCrawlDepth": 0,                    # solo las páginas indicadas (predecible y barato)
-        "crawlerType": "playwright:firefox",   # navegador real (portales con JavaScript)
-        "saveMarkdown": True,
-        "dynamicContentWaitSecs": 20,          # espera a que carguen los avisos (JS)
-        "proxyConfiguration": {"useApifyProxy": True},
-    }
-    log(f"Abriendo {len(urls)} búsqueda(s) → {len(paginas)} página(s) de resultados…")
-    run = cliente.actor(ACTOR_CRAWLER).call(run_input=run_input)
-    if run is None or not run.default_dataset_id:
-        raise RuntimeError("El lector de portales no devolvió resultados.")
-
     hoy_dt = datetime.now(timezone.utc).date()
     hoy = hoy_dt.isoformat()
-    nuevos = 0
 
-    # Baja primero todas las páginas y léelas con IA EN PARALELO (4 a la vez).
-    items = [it for it in cliente.dataset(run.default_dataset_id).iterate_items()
-             if (it.get("markdown") or it.get("text") or "").strip()]
+    def _crawl(paginas: list[str]) -> list[dict]:
+        run_input = {
+            "startUrls": [{"url": u} for u in paginas],
+            "maxCrawlPages": len(paginas),
+            "maxCrawlDepth": 0,                    # solo las páginas indicadas
+            "crawlerType": "playwright:firefox",   # navegador real (portales con JS)
+            "saveMarkdown": True,
+            "dynamicContentWaitSecs": 20,
+            "proxyConfiguration": {"useApifyProxy": True},
+        }
+        run = cliente.actor(ACTOR_CRAWLER).call(run_input=run_input)
+        if run is None or not run.default_dataset_id:
+            raise RuntimeError("El lector de portales no devolvió resultados.")
+        return [it for it in cliente.dataset(run.default_dataset_id).iterate_items()
+                if (it.get("markdown") or it.get("text") or "").strip()]
 
     from concurrent.futures import ThreadPoolExecutor
 
@@ -126,28 +111,55 @@ def scrapear_portales(urls: list[str], log=print, max_paginas: int | None = None
         inmuebles = extractor.extraer_inmuebles_pagina(texto, fuente=fuente, log=avisos.append)
         return pagina_url, fuente, inmuebles, avisos
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        paginas_leidas = list(pool.map(_leer_pagina, items))
+    nuevos = 0
+    nuevos_por_base: dict[str, int] = {}
 
-    for pagina_url, fuente, inmuebles, avisos in paginas_leidas:
-        for a in avisos:
-            log(a)
-        log(f"@{fuente}: {len(inmuebles)} inmueble(s) leído(s).")
-        for d in inmuebles:
-            link = (d.get("url") or "").strip() or pagina_url
-            pid = _id_inmueble(d, pagina_url)
-            fecha, estimada = _fecha_publicacion(d, hoy_dt)
-            d["fecha_estimada"] = estimada   # la UI lo muestra como "visto el", no "publicado"
-            insertado = db.guardar_post({
-                "id": pid, "cuenta": fuente, "url": link,
-                "caption": (d.get("resumen") or "")[:500],
-                "fecha": fecha, "imagen": "", "media": [],
-            })
-            db.guardar_extraccion(pid, d)   # actualiza datos (ej. precio rebajado) sin duplicar
-            if not estimada:
-                db.actualizar_fecha(pid, fecha)  # corrige la fecha si ahora sí la conocemos
-            if insertado:
-                nuevos += 1
+    def _procesar(items) -> None:
+        nonlocal nuevos
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            paginas_leidas = list(pool.map(_leer_pagina, items))
+        for pagina_url, fuente, inmuebles, avisos in paginas_leidas:
+            for a in avisos:
+                log(a)
+            log(f"@{fuente}: {len(inmuebles)} inmueble(s) leído(s).")
+            base = next((u for u in urls if pagina_url.startswith(u.split("?")[0].rstrip("/"))),
+                        pagina_url)
+            for d in inmuebles:
+                link = (d.get("url") or "").strip() or pagina_url
+                pid = _id_inmueble(d, pagina_url)
+                fecha, estimada = _fecha_publicacion(d, hoy_dt)
+                d["fecha_estimada"] = estimada   # la UI lo muestra como "visto el"
+                insertado = db.guardar_post({
+                    "id": pid, "cuenta": fuente, "url": link,
+                    "caption": (d.get("resumen") or "")[:500],
+                    "fecha": fecha, "imagen": "", "media": [],
+                })
+                db.guardar_extraccion(pid, d)   # actualiza (ej. rebaja) sin duplicar
+                if not estimada:
+                    db.actualizar_fecha(pid, fecha)
+                if insertado:
+                    nuevos += 1
+                    nuevos_por_base[base] = nuevos_por_base.get(base, 0) + 1
+
+    # ── FASE 1: la página 1 de cada búsqueda (ahí vive lo recién publicado) ──
+    log(f"Fase 1: página 1 de {len(urls)} búsqueda(s)…")
+    _procesar(_crawl(urls))
+
+    # ── FASE 2 (freno inteligente): profundizar SOLO donde hubo cosecha fresca.
+    # Si la página 1 casi no trajo nuevos, las siguientes traerán menos aún. ──
+    con_cosecha = [u for u in urls if nuevos_por_base.get(u, 0) >= 3 and _paginas_extra(u, 1)]
+    presupuesto = max(0, max_paginas - len(urls))
+    if con_cosecha and presupuesto:
+        por_busqueda = max(1, presupuesto // len(con_cosecha))
+        paginas2: list[str] = []
+        for u in con_cosecha:
+            paginas2.extend(_paginas_extra(u, por_busqueda))
+        paginas2 = paginas2[:presupuesto]
+        log(f"Fase 2: {len(con_cosecha)} búsqueda(s) con cosecha fresca → "
+            f"{len(paginas2)} página(s) más…")
+        _procesar(_crawl(paginas2))
+    else:
+        log("Fase 2 no hace falta: la página 1 trajo poco nuevo (ahorro activado 💰).")
 
     db.guardar_meta("ultimo_scrape_portales", hoy)
     log(f"Listo. Se guardaron {nuevos} inmueble(s) nuevos de portales.")

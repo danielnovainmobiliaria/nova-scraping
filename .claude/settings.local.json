@@ -299,7 +299,9 @@
       "Bash(grep -o '\"titulo\": *\"[^\"]\\\\{10,140\\\\}\"' /private/tmp/claude-501/-Users-danielmejianauffal-Documents-Nova-Scraping/e13bacb8-616b-476b-a422-589bb92b1ae2/tasks/wlmirgtnv.output)",
       "Bash(sed -n '/create table.*links/,/^\\);/p' supabase/migrations/0001_init.sql)",
       "Bash(sed -n '/create table.*eventos/,/^\\);/p' supabase/migrations/0001_init.sql)",
-      "Bash(npx supabase *)"
+      "Bash(npx supabase *)",
+      "Bash(/usr/bin/grep -n \"def extraer_pendientes\\\\|messages.create\\\\|^SYSTEM_PROMPT\\\\|^def _extraer\\\\|^def extraer\\\\|ThreadPoolExecutor\" src/extractor.py)",
+      "Bash(/usr/bin/grep -n \"^import\\\\|^from\" src/extractor.py)"
     ]
   }
 }
