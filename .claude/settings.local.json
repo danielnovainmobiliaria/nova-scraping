@@ -307,7 +307,8 @@
       "Bash(curl -sL --max-time 20 \"https://debedout.co/\")",
       "Bash(/usr/bin/grep -oiE 'href=\"[^\"]*\\(propiedad|inmueble|venta|arriendo|listing|proyecto\\)[^\"]*\"')",
       "Bash(/usr/bin/grep -oiE 'href=\"[^\"]*\"')",
-      "Bash(/usr/bin/grep -iE \"propiedades|catalogo|portafolio|inventario|status|tipo\")"
+      "Bash(/usr/bin/grep -iE \"propiedades|catalogo|portafolio|inventario|status|tipo\")",
+      "Bash(/usr/bin/grep -n \"restringid\" src/scraper.py)"
     ]
   }
 }

@@ -329,7 +329,7 @@ def pdf_fuentes(cuentas: list[dict[str, Any]], portales: list[str],
         url = f"https://www.instagram.com/{c['usuario']}/"
         pdf.set_text_color(*CAFE)
         pdf.set_font("helvetica", "B", 10.5)
-        etiqueta = "@" + c["usuario"] + ("   [!] restringida - revisar manual"
+        etiqueta = "@" + c["usuario"] + ("   [PRIVADA] solo revision manual"
                                          if c.get("restringida") else "")
         pdf.cell(92, 6, _latin(etiqueta), link=url)
         pdf.set_font("helvetica", "", 9)

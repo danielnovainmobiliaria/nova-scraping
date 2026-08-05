@@ -75,6 +75,23 @@ def scrapear_cuentas(cuentas: list[str], log=print) -> int:
 
     cliente = ApifyClient(config.APIFY_TOKEN)
 
+    # Cuentas PRIVADAS conocidas: se saltan por completo (decisión del broker:
+    # cero esfuerzo y cero gasto en ellas; su vía es la búsqueda manual).
+    try:
+        _previas = set(json.loads(db.leer_meta("cuentas_restringidas") or "[]"))
+    except json.JSONDecodeError:
+        _previas = set()
+    _privadas_us = {config._solo_usuario(u) for u in _previas}
+    _saltadas = [c for c in cuentas if c in _privadas_us]
+    if _saltadas:
+        log(f"🔒 {len(_saltadas)} cuenta(s) privadas se saltan (sin gastar scraping): "
+            + ", ".join("@" + c for c in _saltadas[:6])
+            + (" y más" if len(_saltadas) > 6 else ""))
+        cuentas = [c for c in cuentas if c not in _privadas_us]
+    if not cuentas:
+        log("Todas las cuentas configuradas son privadas; nada que scrapear.")
+        return 0
+
     # Instagram exige proxies residenciales y enlaces de perfil (directUrls),
     # de lo contrario bloquea la lectura ("Empty or private data").
     corte = _cutoff_incremental(cuentas)
@@ -117,7 +134,10 @@ def scrapear_cuentas(cuentas: list[str], log=print) -> int:
     # Recuerda cuándo scrapeamos y qué cuentas no se dejaron leer.
     hoy = datetime.now(timezone.utc).date().isoformat()
     db.guardar_meta("ultimo_scrape", hoy)
-    db.guardar_meta("cuentas_restringidas", json.dumps(restringidas, ensure_ascii=False))
+    # UNIÓN con las privadas ya conocidas (antes se reescribía la lista completa
+    # y las saltadas habrían "revivido" en la siguiente corrida).
+    db.guardar_meta("cuentas_restringidas",
+                    json.dumps(sorted(_previas | set(restringidas)), ensure_ascii=False))
     # Última lectura exitosa POR CUENTA: las restringidas conservan su fecha vieja,
     # así la próxima corrida retrocede y recupera lo que se les perdió.
     lecturas = _lecturas_por_cuenta()

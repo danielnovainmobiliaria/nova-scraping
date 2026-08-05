@@ -793,9 +793,14 @@ with tab_fuentes:
                            "«➕ Agregar o quitar perfiles».")
             continue
         if cta in _restr_us and not pubs:
-            with st.expander(f"⚠️ @{cta} — Instagram no la deja leer (revísala manual)"):
+            with st.expander(f"🔒 @{cta} — cuenta PRIVADA: el robot NO puede leerla "
+                             "(y ya no lo intenta)"):
                 st.markdown(f"[Abrir el perfil @{cta} en Instagram]"
                             f"(https://www.instagram.com/{cta}/)")
+                st.caption("Instagram bloquea el scraping de cuentas privadas y no hay "
+                           "nada que hacer por ese lado. La única vía es tu ojo: está en "
+                           "**5️⃣ Búsqueda manual** con su bitácora de visitas. Si algún "
+                           "día la vuelven pública, avísame y la reactivo.")
             continue
         conteo = {"🟢": 0, "🟡": 0, "🟠": 0, "🔴": 0}
         n_tomadas = 0
@@ -2602,8 +2607,15 @@ with tab_busqueda:
                     + (f"\n\n📝 {_cli_b['notas']}" if _cli_b.get("notas") else ""))
 
         # Todas las fuentes: perfiles IG + portales + extras que alimentes aquí.
+        try:
+            _priv_b = {config._solo_usuario(x) for x in
+                       json.loads(db.leer_meta("cuentas_restringidas") or "[]")}
+        except json.JSONDecodeError:
+            _priv_b = set()
+        # 🔒 = privada: el robot no la lee; SOLO existe por revisión manual.
         _fuentes_b = [{"id": f"@{u}", "url": f"https://www.instagram.com/{u}/",
-                       "tipo": "📷"} for u in config.leer_cuentas()]
+                       "tipo": "🔒📷" if u in _priv_b else "📷"}
+                      for u in config.leer_cuentas()]
         _fuentes_b += [{"id": u.replace("https://", "").replace("http://", "").rstrip("/"),
                         "url": u, "tipo": "🏠"} for u in config.leer_portales()]
         _fuentes_b += [{"id": (x.get("nombre") or x.get("url", "")), "url": x.get("url", ""),
