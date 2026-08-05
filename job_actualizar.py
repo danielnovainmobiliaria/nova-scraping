@@ -36,11 +36,13 @@ def main() -> None:
     # La VENTA se mueve lento: sus búsquedas corren un día sí, un día no
     # (los arriendos, que vuelan, corren a diario). Ahorra ~la mitad de Apify.
     if date.today().toordinal() % 2:
-        descansan = [u for u in portales if "venta" in u.lower()]
+        descansan = [u for u in portales
+                     if "venta" in u.lower() or "for-sale" in u.lower()]
         if descansan:
             print(f"↔️ Hoy descansan {len(descansan)} búsqueda(s) de VENTA "
                   "(corren mañana; los arriendos van a diario).", flush=True)
-            portales = [u for u in portales if "venta" not in u.lower()]
+            portales = [u for u in portales
+                        if "venta" not in u.lower() and "for-sale" not in u.lower()]
     if portales:
         try:
             scraper_portales.scrapear_portales(portales, log=print)

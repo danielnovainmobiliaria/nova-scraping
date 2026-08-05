@@ -780,8 +780,18 @@ with tab_fuentes:
     except Exception as _e_pdf:  # noqa: BLE001 - el PDF nunca debe tumbar la pestaña
         st.caption(f"⚠️ No pude armar el PDF de fuentes: {_e_pdf}")
 
+    _hist_ctas = {p.get("cuenta") for p in posts_cacheados()}
     for cta in _orden_ctas:
         pubs = sorted(_posts_f.get(cta, []), key=lambda t: t[0])
+        if cta not in _hist_ctas and cta not in _restr_us and not pubs:
+            with st.expander(f"🔇 @{cta} — nunca ha traído nada "
+                             "(¿usuario bien escrito? ¿cuenta privada?)"):
+                st.markdown(f"[Abrir el perfil @{cta} en Instagram]"
+                            f"(https://www.instagram.com/{cta}/)")
+                st.caption("Si el perfil existe y es público, el robot lo intentará de "
+                           "nuevo cada día. Si es privado o no existe, quítalo en "
+                           "«➕ Agregar o quitar perfiles».")
+            continue
         if cta in _restr_us and not pubs:
             with st.expander(f"⚠️ @{cta} — Instagram no la deja leer (revísala manual)"):
                 st.markdown(f"[Abrir el perfil @{cta} en Instagram]"

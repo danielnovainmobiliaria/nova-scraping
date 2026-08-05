@@ -301,7 +301,13 @@
       "Bash(sed -n '/create table.*eventos/,/^\\);/p' supabase/migrations/0001_init.sql)",
       "Bash(npx supabase *)",
       "Bash(/usr/bin/grep -n \"def extraer_pendientes\\\\|messages.create\\\\|^SYSTEM_PROMPT\\\\|^def _extraer\\\\|^def extraer\\\\|ThreadPoolExecutor\" src/extractor.py)",
-      "Bash(/usr/bin/grep -n \"^import\\\\|^from\" src/extractor.py)"
+      "Bash(/usr/bin/grep -n \"^import\\\\|^from\" src/extractor.py)",
+      "Bash(curl -sL --max-time 20 \"https://inmobiliariaaldana.com/\")",
+      "Bash(/usr/bin/grep -oiE 'href=\"[^\"]*\\(propiedad|inmueble|venta|arriendo|listing|catalogo\\)[^\"]*\"')",
+      "Bash(curl -sL --max-time 20 \"https://debedout.co/\")",
+      "Bash(/usr/bin/grep -oiE 'href=\"[^\"]*\\(propiedad|inmueble|venta|arriendo|listing|proyecto\\)[^\"]*\"')",
+      "Bash(/usr/bin/grep -oiE 'href=\"[^\"]*\"')",
+      "Bash(/usr/bin/grep -iE \"propiedades|catalogo|portafolio|inventario|status|tipo\")"
     ]
   }
 }
