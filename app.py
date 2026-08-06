@@ -1856,8 +1856,9 @@ with tab_resultados:
                                        "Por defecto 20% (margen acordado).")
             st.caption("Guía de lectura — Afinidad: 🟢 muy afín (≥85%) · 🟡 afín (≥70%) · "
                        "🟠 menos afín. Frescura: 🟢 ≤3 días · 🟡 4-10 · 🟠 11-20 · 🔴 21-30. "
-                       "Cada cliente muestra primero lo MÁS afín; los enviados/descartados "
-                       "desaparecen solos.")
+                       "Orden: lo publicado MÁS RECIENTE primero (la oportunidad se enfría "
+                       "con los días); tus 📌 asignados van de primeros y los enviados/"
+                       "descartados desaparecen solos.")
 
         def _pasa_frescura(p):
             if str(p.get("id", "")).startswith(("m_", "asig_")):
@@ -2146,7 +2147,22 @@ with tab_resultados:
                     st.write("Sin coincidencias por ahora.")
                     continue
                 # Siempre de MAYOR a menor afinidad: lo más cercano al cliente, primero.
-                matches = sorted(matches, key=lambda m: m["score"], reverse=True)
+                # Orden por OPORTUNIDAD: lo publicado más reciente arriba (se va
+                # enfriando con los días). Tus 📌 asignados siempre de primeros, y
+                # lo "menos afín" (bajo el umbral) sigue aparte, al final.
+                def _clave_frescura(m):
+                    d = dias_publicado(m["post"].get("fecha"))
+                    return (0 if m.get("asignado") else 1,
+                            d if d is not None else 999,
+                            -m["score"])
+
+                _afines = sorted([m for m in matches
+                                  if m.get("asignado") or m["score"] >= UMBRAL_AFIN],
+                                 key=_clave_frescura)
+                _menos = sorted([m for m in matches
+                                 if not m.get("asignado") and m["score"] < UMBRAL_AFIN],
+                                key=_clave_frescura)
+                matches = _afines + _menos
                 sep_mostrado = False
                 for m in matches:
                     if not sep_mostrado and m["score"] < UMBRAL_AFIN:
