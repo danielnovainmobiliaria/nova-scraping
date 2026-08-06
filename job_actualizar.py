@@ -6,7 +6,7 @@ de datos en la nube. Como el scraping es incremental, solo trae lo nuevo desde l
 """
 from datetime import date
 
-from src import config, db, extractor, scraper, scraper_portales
+from src import config, db, extractor, limpieza, scraper, scraper_portales
 
 
 def main() -> None:
@@ -49,6 +49,11 @@ def main() -> None:
         except Exception as e:  # noqa: BLE001
             errores.append(f"Portales: {e}")
             print(f"⚠️ Problema leyendo portales: {e}", flush=True)
+
+    try:
+        limpieza.purgar_no_comercializables(log=print)
+    except Exception as e:  # noqa: BLE001 - la limpieza jamás tumba el día
+        print(f"⚠️ La limpieza de vencidos falló: {e}", flush=True)
 
     print(f"Listo. Total de inmuebles en la base: {db.contar_posts()}", flush=True)
     if errores:

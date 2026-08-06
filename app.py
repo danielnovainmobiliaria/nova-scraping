@@ -1837,10 +1837,12 @@ with tab_resultados:
         # y así la pantalla queda limpia para lo importante (los inmuebles).
         with st.expander("⚙️ Ajustes de búsqueda (opcional — los valores de fábrica están bien)"):
             fcol1, fcol2 = st.columns(2)
-            dias_venta = fcol1.slider("📅 Frescura VENTA (días)", 7, 180, 30, 1,
-                                      help="Muestra inmuebles EN VENTA publicados en los últimos N días.")
-            dias_arriendo = fcol2.slider("📅 Frescura ARRIENDO (días)", 3, 90, 20, 1,
-                                         help="Los arriendos se toman más rápido: por defecto 20 días.")
+            dias_venta = fcol1.slider("📅 Frescura VENTA (días)", 7, 40, 40, 1,
+                                      help="Política: una venta con más de un mes y 10 días ya se "
+                                           "enfrió — el robot la borra de la base cada día.")
+            dias_arriendo = fcol2.slider("📅 Frescura ARRIENDO (días)", 3, 20, 20, 1,
+                                         help="Política: un arriendo con más de 20 días casi seguro "
+                                              "ya se tomó — el robot lo borra de la base cada día.")
             c1, c2, c3, c4 = st.columns(4)
             score_min = c1.slider("Coincidencia mínima (%)", 0, 100, 70, 5,
                                   help="Por defecto 70%: solo opciones afines. Bájalo si quieres "

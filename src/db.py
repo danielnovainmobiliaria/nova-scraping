@@ -132,6 +132,18 @@ def eliminar_post(post_id: str) -> None:
         con.execute(text("DELETE FROM posts WHERE id = :id"), {"id": post_id})
 
 
+def eliminar_posts(ids: list[str]) -> None:
+    """Borra MUCHOS inmuebles en tandas (un viaje por cada 200, no por cada uno)."""
+    if not ids:
+        return
+    with _conn() as con:
+        for i in range(0, len(ids), 200):
+            trozo = ids[i:i + 200]
+            marcadores = ",".join(f":i{k}" for k in range(len(trozo)))
+            con.execute(text(f"DELETE FROM posts WHERE id IN ({marcadores})"),
+                        {f"i{k}": v for k, v in enumerate(trozo)})
+
+
 def guardar_extraccion(post_id: str, datos: dict[str, Any]) -> None:
     with _conn() as con:
         con.execute(
