@@ -59,7 +59,7 @@ DIAS_RECIENTES = 30
 
 # Al scrapear de forma incremental, repetimos unos días de solape para no
 # perder publicaciones por diferencias de hora/zona.
-DIAS_SOLAPE = 2
+DIAS_SOLAPE = 1   # con el robot corriendo a diario, 1 día de colchón basta
 
 # Cuántos posts pedirle a Apify por cada cuenta (techo de seguridad).
 MAX_POSTS_POR_CUENTA = 30

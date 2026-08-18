@@ -20,7 +20,42 @@ def main() -> None:
     errores: list[str] = []
 
     try:
-        scraper.scrapear_cuentas(config.leer_cuentas(), log=print)
+        cuentas = config.leer_cuentas()
+        # Cadencia adaptativa: cuentas sin publicar hace 10+ días van en corrida
+        # APARTE cada 2 días. OJO: separadas para que su corte viejo no arrastre
+        # el 'onlyPostsNewerThan' de las activas (eso fue lo que disparó el
+        # gasto en julio con las privadas).
+        import json as _json
+        try:
+            _leidas = set(_json.loads(db.leer_meta("ultimas_lecturas") or "{}"))
+        except Exception:  # noqa: BLE001
+            _leidas = set()
+        _ult_pub = {}
+        for p in db.posts_leidos():
+            cta, f = p.get("cuenta"), str(p.get("fecha") or "")[:10]
+            if cta and f and f > _ult_pub.get(cta, ""):
+                _ult_pub[cta] = f
+        hoy_iso = date.today().isoformat()
+
+        def _dias_sin_publicar(cta):
+            f = _ult_pub.get(cta)
+            if not f:
+                return None
+            return (date.today() - date.fromisoformat(f)).days
+
+        dormidas = [c for c in cuentas
+                    if c in _leidas                      # ya leída antes (no es nueva)
+                    and (_dias_sin_publicar(c) or 0) > 10]
+        activas = [c for c in cuentas if c not in dormidas]
+        scraper.scrapear_cuentas(activas, log=print)
+        if dormidas:
+            if date.today().toordinal() % 2 == 0:
+                print(f"😴 Corrida aparte de {len(dormidas)} cuenta(s) dormidas "
+                      "(sin publicar hace 10+ días)…", flush=True)
+                scraper.scrapear_cuentas(dormidas, log=print)
+            else:
+                print(f"😴 {len(dormidas)} cuenta(s) dormidas descansan hoy "
+                      "(se revisan cada 2 días).", flush=True)
     except Exception as e:  # noqa: BLE001
         errores.append(f"Instagram: {e}")
         print(f"⚠️ Problema con Instagram (los portales igual se intentan): {e}", flush=True)
