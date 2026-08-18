@@ -626,6 +626,11 @@ def actualizar_publicaciones(log) -> None:
         except Exception as e:  # noqa: BLE001
             log(f"⚠️ Portales fallaron: {e}")
     extractor.extraer_pendientes(log=log)
+    try:
+        from src import limpieza
+        limpieza.purgar_no_comercializables(log=log)
+    except Exception as e:  # noqa: BLE001 - la limpieza nunca daña la actualización
+        log(f"⚠️ Limpieza de vencidos falló: {e}")
 
 
 # ── Barra lateral ─────────────────────────────────────────────
@@ -656,7 +661,10 @@ st.sidebar.divider()
 st.sidebar.markdown("**▶️ Buscar inmuebles**")
 correr = st.sidebar.button("🔄 Actualizar todo (IG + portales)",
                            type="primary", width="stretch")
-st.sidebar.caption(f"📦 {contar_posts_cacheado()} inmuebles en memoria")
+st.sidebar.caption(f"📦 {contar_posts_cacheado()} inmuebles en memoria  ·  "
+                   "🤖 automático APAGADO: solo se gasta cuando tú actualizas. "
+                   "Los avisos envejecen solos (gratis) y al pasar el tope "
+                   "(arriendo 20d / venta 40d) salen de las coincidencias.")
 
 # ── Acción del botón: traer + leer publicaciones ──────────────
 if correr:

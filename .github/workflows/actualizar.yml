@@ -1,9 +1,12 @@
 name: Actualizar inmuebles (automático)
 
-# Corre solo todos los días, y también se puede correr a mano con un botón.
+# MODO A DEMANDA (decisión de Daniel, 2026-08): el robot YA NO corre solo.
+# El gasto de Apify/IA solo ocurre cuando él pulsa "🔄 Actualizar todo" en la
+# app (o si se dispara este workflow a mano desde GitHub). Para reactivar el
+# diario: descomentar el bloque schedule.
 on:
-  schedule:
-    - cron: "0 13 * * *"   # 8:00 a.m. hora Colombia (UTC-5)
+  # schedule:
+  #   - cron: "0 13 * * *"   # 8:00 a.m. hora Colombia (UTC-5)
   workflow_dispatch: {}
 
 permissions:
