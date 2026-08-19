@@ -2282,6 +2282,10 @@ with tab_resultados:
                             st.session_state["cliente_abierto"] = nombre
                             st.rerun()
                         with st.popover("🚫 Descartar", width="stretch"):
+                            st.markdown("Vas a descartar: "
+                                        f"**{esc_md((p.get('resumen') or p.get('caption', ''))[:70])}** "
+                                        f"({esc_md(str(p.get('barrio') or '?'))} · "
+                                        f"{matcher.formato_cop(p.get('precio')) or '?'})")
                             st.caption("Escribe **por qué** no le sirvió. La IA lo convierte en filtro "
                                        "para este cliente y **anula inmuebles parecidos** (los de "
                                        "ahora y los que lleguen). Ej: *«primer piso»*, *«nada después "
