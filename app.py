@@ -128,6 +128,21 @@ def _manuales_cacheados():
         return []
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def gasto_apify_ciclo():
+    """Consumo del ciclo de facturación actual de Apify (para el medidor)."""
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            "https://api.apify.com/v2/users/me/usage/monthly",
+            headers={"Authorization": f"Bearer {config.APIFY_TOKEN}"})
+        d = json.loads(urllib.request.urlopen(req, timeout=10).read())["data"]
+        return float(d.get("totalUsageCreditsUsdAfterVolumeDiscount")
+                     or d.get("totalUsageCreditsUsdBeforeVolumeDiscount") or 0)
+    except Exception:  # noqa: BLE001 - sin internet/llave no se muestra y ya
+        return None
+
+
 @st.cache_data(ttl=600, show_spinner=False)
 def logo_bytes_cacheado():
     import base64 as _b64l
@@ -665,6 +680,14 @@ st.sidebar.caption(f"📦 {contar_posts_cacheado()} inmuebles en memoria  ·  "
                    "🤖 automático APAGADO: solo se gasta cuando tú actualizas. "
                    "Los avisos envejecen solos (gratis) y al pasar el tope "
                    "(arriendo 20d / venta 40d) salen de las coincidencias.")
+_gasto_ap = gasto_apify_ciclo()
+if _gasto_ap is not None:
+    _pct_ap = _gasto_ap / 29 * 100
+    _icono_ap = "🟢" if _pct_ap < 60 else ("🟡" if _pct_ap < 85 else "🔴")
+    st.sidebar.caption(f"{_icono_ap} Apify este ciclo: **${_gasto_ap:.2f} de $29** "
+                       f"({_pct_ap:.0f}%)"
+                       + ("  ·  ⚠️ cerca del tope: modera los 🔄 hasta que "
+                          "reinicie el ciclo (día ~21)" if _pct_ap >= 85 else ""))
 
 # ── Acción del botón: traer + leer publicaciones ──────────────
 if correr:
