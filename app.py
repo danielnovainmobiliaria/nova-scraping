@@ -762,14 +762,59 @@ with tab_fuentes:
 
     with st.expander("➕ Agregar o quitar perfiles"):
         st.caption("Una cuenta por línea (con o sin @, o pegando el link del perfil). "
-                   "Se guardan en la nube: NO se pierden al actualizar la app.")
+                   "Se guardan en la nube. Al QUITAR una queda en la lista de retiradas: "
+                   "si un día la pegas de nuevo por descuido, te aviso antes de agregarla.")
         actuales = "\n".join(config.leer_cuentas())
         texto = st.text_area("Cuentas", value=actuales, height=200,
                              placeholder="arriendos_chapinero\ninmobiliaria_norte")
+        _retiradas = config.leer_cuentas_retiradas()
         if st.button("💾 Guardar cuentas"):
-            config.guardar_cuentas([l for l in texto.splitlines() if l.strip()])
-            st.success(f"Guardadas {len(config.leer_cuentas())} cuenta(s) en la nube. ✅")
+            _antes = set(config.leer_cuentas())
+            _pedidas = []
+            for _l in texto.splitlines():
+                _u = config._solo_usuario(_l)
+                if _u and _u not in _pedidas:
+                    _pedidas.append(_u)
+            _quitadas = sorted(_antes - set(_pedidas))
+            # Reincidentes: cuentas retiradas a propósito que vuelven pegadas.
+            _reinc = [u for u in _pedidas if u in _retiradas and u not in _antes]
+            _aceptadas = [u for u in _pedidas if u not in _reinc]
+            config.guardar_cuentas(_aceptadas)
+            if _quitadas:
+                _hoy_r = datetime.now(timezone.utc).date().isoformat()
+                _retiradas.update({u: _hoy_r for u in _quitadas})
+                config.guardar_cuentas_retiradas(_retiradas)
+            st.session_state["reinc_pendientes"] = _reinc
+            st.session_state["flash_cuentas"] = (
+                f"Guardadas {len(_aceptadas)} cuenta(s) en la nube. ✅"
+                + ("  ·  🪦 Retiradas: " + ", ".join("@" + u for u in _quitadas)
+                   if _quitadas else ""))
             st.rerun()
+        if st.session_state.get("flash_cuentas"):
+            st.success(st.session_state.pop("flash_cuentas"))
+        _reinc = st.session_state.get("reinc_pendientes") or []
+        if _reinc:
+            st.warning("⚠️ **Ojo: estas cuentas ya estuvieron y TÚ las retiraste** — no "
+                       "las agregué, para que no pierdas tiempo con brokers que no "
+                       "respondieron: "
+                       + "  ·  ".join(f"@{u} (retirada el {_retiradas.get(u, '?')})"
+                                      for u in _reinc))
+            if st.button("➕ Agregarlas de todas formas (segunda oportunidad)"):
+                config.guardar_cuentas(config.leer_cuentas() + _reinc)
+                _r2 = config.leer_cuentas_retiradas()
+                for _u in _reinc:
+                    _r2.pop(_u, None)
+                config.guardar_cuentas_retiradas(_r2)
+                st.session_state.pop("reinc_pendientes", None)
+                st.session_state["flash_cuentas"] = ("Revividas: "
+                                                     + ", ".join("@" + u for u in _reinc)
+                                                     + " ✅ (salieron de retiradas)")
+                st.rerun()
+        if _retiradas:
+            _ult_r = sorted(_retiradas.items(), key=lambda kv: kv[1], reverse=True)
+            st.caption("🪦 Retiradas por ti (para no re-agregar sin querer): "
+                       + " · ".join(f"@{u} ({f})" for u, f in _ult_r[:12])
+                       + (f" y {len(_ult_r) - 12} más" if len(_ult_r) > 12 else ""))
     try:
         _restr_urls = restringidas_cacheadas()
     except json.JSONDecodeError:

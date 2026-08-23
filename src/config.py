@@ -211,6 +211,23 @@ def guardar_portales(urls: list[str]) -> None:
         pass
 
 
+def leer_cuentas_retiradas() -> dict:
+    """{usuario: fecha_iso} de cuentas que el broker QUITÓ a propósito
+    (brokers que no respondieron, etc.). Para avisar si las re-agrega."""
+    import json as _json
+    try:
+        from . import db
+        return _json.loads(db.leer_meta("cuentas_retiradas") or "{}")
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def guardar_cuentas_retiradas(retiradas: dict) -> None:
+    import json as _json
+    from . import db
+    db.guardar_meta("cuentas_retiradas", _json.dumps(retiradas, ensure_ascii=False))
+
+
 def _solo_usuario(texto: str) -> str:
     """Extrae el nombre de usuario aunque se pegue un enlace completo.
 
