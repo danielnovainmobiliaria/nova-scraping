@@ -58,6 +58,63 @@ def _cutoff_incremental(cuentas: list[str]) -> str:
     return max(piso, desde).isoformat()
 
 
+CUARENTENA_DIAS = 7    # una cuenta marcada privada se reintenta a los 7 días
+
+
+def _privadas_en_cuarentena() -> tuple[dict, set]:
+    """({usuario: fecha_marca}, {usuarios en cuarentena vigente}).
+
+    Formato dict con fecha: una falla PASAJERA de Instagram ya no condena a la
+    cuenta para siempre (eso congeló 35 cuentas sanas en agosto). A los 7 días
+    se reintenta; si vuelve a fallar se re-marca, si lee bien se auto-sana."""
+    try:
+        crudo = json.loads(db.leer_meta("cuentas_restringidas") or "{}")
+    except json.JSONDecodeError:
+        crudo = {}
+    if isinstance(crudo, list):   # formato viejo (lista) → reintentar todas ya
+        crudo = {config._solo_usuario(u): "2000-01-01" for u in crudo}
+    hoy = datetime.now(timezone.utc).date()
+    vigentes = set()
+    for u, f in crudo.items():
+        try:
+            if (hoy - date.fromisoformat(str(f))).days < CUARENTENA_DIAS:
+                vigentes.add(u)
+        except ValueError:
+            pass
+    return crudo, vigentes
+
+
+def _buckets_por_lectura(cuentas: list[str]) -> list[tuple[str, list[str]]]:
+    """Agrupa las cuentas por qué tan atrasada está su última lectura.
+
+    Cada grupo corre APARTE con su propio corte: una cuenta nueva o rezagada
+    paga SU ventana, sin arrastrar el corte de las que están al día (ese
+    arrastre re-compró un mes completo dos veces, en julio y en agosto)."""
+    lecturas = _lecturas_por_cuenta()
+    hoy = datetime.now(timezone.utc).date()
+    frescas, rezagadas, nunca = [], [], []
+    for c in cuentas:
+        f = lecturas.get(c)
+        try:
+            dias = (hoy - date.fromisoformat(str(f))).days if f else None
+        except ValueError:
+            dias = None
+        if dias is None:
+            nunca.append(c)
+        elif dias <= 3:
+            frescas.append(c)
+        else:
+            rezagadas.append(c)
+    grupos = []
+    if frescas:
+        grupos.append(("al día", frescas))
+    if rezagadas:
+        grupos.append(("rezagadas", rezagadas))
+    if nunca:
+        grupos.append(("nuevas", nunca))
+    return grupos
+
+
 def scrapear_cuentas(cuentas: list[str], log=print) -> int:
     """Trae los posts recientes de las cuentas y los guarda en la caché.
 
@@ -75,80 +132,75 @@ def scrapear_cuentas(cuentas: list[str], log=print) -> int:
 
     cliente = ApifyClient(config.APIFY_TOKEN)
 
-    # Cuentas PRIVADAS conocidas: se saltan por completo (decisión del broker:
-    # cero esfuerzo y cero gasto en ellas; su vía es la búsqueda manual).
-    try:
-        _previas = set(json.loads(db.leer_meta("cuentas_restringidas") or "[]"))
-    except json.JSONDecodeError:
-        _previas = set()
-    _privadas_us = {config._solo_usuario(u) for u in _previas}
-    _saltadas = [c for c in cuentas if c in _privadas_us]
+    marcas, en_cuarentena = _privadas_en_cuarentena()
+    _saltadas = [c for c in cuentas if c in en_cuarentena]
     if _saltadas:
-        log(f"🔒 {len(_saltadas)} cuenta(s) privadas se saltan (sin gastar scraping): "
+        log(f"🔒 {len(_saltadas)} cuenta(s) privadas en cuarentena se saltan "
+            f"(se reintentan a los {CUARENTENA_DIAS} días): "
             + ", ".join("@" + c for c in _saltadas[:6])
             + (" y más" if len(_saltadas) > 6 else ""))
-        cuentas = [c for c in cuentas if c not in _privadas_us]
+        cuentas = [c for c in cuentas if c not in en_cuarentena]
     if not cuentas:
-        log("Todas las cuentas configuradas son privadas; nada que scrapear.")
+        log("Todas las cuentas están en cuarentena; nada que scrapear.")
         return 0
+
+    hoy = datetime.now(timezone.utc).date().isoformat()
+    nuevos_total = 0
+    fallidas_hoy: set[str] = set()
+    leidas_ok: set[str] = set()
 
     # Instagram exige proxies residenciales y enlaces de perfil (directUrls),
     # de lo contrario bloquea la lectura ("Empty or private data").
-    corte = _cutoff_incremental(cuentas)
-    es_incremental = bool(_lecturas_por_cuenta()) or db.leer_meta("ultimo_scrape") is not None
-    run_input: dict[str, Any] = {
-        "directUrls": [f"https://www.instagram.com/{u}/" for u in cuentas],
-        "resultsType": "posts",
-        # Primera corrida (ventana de 30 días): límite amplio para cuentas activas;
-        # incremental (pocos días): el límite normal alcanza de sobra.
-        "resultsLimit": config.MAX_POSTS_POR_CUENTA if es_incremental else 100,
-        "onlyPostsNewerThan": corte,
-        "proxy": {"useApifyProxy": True, "apifyProxyGroups": ["RESIDENTIAL"]},
-    }
+    for etiqueta, grupo in _buckets_por_lectura(cuentas):
+        corte = _cutoff_incremental(grupo)
+        primera = etiqueta == "nuevas"
+        run_input: dict[str, Any] = {
+            "directUrls": [f"https://www.instagram.com/{u}/" for u in grupo],
+            "resultsType": "posts",
+            "resultsLimit": 100 if primera else config.MAX_POSTS_POR_CUENTA,
+            "onlyPostsNewerThan": corte,
+            "proxy": {"useApifyProxy": True, "apifyProxyGroups": ["RESIDENTIAL"]},
+        }
+        log(f"📷 Grupo «{etiqueta}»: {len(grupo)} cuenta(s), trayendo desde {corte}…")
+        run = cliente.actor(ACTOR_ID).call(run_input=run_input)
+        if run is None or not run.default_dataset_id:
+            raise RuntimeError("Apify no devolvió resultados. Revisa tu plan o las cuentas.")
+        nuevos = 0
+        fallidas_grupo: set[str] = set()
+        for item in cliente.dataset(run.default_dataset_id).iterate_items():
+            if item.get("error"):  # perfil restringido/privado: Instagram lo bloquea
+                u = config._solo_usuario(item.get("inputUrl") or item.get("url") or "")
+                if u:
+                    fallidas_grupo.add(u)
+                continue
+            post = _normalizar(item)
+            if post is None:
+                continue
+            if db.guardar_post(post):
+                nuevos += 1
+        nuevos_total += nuevos
+        fallidas_hoy |= fallidas_grupo
+        leidas_ok |= {c for c in grupo if c not in fallidas_grupo}
+        log(f"   «{etiqueta}»: {nuevos} publicaciones nuevas.")
 
-    if es_incremental:
-        log(f"Modo ahorro: trayendo solo lo NUEVO desde {corte} "
-            "(no se repiten inmuebles ya descargados).")
-    else:
-        log(f"Primera búsqueda: trayendo los últimos {config.DIAS_RECIENTES} días.")
-    log(f"Pidiendo a Apify los posts de {len(cuentas)} cuenta(s)…")
-    run = cliente.actor(ACTOR_ID).call(run_input=run_input)
-    if run is None or not run.default_dataset_id:
-        raise RuntimeError("Apify no devolvió resultados. Revisa tu plan o las cuentas.")
+    # Cuarentena: las fallas de hoy se marcan con fecha; las que leyeron bien SANAN.
+    for u in fallidas_hoy:
+        marcas[u] = hoy
+    for u in leidas_ok:
+        marcas.pop(u, None)
+    db.guardar_meta("cuentas_restringidas", json.dumps(marcas, ensure_ascii=False))
 
-    nuevos = 0
-    restringidas: list[str] = []
-    dataset = cliente.dataset(run.default_dataset_id).iterate_items()
-    for item in dataset:
-        if item.get("error"):  # perfil restringido/privado: Instagram lo bloquea
-            url = item.get("inputUrl") or item.get("url") or ""
-            if url and url not in restringidas:
-                restringidas.append(url)
-            continue
-        post = _normalizar(item)
-        if post is None:
-            continue
-        if db.guardar_post(post):
-            nuevos += 1
-
-    # Recuerda cuándo scrapeamos y qué cuentas no se dejaron leer.
-    hoy = datetime.now(timezone.utc).date().isoformat()
     db.guardar_meta("ultimo_scrape", hoy)
-    # UNIÓN con las privadas ya conocidas (antes se reescribía la lista completa
-    # y las saltadas habrían "revivido" en la siguiente corrida).
-    db.guardar_meta("cuentas_restringidas",
-                    json.dumps(sorted(_previas | set(restringidas)), ensure_ascii=False))
-    # Última lectura exitosa POR CUENTA: las restringidas conservan su fecha vieja,
-    # así la próxima corrida retrocede y recupera lo que se les perdió.
+    # Última lectura exitosa POR CUENTA.
     lecturas = _lecturas_por_cuenta()
-    restr_usuarios = {config._solo_usuario(u) for u in restringidas}
-    lecturas.update({c: hoy for c in cuentas if c not in restr_usuarios})
+    lecturas.update({c: hoy for c in leidas_ok})
     db.guardar_meta("ultimas_lecturas", json.dumps(lecturas, ensure_ascii=False))
 
-    if restringidas:
-        log(f"⚠️ {len(restringidas)} cuenta(s) no se pudieron leer (perfil restringido o privado).")
-    log(f"Listo. Se guardaron {nuevos} publicaciones nuevas.")
-    return nuevos
+    if fallidas_hoy:
+        log(f"⚠️ {len(fallidas_hoy)} cuenta(s) no se dejaron leer (quedan en "
+            f"cuarentena {CUARENTENA_DIAS} días).")
+    log(f"Listo. Se guardaron {nuevos_total} publicaciones nuevas.")
+    return nuevos_total
 
 
 def _media(item: dict[str, Any]) -> list[dict[str, str]]:

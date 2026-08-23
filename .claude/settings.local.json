@@ -10,7 +10,10 @@
       "Bash(cp -n /Users/danielmejianauffal/.claude/projects/-Users-danielmejianauffal-Documents-Nova-Scraping/memory/*.md /Users/danielmejianauffal/.claude/projects/-Users-danielmejianauffal-Desktop-Scraping/memory/)",
       "Bash(python3 -)",
       "Bash(/usr/bin/grep -v \"^#\")",
-      "Bash(/usr/bin/grep -c .)"
+      "Bash(/usr/bin/grep -c .)",
+      "Bash(/usr/bin/grep -c \"def _media\" src/scraper.py)",
+      "Bash(/usr/bin/grep -n \"^def \" src/scraper.py)",
+      "Bash(git checkout *)"
     ]
   }
 }
