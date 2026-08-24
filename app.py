@@ -2277,8 +2277,10 @@ with tab_resultados:
                         st.caption(f"Fuente (solo tú): {fuente_post(p)} · "
                                    + ("visto el " if p.get("fecha_estimada") else "publicado ")
                                    + str(p.get("fecha", "")))
-                        # Foto de portada (vista previa)
-                        if p.get("imagen"):
+                        # Foto de portada (las URLs de imagen de Instagram caducan a
+                        # los ~2 días: mostrarlas después deja un icono roto).
+                        if p.get("imagen") and (es_portal_post(p)
+                                                or (dias_publicado(p.get("fecha")) or 99) <= 2):
                             st.image(p["imagen"], width=260)
                         # Texto LIMPIO para compartir: sin link y sin la fuente.
                         extras_txt = ", ".join(bonito(e) for e in p.get("extras", []))

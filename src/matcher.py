@@ -455,6 +455,10 @@ def _menciona_de_verdad(texto: str, nw: str) -> bool:
     return False
 
 
+_TIPOS_NO_VIVIENDA = {"oficina", "local", "bodega", "consultorio", "lote",
+                      "parqueadero", "oficinas", "local comercial"}
+
+
 def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | None:
     """Filtro DURO por comentarios del broker: barrios o palabras que anulan el inmueble.
 
@@ -540,8 +544,14 @@ def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | Non
         return f"{habs:g} habitaciones (pediste máx {exc['habitaciones_max']:g})"
     # Tipo de inmueble (ej. busca apartamento → fuera casas/locales).
     deseado_tipo = exc.get("tipo") or cliente.get("tipo")
-    if deseado_tipo and post.get("tipo") and not _tipo_compatible(deseado_tipo, post.get("tipo")):
-        return f"es {post.get('tipo')} (buscas {deseado_tipo})"
+    tipo_post = _norm(str(post.get("tipo") or "")) or None
+    # Sin tipo declarado, el cliente busca VIVIENDA: oficinas, locales y demás
+    # comercial quedan fuera por defecto (si un día alguien busca oficina,
+    # se le pone tipo 'oficina' en la ficha y entra normal).
+    if not deseado_tipo and tipo_post in _TIPOS_NO_VIVIENDA:
+        return f"es {tipo_post} (el cliente busca vivienda)"
+    if deseado_tipo and tipo_post and not _tipo_compatible(deseado_tipo, tipo_post):
+        return f"es {tipo_post} (buscas {deseado_tipo})"
     # Antigüedad: pediste algo nuevo (tope de años de construido).
     amax = exc.get("antiguedad_max")
     if amax is not None:
