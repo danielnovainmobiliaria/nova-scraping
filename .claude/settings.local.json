@@ -13,7 +13,17 @@
       "Bash(/usr/bin/grep -c .)",
       "Bash(/usr/bin/grep -c \"def _media\" src/scraper.py)",
       "Bash(/usr/bin/grep -n \"^def \" src/scraper.py)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(curl -s --max-time 20 -X POST \"https://api.fincaraiz.com.co/document/api/1.0/listings/search\" -H \"Content-Type: application/json\" -d '{\"filter\":{\"offer\":{\"slug\":[\"sell\"]},\"property_type\":{\"slug\":[\"apartment\"]},\"locations\":{\"cities\":{\"slug\":[\"city-colombia-11-001\"]}}},\"fields\":{\"exclude\":[],\"facets\":[],\"include\":[\"title\",\"price\",\"area\",\"rooms\",\"baths\",\"locations\",\"link\",\"dates\"],\"limit\":3,\"offset\":0}}')",
+      "Bash(curl -sL --max-time 20 \"https://www.metrocuadrado.com/apartamentos/venta/bogota/\" -H \"User-Agent: Mozilla/5.0 \\(Macintosh; Intel Mac OS X 10_15_7\\)\")",
+      "Bash(/usr/bin/grep -oE '\"\\(x-api-key|X-Api-Key\\)\"[^,]{0,60}|rest-search[^\"]{0,80}')",
+      "Bash(curl -s --max-time 20 \"https://inmobiliariaaldana.com/status/en-arriendo/\")",
+      "Bash(/usr/bin/grep -c \"inmueble/\")",
+      "Bash(curl -sL --max-time 20 \"https://www.myhome.com.co/\" -H \"User-Agent: Mozilla/5.0\")",
+      "Bash(/usr/bin/grep -coiE \"\\(inmueble|propiedad|ficha\\)[^\\\\\"]*\\\\\"\")",
+      "Bash(/usr/bin/grep -o '__NEXT_DATA__[^>]\\\\{0,120\\\\}' /tmp/probe.html)",
+      "Bash(/usr/bin/grep -o '<script[^>]*__NEXT_DATA__[^>]*>' /tmp/probe.html)",
+      "Bash(/usr/bin/grep -o 'self\\\\.__next_f\\\\.push\\(\\\\[1,\"[^\"]\\\\{0,150\\\\}' /tmp/mc.html)"
     ]
   }
 }

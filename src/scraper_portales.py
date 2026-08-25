@@ -85,6 +85,11 @@ def scrapear_portales(urls: list[str], log=print, max_paginas: int | None = None
     hoy_dt = datetime.now(timezone.utc).date()
     hoy = hoy_dt.isoformat()
 
+    # ── LECTURA DIRECTA (gratis, sin Apify; Fincaraíz además sin IA) ──
+    from . import portales_directo
+    urls_directas = [u for u in urls if portales_directo.soporta(u)]
+    urls_apify = [u for u in urls if u not in urls_directas]
+
     def _crawl(paginas: list[str]) -> list[dict]:
         run_input = {
             "startUrls": [{"url": u} for u in paginas],
@@ -141,14 +146,55 @@ def scrapear_portales(urls: list[str], log=print, max_paginas: int | None = None
                     nuevos += 1
                     nuevos_por_base[base] = nuevos_por_base.get(base, 0) + 1
 
-    # ── FASE 1: la página 1 de cada búsqueda (ahí vive lo recién publicado) ──
-    log(f"Fase 1: página 1 de {len(urls)} búsqueda(s)…")
-    _procesar(_crawl(urls))
+    def _guardar_directo(it: dict, fuente: str) -> None:
+        nonlocal nuevos
+        d = it["datos"]
+        pid = _id_inmueble({"url": it["url"], **d}, it["url"])
+        fecha = it.get("fecha") or hoy
+        d["fecha_estimada"] = not bool(it.get("fecha"))
+        insertado = db.guardar_post({
+            "id": pid, "cuenta": fuente, "url": it["url"],
+            "caption": (it.get("caption") or d.get("resumen") or "")[:500],
+            "fecha": fecha, "imagen": it.get("imagen") or "", "media": [],
+        })
+        db.guardar_extraccion(pid, d)
+        if it.get("fecha"):
+            db.actualizar_fecha(pid, fecha)
+        if insertado:
+            nuevos += 1
+
+    for u in list(urls_directas):
+        fuente = _dominio(u)
+        try:
+            if "fincaraiz.com.co" in u:
+                items_fr = portales_directo.leer_fincaraiz(u, log=log)
+                for it in items_fr:
+                    _guardar_directo(it, fuente)
+                log(f"🆓 @{fuente}: {len(items_fr)} avisos ESTRUCTURADOS por lectura "
+                    "directa (sin Apify, sin IA, con fecha real).")
+            else:
+                texto = portales_directo.leer_texto_simple(u, log=log)
+                # Se reutiliza EXACTAMENTE la misma tubería de lectura con IA.
+                _procesar([{"url": u, "markdown": texto}])
+                log(f"🆓 @{fuente}: leído por conexión directa (sin Apify).")
+        except Exception as e:  # noqa: BLE001 - si lo directo falla, Apify lo cubre
+            log(f"⚠️ Directo falló para {fuente} ({e}); pasa al lector con navegador.")
+            urls_apify.append(u)
+
+    if not urls_apify:
+        db.guardar_meta("ultimo_scrape_portales", hoy)
+        log(f"Listo. Se guardaron {nuevos} inmueble(s) nuevos de portales "
+            "(100% por conexión directa 💰).")
+        return nuevos
+
+    # ── FASE 1 (Apify, solo lo que no se pudo directo) ──
+    log(f"Fase 1: página 1 de {len(urls_apify)} búsqueda(s) vía navegador…")
+    _procesar(_crawl(urls_apify))
 
     # ── FASE 2 (freno inteligente): profundizar SOLO donde hubo cosecha fresca.
     # Si la página 1 casi no trajo nuevos, las siguientes traerán menos aún. ──
-    con_cosecha = [u for u in urls if nuevos_por_base.get(u, 0) >= 3 and _paginas_extra(u, 1)]
-    presupuesto = max(0, max_paginas - len(urls))
+    con_cosecha = [u for u in urls_apify if nuevos_por_base.get(u, 0) >= 3 and _paginas_extra(u, 1)]
+    presupuesto = max(0, max_paginas - len(urls_apify))
     if con_cosecha and presupuesto:
         por_busqueda = max(1, presupuesto // len(con_cosecha))
         paginas2: list[str] = []
