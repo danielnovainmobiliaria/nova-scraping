@@ -2089,14 +2089,42 @@ with tab_resultados:
             if _grupo:
                 _orden_coin.append(("header", f"{_tit_g} ({len(_grupo)} cliente(s))"))
                 _orden_coin.extend(("cliente", kv) for kv in _grupo)
-        for _tipo_it, _it in _orden_coin:
-            if _tipo_it == "header":
-                st.divider()
-                st.markdown(f"##### {_it}")
-                continue
-            nombre, matches = _it
-            icono_p = ICONO_PRIORIDAD.get(prio_map.get(nombre, "media"), "")
-            _n_emb = en_embudo_n.get(nombre, 0)
+        # Contexto para los fragmentos (se refresca en cada corrida completa).
+        st.session_state["_frag_ctx"] = {"matches": dict(resultados),
+                                         "embudo": dict(en_embudo_n)}
+
+        def _rerun_bloque():
+            """Redibuja solo este fragmento cuando el clic viene del fragmento;
+            en corridas completas (o pruebas) cae al rerun normal."""
+            from streamlit.errors import StreamlitAPIException
+            try:
+                st.rerun(scope="fragment")
+            except StreamlitAPIException:
+                st.rerun()
+
+        @st.fragment
+        def _bloque_cliente(nombre):
+            """Un cliente y sus tarjetas. Enviar/descartar-sin-motivo redibujan
+            SOLO este bloque (fracción de segundo) en vez de las 5 pestañas."""
+            _ctx = st.session_state.get("_frag_ctx") or {}
+            _base = list((_ctx.get("matches") or {}).get(nombre) or [])
+            _cli_fr = next((c for c in clientes_cacheados()
+                            if c.get("nombre") == nombre), None)
+            if _cli_fr is None:
+                return
+            # Re-filtrado FRESCO contra el embudo (los recién enviados/descartados
+            # desaparecen aunque el contexto sea de la corrida anterior).
+            _ids_oc = mod_clientes.ids_en_proceso(_cli_fr)
+            _h_oc = {pr.get("huella") for pr in (_cli_fr.get("procesos") or [])
+                     if pr.get("huella")}
+            matches = [m for m in _base
+                       if not (set(m["post"].get("ids_gemelos")
+                                   or [m["post"].get("id")]) & _ids_oc)
+                       and (huella_inmueble(m["post"]) not in _h_oc
+                            if huella_inmueble(m["post"]) else True)]
+            _n_emb = ((_ctx.get("embudo") or {}).get(nombre, 0)
+                      + len(_base) - len(matches))
+            icono_p = ICONO_PRIORIDAD.get(prioridad_de(_cli_fr), "")
             with st.expander(f"{icono_p}👤 {nombre} — {len(matches)} coincidencia(s)"
                              + (f"  ·  🗂️ {_n_emb} ya trabajada(s)" if _n_emb else ""),
                              expanded=(nombre == st.session_state.get("cliente_abierto"))):
@@ -2104,21 +2132,21 @@ with tab_resultados:
                     st.caption(f"🗂️ {_n_emb} candidato(s) que pasan el cruce están ocultos "
                                "porque ya los enviaste o descartaste — nada se pierde: "
                                "míralos (o recupéralos) en la pestaña CRM.")
-                perfil = flex_map.get(nombre, "medio")
+                perfil = (_cli_fr.get("flexibilidad") or "medio")
                 st.caption(f"Perfil de búsqueda: **{ETIQUETA_FLEX.get(perfil, perfil)}**"
                            + ("  ·  con este perfil solo verás inmuebles muy acertados."
                               if perfil == "estricto" else ""))
-                oblig = oblig_map.get(nombre, [])
+                oblig = (_cli_fr.get("obligatorios") or [])
                 if oblig:
                     st.info("🔒 No negociable (filtra duro): "
                             + " · ".join(ETIQUETA_OBLIGATORIO.get(o, o) for o in oblig))
-                aprend = aprendizajes.get(nombre, [])
+                aprend = mod_clientes.aprendizajes_cliente(_cli_fr)
                 if aprend:
                     st.warning("🧠 Lo que NO le gustó a este cliente (tenlo en cuenta): "
                                + " · ".join(aprend))
 
                 # ── Afinar con IA: comentarios libres del broker sobre este cliente ──
-                exc_cli = (cli_map.get(nombre, {}).get("exclusiones") or {})
+                exc_cli = (_cli_fr.get("exclusiones") or {})
                 exc_barrios = exc_cli.get("barrios") or []
                 exc_palabras = exc_cli.get("palabras") or []
                 caps_txt = []
@@ -2162,7 +2190,7 @@ with tab_resultados:
                         if not (_lk or "").strip():
                             st.warning("Pega primero el link.")
                         elif _norm_link(_lk) in {_norm_link(a.get("link") or "") for a in
-                                                 (cli_map.get(nombre, {}).get("asignados") or [])}:
+                                                 (_cli_fr.get("asignados") or [])}:
                             st.warning("Ese link ya está asignado a este cliente.")
                         else:
                             mod_clientes.asignar_inmueble(nombre, {
@@ -2173,7 +2201,7 @@ with tab_resultados:
                             st.session_state.pop(f"asig_lk_{nombre}", None)
                             st.session_state.pop(f"asig_nota_{nombre}", None)
                             st.session_state["cliente_abierto"] = nombre
-                            st.rerun()
+                            st.rerun(scope="app")
                 with st.popover("🤖 Afinar con IA — ¿los resultados no son buenos?",
                                 width="stretch"):
                     st.caption("Escribe qué está mal o qué buscas. La IA **anula de una** lo que no "
@@ -2184,7 +2212,7 @@ with tab_resultados:
                     res_prev = st.session_state.get(f"afin_res_{nombre}")
                     if res_prev:
                         st.success("✨ " + res_prev)
-                    coms_prev = com_map.get(nombre, [])
+                    coms_prev = (_cli_fr.get("comentarios_ia") or [])
                     if coms_prev:
                         st.caption("📝 Ya le dijiste: " + "  ·  ".join(f"«{c}»" for c in coms_prev[-4:]))
                     txt = st.text_area("Tu comentario", key=f"afinar_txt_{nombre}", height=90,
@@ -2210,7 +2238,7 @@ with tab_resultados:
                                     af["resumen"] or "Lo tomé en cuenta para afinar la búsqueda.")
                                 st.toast(f"✨ Afiné la búsqueda de {nombre}")
                                 st.session_state["cliente_abierto"] = nombre
-                                st.rerun()
+                                st.rerun(scope="app")
                     if hay_exc and ccol2.button(
                             "♻️ Quitar exclusiones", key=f"afinar_clr_{nombre}",
                             width="stretch",
@@ -2219,11 +2247,11 @@ with tab_resultados:
                         st.session_state.pop(f"afin_res_{nombre}", None)
                         st.toast(f"♻️ Quité las exclusiones de {nombre}")
                         st.session_state["cliente_abierto"] = nombre
-                        st.rerun()
+                        st.rerun(scope="app")
 
                 if not matches:
                     st.write("Sin coincidencias por ahora.")
-                    continue
+                    return
                 # Siempre de MAYOR a menor afinidad: lo más cercano al cliente, primero.
                 # Orden por OPORTUNIDAD: lo publicado más reciente arriba (se va
                 # enfriando con los días). Tus 📌 asignados siempre de primeros, y
@@ -2299,7 +2327,7 @@ with tab_resultados:
                         with a0:
                             with st.popover("⚖️ Comparativo", width="stretch"):
                                 st.markdown(f"**⚖️ Este inmueble vs lo que pide {nombre}**")
-                                st.markdown(tabla_comparativa(cli_map.get(nombre, {}), p))
+                                st.markdown(tabla_comparativa(_cli_fr, p))
                                 st.caption("⚠️ confirmar = el aviso no trae ese dato: "
                                            "verifícalo antes de enviarlo.")
                         with a1:
@@ -2327,7 +2355,7 @@ with tab_resultados:
                             mod_clientes.agregar_proceso(nombre, proceso_de(p, "enviado"))
                             st.toast(f"📤 En seguimiento de {nombre}")
                             st.session_state["cliente_abierto"] = nombre
-                            st.rerun()
+                            _rerun_bloque()
                         with st.popover("🚫 Descartar", width="stretch"):
                             st.markdown("Vas a descartar: "
                                         f"**{esc_md((p.get('resumen') or p.get('caption', ''))[:70])}** "
@@ -2381,7 +2409,12 @@ with tab_resultados:
                                 else:
                                     st.toast(f"🚫 Descartado para {nombre}")
                                 st.session_state["cliente_abierto"] = nombre
-                                st.rerun()
+                                # Con motivo-filtro cambia el cruce (app completa);
+                                # sin motivo basta redibujar este bloque (instantáneo).
+                                if obs.strip() and not mod_clientes.es_motivo_administrativo(obs):
+                                    st.rerun(scope="app")
+                                else:
+                                    _rerun_bloque()
                     st.divider()
 
         # Descarga de todos los matches en un CSV.
@@ -2403,6 +2436,12 @@ with tab_resultados:
 
 
 # ===== 4. CRM (seguimiento) ==================================
+        for _tipo_it, _it in _orden_coin:
+            if _tipo_it == "header":
+                st.divider()
+                st.markdown(f"##### {_it}")
+                continue
+            _bloque_cliente(_it[0])
 with tab_crm:
     st.subheader("CRM — Seguimiento de clientes")
     crm_clientes = [
