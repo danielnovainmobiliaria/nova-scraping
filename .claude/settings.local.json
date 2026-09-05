@@ -67,7 +67,28 @@
       "Bash(/usr/bin/grep -n \"def aprender_preferencias\\\\|def interpretar_afinacion\" src/extractor.py)",
       "Bash(/usr/bin/grep -n \"meta\\\\b\" src/db.py)",
       "Bash(/usr/bin/grep -n \"def guardar_meta\\\\|def leer_meta\\\\|def contar_posts\\\\|def eliminar_meta\" -A 8 src/db.py)",
-      "Bash(.venv/bin/python -c \"import ast; [ast.parse\\(open\\(f\\).read\\(\\)\\) for f in \\('app.py','src/radar.py','src/solicitudes.py','job_afinar.py','job_actualizar.py'\\)]; print\\('sintaxis ok'\\)\")"
+      "Bash(.venv/bin/python -c \"import ast; [ast.parse\\(open\\(f\\).read\\(\\)\\) for f in \\('app.py','src/radar.py','src/solicitudes.py','job_afinar.py','job_actualizar.py'\\)]; print\\('sintaxis ok'\\)\")",
+      "Bash(/usr/bin/grep -n \"def norm_link\" -A 12 src/nucleo.py)",
+      "Bash(/usr/bin/grep -n \"def _norm_nombre\" -A 10 src/clientes.py)",
+      "Bash(/usr/bin/grep -n \"def _unir_listas\" -A 15 src/clientes.py)",
+      "Bash(/usr/bin/grep -n \"viewport\" app/layout.tsx)",
+      "Bash(/usr/bin/grep -n \"export const viewport\" -A 6 app/layout.tsx)",
+      "Bash(/usr/bin/grep -E \"✓ Compiled|manifest.webmanifest|error|Error\")",
+      "Bash(python3 -c ' *)",
+      "Bash(/usr/bin/grep -E \"✓ Compiled|✓ Generating|error|Error\")",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(/usr/bin/grep -n \"def interpretar_clientes\\\\|def es_inmueble_manual\\\\|_manuales_como_posts\\\\|def posts_para_cruce\\\\|manuales\" app.py)",
+      "Bash(/usr/bin/grep -n \"def interpretar_inmueble\\\\|def interpretar_clientes\" src/extractor.py)",
+      "Bash(/usr/bin/grep -n \"cruce_cacheado\\(\" app.py)",
+      "Bash(/usr/bin/grep -n \"def cruzar\" -A 3 src/matcher.py)",
+      "Bash(/usr/bin/grep -n \"interpretar_clientes\\\\|filtrar_borrados\\\\|fusionar_duplicados\" app.py)",
+      "Bash(/usr/bin/grep -n \"def interpretar_clientes\" -A 15 src/extractor.py)",
+      "Bash(/usr/bin/grep -n \"def generar_pdf\\\\|def pdf_fuentes\" src/fichas.py)",
+      "Bash(/usr/bin/grep -n \"def fila_a_texto\" -A 10 app.py)",
+      "Bash(/usr/bin/grep -n \"def leer_tabla\" -A 8 app.py)",
+      "Bash(.venv/bin/python -c \"import ast; ast.parse\\(open\\('src/solicitudes.py'\\).read\\(\\)\\); print\\('sintaxis ok'\\)\")",
+      "Bash(.venv/bin/python -c \"import ast; [ast.parse\\(open\\(f\\).read\\(\\)\\) for f in \\('src/radar.py','src/solicitudes.py','job_actualizar.py','job_afinar.py'\\)]; print\\('sintaxis ok'\\)\")",
+      "Bash(/usr/bin/grep -n \"st.title\\\\|set_page_config\" app.py)"
     ]
   }
 }

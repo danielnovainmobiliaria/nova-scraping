@@ -15,9 +15,47 @@ from . import clientes as mod_clientes
 from . import db, matcher
 from .nucleo import dedup_posts, dias_publicado, fuente_post, huella_inmueble, norm_link
 
-DIAS_VENTA = 40
-DIAS_ARRIENDO = 20
-UMBRAL = 70
+# Valores de fábrica (los mismos de los deslizadores de la app clásica).
+# Se pueden cambiar desde Brokerap (⚙️ Ajustes → meta config_radar).
+CONFIG_DEFECTO = {
+    "umbral": 70, "flex_precio": 0.20, "flex_area": 0.20, "piso_precio": 0.80,
+    "dias_venta": 40, "dias_arriendo": 20,
+}
+
+
+def _config() -> dict:
+    try:
+        crudo = json.loads(db.leer_meta("config_radar") or "{}")
+    except json.JSONDecodeError:
+        crudo = {}
+    cfg = dict(CONFIG_DEFECTO)
+    for k in cfg:
+        try:
+            if crudo.get(k) is not None:
+                cfg[k] = type(CONFIG_DEFECTO[k])(crudo[k])
+        except (TypeError, ValueError):
+            pass
+    return cfg
+
+
+def _manuales_como_posts() -> list[dict]:
+    """Los inmuebles manuales entran al cruce igual que en la app clásica."""
+    try:
+        manuales = json.loads(db.leer_meta("inmuebles_manuales") or "[]")
+    except json.JSONDecodeError:
+        return []
+    out = []
+    for item in manuales:
+        d = item.get("datos") or {}
+        if d.get("es_inmueble") is False:
+            continue
+        out.append({**d, "id": item.get("id"), "caption": item.get("texto", ""),
+                    "url": item.get("link", ""), "fecha": item.get("fecha", ""),
+                    "agregado": item.get("agregado") or item.get("fecha", ""),
+                    "cuenta": item.get("cuenta") or "manual",
+                    "imagen": item.get("imagen", ""),
+                    "media": item.get("media") or []})
+    return out
 
 
 def _crear_tabla() -> None:
@@ -55,24 +93,28 @@ def publicar_radar(log=print) -> int:
     """Calcula las coincidencias visibles (misma lógica de la pestaña 3) y las
     publica en la tabla `radar`. Devuelve cuántas tarjetas quedaron."""
     _crear_tabla()
+    cfg = _config()
     hoy = datetime.now(timezone.utc).date()
     clientes = [c for c in mod_clientes.cargar_guardados()
                 if (c.get("estado") or "activo") == "activo" and not c.get("en_pausa")]
-    posts = db.posts_leidos()
+    posts = db.posts_leidos() + _manuales_como_posts()
 
     def fresco(p):
         d = dias_publicado(p.get("fecha"))
         if str(p.get("id", "")).startswith(("m_", "asig_")):
-            return True
+            return True   # lo metió el broker a mano: no caduca por frescura
         if d is None:
             return True
         op = matcher._inferir_operacion(p)
-        return d <= (DIAS_ARRIENDO if op == "arriendo" else DIAS_VENTA)
+        return d <= (cfg["dias_arriendo"] if op == "arriendo" else cfg["dias_venta"])
 
     pool = dedup_posts([p for p in posts
                         if p.get("es_inmueble", True) and not matcher.esta_vendido(p)
                         and fresco(p)])
-    resultados = matcher.cruzar(clientes, pool, score_minimo=UMBRAL)
+    resultados = matcher.cruzar(clientes, pool, score_minimo=cfg["umbral"],
+                                flex_precio=cfg["flex_precio"],
+                                flex_area=cfg["flex_area"],
+                                piso_precio=cfg["piso_precio"])
 
     por_link = {}
     for p in posts:

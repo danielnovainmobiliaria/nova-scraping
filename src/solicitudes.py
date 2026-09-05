@@ -99,6 +99,194 @@ def atender_afinaciones(log=print) -> int:
     return aprendidos
 
 
+def atender_comentarios(log=print) -> int:
+    """Afinaciones de texto libre escritas en Brokerap (el 🤖 de la app clásica).
+
+    meta `comentarios_pendientes` = [{cliente, texto}]. Para cada uno: filtros
+    duros (interpretar_afinacion + exclusiones), se guarda el comentario en la
+    ficha y se recalculan las preferencias. Los fallidos quedan en la cola.
+    """
+    from . import config, extractor
+    try:
+        cola = json.loads(db.leer_meta("comentarios_pendientes") or "[]")
+    except json.JSONDecodeError:
+        cola = []
+    if not cola:
+        return 0
+    if not config.ANTHROPIC_API_KEY:
+        log("⚠️ Comentarios pendientes sin llave de IA; quedan en cola.")
+        return 0
+    lista = mod_clientes.cargar_guardados()
+    quedan, hechos = [], 0
+    for item in cola:
+        nombre = (item.get("cliente") or "").strip()
+        texto = (item.get("texto") or "").strip()
+        c = next((x for x in lista
+                  if x.get("nombre", "").lower() == nombre.lower()), None)
+        if not c or not texto:
+            continue   # cliente borrado o texto vacío: se descarta la entrada
+        try:
+            af = extractor.interpretar_afinacion(texto, c)
+            if af.get("error"):
+                quedan.append(item)
+                continue
+            excl = c.get("exclusiones") or {}
+            for b in af["excluir_barrios"]:
+                if b not in (excl.get("barrios") or []):
+                    excl.setdefault("barrios", []).append(b)
+            for p_ in af["excluir_palabras"]:
+                if p_ not in (excl.get("palabras") or []):
+                    excl.setdefault("palabras", []).append(p_)
+            if af["limites"]:
+                excl.setdefault("limites", {}).update(af["limites"])
+            if af.get("tipo"):
+                excl["tipo"] = af["tipo"]
+            c["exclusiones"] = excl
+            coms = c.get("comentarios_ia") or []
+            coms.append(texto)
+            c["comentarios_ia"] = coms
+            señales = (mod_clientes.aprendizajes_cliente(c) + coms)
+            c["preferencias_evitar"] = extractor.aprender_preferencias(señales)
+            hechos += 1
+            log(f"🤖 {nombre}: afinado con «{texto[:50]}»")
+        except Exception as e:  # noqa: BLE001
+            quedan.append(item)
+            log(f"⚠️ No pude afinar a {nombre}: {e}")
+    mod_clientes.guardar_lista(lista)
+    db.guardar_meta("comentarios_pendientes", json.dumps(quedan, ensure_ascii=False))
+    return hechos
+
+
+def atender_manuales(log=print) -> int:
+    """Inmuebles manuales metidos desde Brokerap (link + descripción).
+
+    meta `manuales_pendientes` = [{descripcion, link}]. Si el link ya está en
+    el catálogo se reutilizan sus datos y fotos (cero IA); si no, se lee la
+    descripción con la IA. Entra a `inmuebles_manuales` como en la app.
+    """
+    import hashlib
+    from datetime import datetime, timezone
+    from . import config, extractor
+    from .nucleo import norm_link
+    try:
+        cola = json.loads(db.leer_meta("manuales_pendientes") or "[]")
+    except json.JSONDecodeError:
+        cola = []
+    if not cola:
+        return 0
+    try:
+        manuales = json.loads(db.leer_meta("inmuebles_manuales") or "[]")
+    except json.JSONDecodeError:
+        manuales = []
+    posts = db.posts_leidos()
+    quedan, hechos = [], 0
+    hoy_iso = datetime.now(timezone.utc).date().isoformat()
+    for item in cola:
+        desc = (item.get("descripcion") or "").strip()
+        link = (item.get("link") or "").strip()
+        nl = norm_link(link)
+        if link and any(norm_link(x.get("link", "")) == nl for x in manuales):
+            continue   # ya estaba: no duplicar
+        scr = next((pp for pp in posts
+                    if nl and pp.get("url") and norm_link(pp["url"]) == nl), None)
+        try:
+            if desc:
+                if not config.ANTHROPIC_API_KEY:
+                    quedan.append(item)
+                    continue
+                datos = extractor.interpretar_inmueble(desc)
+                texto, fecha = desc, (scr or {}).get("fecha") or hoy_iso
+            elif scr:
+                campos = ("es_inmueble", "operacion", "tipo", "barrio", "zona",
+                          "direccion", "area_m2", "precio", "administracion",
+                          "habitaciones", "banos", "parqueaderos", "estrato",
+                          "antiguedad_anos", "extras", "resumen")
+                datos = {k: scr.get(k) for k in campos}
+                datos["es_inmueble"] = True
+                texto, fecha = scr.get("caption", ""), scr.get("fecha") or hoy_iso
+            else:
+                log(f"⚠️ Manual sin descripción y link fuera del catálogo: {link[:50]}")
+                continue
+            if datos.get("es_inmueble") is False:
+                log(f"⚠️ «{desc[:40]}» no parece un inmueble; descartado.")
+                continue
+            manuales.insert(0, {
+                "id": "m_" + hashlib.md5((texto + link).encode("utf-8")).hexdigest()[:16],
+                "texto": texto, "link": link, "fecha": fecha, "agregado": hoy_iso,
+                "cuenta": (scr or {}).get("cuenta") or "manual",
+                "imagen": (scr or {}).get("imagen", ""),
+                "media": (scr or {}).get("media") or [],
+                "datos": datos,
+            })
+            hechos += 1
+            log(f"🖊️ Inmueble manual leído: {datos.get('resumen') or desc[:50]}")
+        except Exception as e:  # noqa: BLE001
+            quedan.append(item)
+            log(f"⚠️ No pude leer un inmueble manual: {e}")
+    db.guardar_meta("inmuebles_manuales", json.dumps(manuales, ensure_ascii=False))
+    db.guardar_meta("manuales_pendientes", json.dumps(quedan, ensure_ascii=False))
+    return hechos
+
+
+def atender_importaciones(log=print) -> int:
+    """Importaciones de clientes (CSV de Zoho pegado en Brokerap).
+
+    meta `importar_pendientes` = [{textos: [...]}]. Mismo camino de la app:
+    interpretar_clientes → filtrar_borrados → fusionar_duplicados. El resumen
+    queda en meta `importar_resultado` para mostrarlo en la web.
+    """
+    from datetime import datetime, timezone
+    from . import config, extractor
+    try:
+        cola = json.loads(db.leer_meta("importar_pendientes") or "[]")
+    except json.JSONDecodeError:
+        cola = []
+    if not cola:
+        return 0
+    if not config.ANTHROPIC_API_KEY:
+        log("⚠️ Importación pendiente sin llave de IA; queda en cola.")
+        return 0
+    quedan, hechos = [], 0
+    for item in cola:
+        textos = [t for t in (item.get("textos") or []) if str(t).strip()]
+        if not textos:
+            continue
+        try:
+            nuevos = extractor.interpretar_clientes(textos, log=log)
+            nuevos, omitidos = mod_clientes.filtrar_borrados(nuevos)
+            existentes = mod_clientes.cargar_guardados()
+            previos = {mod_clientes._norm_nombre(c.get("nombre", "")) for c in existentes}
+            combinados = mod_clientes.fusionar_duplicados(existentes + nuevos)
+            mod_clientes.guardar_lista(combinados)
+            recien = [c.get("nombre", "") for c in combinados
+                      if mod_clientes._norm_nombre(c.get("nombre", "")) not in previos]
+            db.guardar_meta("importar_resultado", json.dumps({
+                "cuando": datetime.now(timezone.utc).isoformat(),
+                "leidos": len(nuevos), "nuevos": recien, "omitidos": omitidos,
+                "total": len(combinados),
+            }, ensure_ascii=False))
+            hechos += len(nuevos)
+            log(f"📥 Importados {len(nuevos)} cliente(s); nuevos: {len(recien)}; "
+                f"🪦 omitidos: {len(omitidos)}.")
+        except Exception as e:  # noqa: BLE001
+            quedan.append(item)
+            log(f"⚠️ La importación falló (queda en cola): {e}")
+    db.guardar_meta("importar_pendientes", json.dumps(quedan, ensure_ascii=False))
+    return hechos
+
+
+def atender_pendientes(log=print) -> int:
+    """Atiende TODO lo que Brokerap dejó en cola. Devuelve cuántas cosas hizo."""
+    total = 0
+    for fn in (atender_importaciones, atender_manuales,
+               atender_comentarios, atender_afinaciones):
+        try:
+            total += fn(log=log)
+        except Exception as e:  # noqa: BLE001 - una cola no tumba a las demás
+            log(f"⚠️ {fn.__name__}: {e}")
+    return total
+
+
 def solicitudes_pendientes() -> dict[str, str]:
     """{clave: fecha_iso} de lo que Brokerap dejó pedido y sigue sin atender."""
     out = {}

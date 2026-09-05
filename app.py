@@ -27,6 +27,19 @@ from src import config, db, matcher
 
 st.set_page_config(page_title="Nova Scraping", page_icon="🏙️", layout="wide")
 
+# ── 🚚 JUBILADA (2026-09-05): la operación diaria vive en Brokerap ──
+# Esta versión queda SOLO de respaldo/emergencia. Todo lo del día a día
+# (coincidencias, clientes, CRM, fuentes, búsqueda manual, importar Zoho,
+# afinar con IA, inmuebles manuales, ajustes) está en brokerap.vercel.app/radar
+# y escribe en la MISMA base, así que usar esta no daña nada — pero no hace falta.
+st.warning(
+    "🚚 **Esta herramienta se mudó a Brokerap.** Ahora todo vive en "
+    "[brokerap.vercel.app/radar](https://brokerap.vercel.app/radar) — coincidencias, "
+    "clientes, CRM, fuentes, búsqueda manual, importar de Zoho, afinar con IA e "
+    "inmuebles manuales. Esta versión queda **solo de respaldo** (usa la misma base, "
+    "así que nada se pierde si la abres)."
+)
+
 # ── Estilo visual NŌVA (terracota/café + detalles dorados, tarjetas suaves) ──
 st.markdown("""
 <style>

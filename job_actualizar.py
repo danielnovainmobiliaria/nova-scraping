@@ -90,10 +90,11 @@ def main() -> None:
             print(f"⚠️ Problema leyendo portales: {e}", flush=True)
 
     try:
-        # Motivos de descarte escritos desde Brokerap → filtros, antes del cruce.
-        solicitudes.atender_afinaciones(log=print)
+        # Todo lo que Brokerap dejó en cola (importaciones, manuales, motivos,
+        # comentarios de afinación) se atiende antes del cruce.
+        solicitudes.atender_pendientes(log=print)
     except Exception as e:  # noqa: BLE001
-        print(f"⚠️ Afinación: {e}", flush=True)
+        print(f"⚠️ Colas de Brokerap: {e}", flush=True)
 
     try:
         from src import radar
@@ -105,6 +106,20 @@ def main() -> None:
         limpieza.purgar_no_comercializables(log=print)
     except Exception as e:  # noqa: BLE001 - la limpieza jamás tumba el día
         print(f"⚠️ La limpieza de vencidos falló: {e}", flush=True)
+
+    try:
+        # Medidor de gasto para Brokerap (la web no guarda la llave de Apify).
+        import json as _json2
+        import urllib.request
+        req = urllib.request.Request(
+            "https://api.apify.com/v2/users/me/usage/monthly",
+            headers={"Authorization": f"Bearer {config.APIFY_TOKEN}"})
+        d = _json2.loads(urllib.request.urlopen(req, timeout=15).read())["data"]
+        gasto = float(d.get("totalUsageCreditsUsdAfterVolumeDiscount")
+                      or d.get("totalUsageCreditsUsdBeforeVolumeDiscount") or 0)
+        db.guardar_meta("gasto_apify_usd", f"{gasto:.2f}")
+    except Exception as e:  # noqa: BLE001 - el medidor jamás daña la corrida
+        print(f"⚠️ No pude leer el gasto de Apify: {e}", flush=True)
 
     print(f"Listo. Total de inmuebles en la base: {db.contar_posts()}", flush=True)
     if errores:
