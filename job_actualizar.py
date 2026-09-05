@@ -86,6 +86,12 @@ def main() -> None:
             print(f"⚠️ Problema leyendo portales: {e}", flush=True)
 
     try:
+        from src import radar
+        radar.publicar_radar(log=print)
+    except Exception as e:  # noqa: BLE001
+        print(f"⚠️ Radar: {e}", flush=True)
+
+    try:
         limpieza.purgar_no_comercializables(log=print)
     except Exception as e:  # noqa: BLE001 - la limpieza jamás tumba el día
         print(f"⚠️ La limpieza de vencidos falló: {e}", flush=True)

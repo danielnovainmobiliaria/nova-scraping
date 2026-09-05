@@ -20,6 +20,9 @@ import requests
 import streamlit as st
 
 from src import clientes as mod_clientes
+from src.nucleo import (dedup_posts, dias_publicado, es_portal_post,
+                        fuente_post, huella_inmueble)
+from src.nucleo import norm_link as _norm_link
 from src import config, db, matcher
 
 st.set_page_config(page_title="Nova Scraping", page_icon="🏙️", layout="wide")
@@ -188,15 +191,6 @@ def fecha_corte_iso() -> str:
     return (datetime.now(timezone.utc) - timedelta(days=config.DIAS_RECIENTES)).date().isoformat()
 
 
-def dias_publicado(fecha_iso: str):
-    """Días transcurridos desde la fecha de publicación (o None si no se sabe)."""
-    if not fecha_iso:
-        return None
-    try:
-        f = datetime.fromisoformat(str(fecha_iso)[:10]).date()
-    except ValueError:
-        return None
-    return (datetime.now(timezone.utc).date() - f).days
 
 
 def color_publicacion(d) -> str:
@@ -241,62 +235,12 @@ def color_cliente(c) -> str:
 UMBRAL_AFIN = 70
 
 
-def es_portal_post(p) -> bool:
-    """True si el inmueble vino de un portal/sitio web (no de Instagram)."""
-    return str(p.get("id", "")).startswith("portal_")
 
 
-def huella_inmueble(p) -> str | None:
-    """'Huella' del inmueble (barrio+área+hab+precio) para reconocer el MISMO
-    apartamento visto en varias fuentes (Instagram y un portal, por ejemplo)."""
-    barrio = mod_clientes._norm_nombre(str(p.get("barrio") or ""))
-    area, precio = p.get("area_m2"), p.get("precio")
-    if not barrio or not area or not precio:
-        return None            # sin datos suficientes no se puede agrupar con confianza
-    habs = p.get("habitaciones")
-    return f"{barrio}|{round(float(area))}|{habs if habs is not None else '?'}|{int(precio)}"
 
 
-def dedup_posts(posts):
-    """Colapsa copias del mismo inmueble (misma huella) en una sola tarjeta.
-
-    Se queda con la mejor copia (con fotos/videos > con más datos > más reciente) y
-    recuerda los ids gemelos para que un descarte oculte TODAS las copias.
-    """
-    grupos: dict = {}
-    orden: list = []
-    for i, p in enumerate(posts):
-        h = huella_inmueble(p) or f"__unico_{i}"
-        if h not in grupos:
-            grupos[h] = []
-            orden.append(h)
-        grupos[h].append(p)
-    out = []
-    for h in orden:
-        g = grupos[h]
-        if len(g) == 1:
-            p = g[0]
-        else:
-            p = dict(max(g, key=lambda x: (bool(x.get("media")),
-                                           sum(1 for v in x.values() if v not in (None, "", [])),
-                                           str(x.get("fecha") or ""))))
-            otras = sorted({x.get("cuenta", "") for x in g if x.get("cuenta")} - {p.get("cuenta", "")})
-            if otras:
-                p["otras_fuentes"] = otras
-        p["ids_gemelos"] = [x.get("id") for x in g]
-        out.append(p)
-    return out
 
 
-def fuente_post(p) -> str:
-    """Etiqueta de la fuente del inmueble (red, portal o ingresado a mano)."""
-    if str(p.get("id", "")).startswith("asig_"):
-        return "📌 lo asignaste tú (link externo)"
-    if str(p.get("id", "")).startswith("m_"):
-        return "🖊️ ingresado por ti"
-    if es_portal_post(p):
-        return f"🏠 {p.get('cuenta', 'portal')}"
-    return f"📷 @{p.get('cuenta', '')}"
 
 
 def esc_md(t) -> str:
@@ -646,6 +590,11 @@ def actualizar_publicaciones(log) -> None:
         limpieza.purgar_no_comercializables(log=log)
     except Exception as e:  # noqa: BLE001 - la limpieza nunca daña la actualización
         log(f"⚠️ Limpieza de vencidos falló: {e}")
+    try:
+        from src import radar
+        radar.publicar_radar(log=log)
+    except Exception as e:  # noqa: BLE001 - el radar nunca daña la actualización
+        log(f"⚠️ No pude publicar el Radar de Brokerap: {e}")
 
 
 # ── Barra lateral ─────────────────────────────────────────────
@@ -718,15 +667,6 @@ def guardar_inmuebles_manuales(lista):
     _manuales_cacheados.clear()
 
 
-def _norm_link(u):
-    """Normaliza un link para comparar (sin http, sin www, sin / final ni parámetros)."""
-    u = (u or "").strip().lower()
-    for p in ("https://", "http://"):
-        if u.startswith(p):
-            u = u[len(p):]
-    if u.startswith("www."):
-        u = u[4:]
-    return u.split("?")[0].split("#")[0].rstrip("/")
 
 
 

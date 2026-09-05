@@ -26,7 +26,14 @@
       "Bash(/usr/bin/grep -o 'self\\\\.__next_f\\\\.push\\(\\\\[1,\"[^\"]\\\\{0,150\\\\}' /tmp/mc.html)",
       "Bash(/usr/bin/grep -n \"_orden_coin:\\\\|with tab_crm:\\\\|_tipo_it == \\\\\"header\\\\\"\\\\|nombre, matches = _it\\\\|_n_emb = en_embudo_n\" app.py)",
       "Bash(/usr/bin/grep -n \"st.rerun\\(\\)\" app.py)",
-      "Bash(awk -F: '$1>=2092 && $1<=2406')"
+      "Bash(awk -F: '$1>=2092 && $1<=2406')",
+      "Bash(/private/tmp/claude-501/-Users-danielmejianauffal-Desktop-Scraping/2f8eeb79-a40b-4785-88a2-cb6ab554c36b/scratchpad/gh_2.95.0_macOS_arm64/bin/gh repo *)",
+      "Bash(/usr/bin/grep -rn \"novainmobiliaria\" app lib --include=\"*.ts*\" -l)",
+      "Bash(/usr/bin/grep -rn \"daniel@novainmobiliaria\" app lib --include=\"*.ts*\")",
+      "Bash(/usr/bin/grep -rn \"ADMIN\\\\|esAdmin\\\\|admin\" lib/*.ts)",
+      "Bash(/usr/bin/grep -n \"es_admin\" app/admin/page.tsx)",
+      "Bash(/usr/bin/grep -rn \"es_admin\" lib/types.ts app/api --include=\"*.ts\")",
+      "Bash(/usr/bin/grep -n \"^def huella_inmueble\\\\|^def dedup_posts\\\\|^def _norm_link\\\\|^def es_portal_post\\\\|^def fuente_post\\\\|^def dias_publicado\" app.py)"
     ]
   }
 }
