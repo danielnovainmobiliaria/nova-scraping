@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from . import clientes as mod_clientes
 from . import db, matcher
-from .nucleo import dedup_posts, dias_publicado, fuente_post, huella_inmueble, norm_link
+from .nucleo import dedup_posts, dias_publicado, es_portal_post, huella_inmueble, norm_link
 
 # Valores de fábrica (los mismos de los deslizadores de la app clásica).
 # Se pueden cambiar desde Brokerap (⚙️ Ajustes → meta config_radar).
@@ -36,6 +36,18 @@ def _config() -> dict:
         except (TypeError, ValueError):
             pass
     return cfg
+
+
+def _fuente_limpia(p) -> str:
+    """La etiqueta de fuente SIN emojis (Brokerap no los usa: decisión de
+    marca de Daniel). La app clásica conserva su versión con iconos."""
+    if str(p.get("id", "")).startswith("asig_"):
+        return "lo asignaste tú (link externo)"
+    if str(p.get("id", "")).startswith("m_"):
+        return "ingresado por ti"
+    if es_portal_post(p):
+        return str(p.get("cuenta", "portal"))
+    return f"@{p.get('cuenta', '')}"
 
 
 def _manuales_como_posts() -> list[dict]:
@@ -155,7 +167,7 @@ def publicar_radar(log=print) -> int:
             if h and h in h_oc:
                 continue
             matches.append(({"score": 100, "post": p,
-                             "razones_ok": ["📌 Lo asignaste tú"], "razones_no": []}, True))
+                             "razones_ok": ["Lo asignaste tú"], "razones_no": []}, True))
         for m, asignado in matches:
             p = m["post"]
             d = dias_publicado(p.get("fecha"))
@@ -172,7 +184,7 @@ def publicar_radar(log=print) -> int:
                 "banos": p.get("banos"),
                 "fecha": str(p.get("fecha") or "")[:10] or None,
                 "fecha_estimada": bool(p.get("fecha_estimada")),
-                "dias": d, "url": p.get("url"), "fuente": fuente_post(p),
+                "dias": d, "url": p.get("url"), "fuente": _fuente_limpia(p),
                 # Los archivos del CDN de Instagram caducan en ~2 días: imagen y
                 # media solo se publican mientras sus URLs sigan vivas.
                 "imagen": (p.get("imagen") or "") if (p.get("fecha_estimada")
