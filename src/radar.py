@@ -38,14 +38,17 @@ def _crear_tabla() -> None:
                 asignado BOOLEAN, nuevo_24h BOOLEAN,
                 razones_ok TEXT, razones_no TEXT,
                 huella TEXT, ids_gemelos TEXT,
+                extras TEXT, media TEXT,
                 PRIMARY KEY (cliente, post_id)
             )"""))
-        # columnas nuevas sobre tablas viejas (ALTER tolerante)
-        for col in ("huella TEXT", "ids_gemelos TEXT"):
-            try:
+    # Columnas nuevas sobre tablas viejas: cada ALTER en SU PROPIA transacción
+    # (en Postgres un ALTER fallido aborta la transacción y se lleva los demás).
+    for col in ("huella TEXT", "ids_gemelos TEXT", "extras TEXT", "media TEXT"):
+        try:
+            with db._conn() as con:
                 con.execute(text(f"ALTER TABLE radar ADD COLUMN {col}"))
-            except Exception:  # noqa: BLE001 - ya existe
-                pass
+        except Exception:  # noqa: BLE001 - ya existe
+            pass
 
 
 def publicar_radar(log=print) -> int:
@@ -128,9 +131,15 @@ def publicar_radar(log=print) -> int:
                 "fecha": str(p.get("fecha") or "")[:10] or None,
                 "fecha_estimada": bool(p.get("fecha_estimada")),
                 "dias": d, "url": p.get("url"), "fuente": fuente_post(p),
+                # Los archivos del CDN de Instagram caducan en ~2 días: imagen y
+                # media solo se publican mientras sus URLs sigan vivas.
                 "imagen": (p.get("imagen") or "") if (p.get("fecha_estimada")
                           or str(p.get("id", "")).startswith("portal_")
                           or (d is not None and d <= 2)) else "",
+                "extras": json.dumps(p.get("extras") or [], ensure_ascii=False),
+                "media": json.dumps(p.get("media") or [], ensure_ascii=False)
+                         if (str(p.get("id", "")).startswith("portal_")
+                             or (d is not None and d <= 2)) else "[]",
                 "asignado": asignado,
                 "nuevo_24h": (p.get("agregado") or "") in ayer,
                 "razones_ok": json.dumps(m.get("razones_ok") or [], ensure_ascii=False),

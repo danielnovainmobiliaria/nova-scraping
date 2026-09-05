@@ -2314,6 +2314,10 @@ with tab_resultados:
                                          key=f"cdesc_{nombre}_{p.get('id','x')}"):
                                 mod_clientes.agregar_proceso(
                                     nombre, proceso_de(p, "descartado", obs))
+                                # La app procesa el motivo en vivo: se marca `afinado`
+                                # para que el robot de solicitudes no pague IA otra vez.
+                                mod_clientes.actualizar_proceso(
+                                    nombre, str(p.get("id")), {"afinado": True})
                                 if obs.strip() and mod_clientes.es_motivo_administrativo(obs):
                                     # "repetido / ya enviado / ya vendido" habla del AVISO,
                                     # no del cliente: solo se oculta, sin crear filtros.
@@ -2332,9 +2336,12 @@ with tab_resultados:
                                         af = aplicar_exclusiones_de_texto(nombre, ctx, cli_map.get(nombre))
                                         recalcular_preferencias(nombre)
                                     if af.get("error"):
+                                        # que el robot lo reintente después
+                                        mod_clientes.actualizar_proceso(
+                                            nombre, str(p.get("id")), {"afinado": False})
                                         st.warning("Descartado ✅, pero NO pude convertir el motivo "
-                                                   "en filtro (falla técnica de la IA). Vuelve a "
-                                                   "escribirlo en «🤖 Afinar con IA» más tarde.")
+                                                   "en filtro (falla técnica de la IA). El robot lo "
+                                                   "reintenta en la próxima actualización.")
                                     dur = []
                                     if af["excluir_barrios"]:
                                         dur.append("barrios: " + ", ".join(af["excluir_barrios"]))

@@ -6,7 +6,7 @@ de datos en la nube. Como el scraping es incremental, solo trae lo nuevo desde l
 """
 from datetime import date
 
-from src import config, db, extractor, limpieza, scraper, scraper_portales
+from src import config, db, extractor, limpieza, scraper, scraper_portales, solicitudes
 
 
 def main() -> None:
@@ -14,6 +14,10 @@ def main() -> None:
         raise SystemExit("Falta DATABASE_URL: este job debe escribir en la base de la nube.")
     print("== Actualización automática de Nova Scraping ==", flush=True)
     db.init_db()
+    # Si esto lo pidió Brokerap, la solicitud queda atendida desde ya (una
+    # nueva durante la corrida se atiende en el siguiente repaso).
+    solicitudes.limpiar_solicitud(solicitudes.CLAVE_ACTUALIZAR)
+    solicitudes.limpiar_solicitud(solicitudes.CLAVE_AFINAR)
 
     # Cada fuente va por separado: si Instagram falla, los portales igual corren
     # (y viceversa). Solo se marca el día en rojo si TODO falló.
@@ -84,6 +88,12 @@ def main() -> None:
         except Exception as e:  # noqa: BLE001
             errores.append(f"Portales: {e}")
             print(f"⚠️ Problema leyendo portales: {e}", flush=True)
+
+    try:
+        # Motivos de descarte escritos desde Brokerap → filtros, antes del cruce.
+        solicitudes.atender_afinaciones(log=print)
+    except Exception as e:  # noqa: BLE001
+        print(f"⚠️ Afinación: {e}", flush=True)
 
     try:
         from src import radar

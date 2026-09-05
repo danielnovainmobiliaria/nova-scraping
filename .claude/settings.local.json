@@ -48,7 +48,26 @@
       "Bash(/usr/bin/grep -n 'proceso_de\\(' app.py)",
       "Bash(/usr/bin/grep -n '\"enviado\"\\\\|\"descartado\"' app.py)",
       "Bash(/usr/bin/grep -n \"def agregar_proceso\" -A 18 src/clientes.py)",
-      "Bash(/usr/bin/grep -E \"✓ Compiled|error|Error\")"
+      "Bash(/usr/bin/grep -E \"✓ Compiled|error|Error\")",
+      "Bash(export DATABASE_URL='postgresql://neondb_owner:novainmobiliaria2026@ep-shy-poetry-adkahwcd.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require')",
+      "Bash(.venv/bin/python -)",
+      "Bash(/usr/bin/grep -n \"metadata\\\\|icon\\\\|favicon\" app/layout.tsx)",
+      "Bash(shasum app/favicon.ico)",
+      "Bash(/usr/bin/grep -rn \"opengraph\\\\|og:\" app/layout.tsx)",
+      "Bash(.venv/bin/python -c \"import PIL\")",
+      "Bash(~/Desktop/Scraping/.venv/bin/python -)",
+      "Bash(/usr/bin/grep -n \"def \\\\|^CRM_CAMPOS\\\\|^CAMPOS\" src/clientes.py)",
+      "Bash(/usr/bin/grep -n \"cuentas_ig\\\\|cuentas_retiradas\\\\|orden_fuentes\\\\|def actualizar_publicaciones\\\\|def _fuentes_busqueda\\\\|fuentes_busqueda\\\\|gasto_apify\" app.py src/config.py src/db.py job_actualizar.py)",
+      "Bash(/usr/bin/grep -n \"asignar_inmueble\\\\|inmuebles_manuales\" app.py)",
+      "Bash(/usr/bin/grep -n \"asignar_inmueble\\(\" app.py)",
+      "Bash(sed -n '/📌 Asignar/,+0p' app.py)",
+      "Bash(/usr/bin/grep -n \"📌\" app.py)",
+      "Bash(/usr/bin/grep -n \"def texto_compartir\\\\|Texto para compartir\" app.py)",
+      "Bash(/usr/bin/grep -n \"def texto_para_compartir\\\\|def _texto_compartir\" app.py src/*.py)",
+      "Bash(/usr/bin/grep -n \"def aprender_preferencias\\\\|def interpretar_afinacion\" src/extractor.py)",
+      "Bash(/usr/bin/grep -n \"meta\\\\b\" src/db.py)",
+      "Bash(/usr/bin/grep -n \"def guardar_meta\\\\|def leer_meta\\\\|def contar_posts\\\\|def eliminar_meta\" -A 8 src/db.py)",
+      "Bash(.venv/bin/python -c \"import ast; [ast.parse\\(open\\(f\\).read\\(\\)\\) for f in \\('app.py','src/radar.py','src/solicitudes.py','job_afinar.py','job_actualizar.py'\\)]; print\\('sintaxis ok'\\)\")"
     ]
   }
 }
