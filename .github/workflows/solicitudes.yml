@@ -3,8 +3,10 @@ name: Atender solicitudes de Brokerap
 # Brokerap no puede correr Python ni guarda las llaves de Apify/IA: cuando
 # Daniel pide algo desde la web (🔄 actualizar todo, o aprender de un motivo
 # de descarte), la web deja una marca en la tabla `meta` y este workflow la
-# atiende. El chequeo corre cada 10 minutos pero es casi gratis (un SELECT
-# con psql): solo se instala Python y se gasta Apify/IA si hay algo pendiente.
+# atiende. Cada corrida abre una VENTANA de ~10 minutos escuchando la cola
+# (un SELECT con psql cada 20 s, casi gratis): lo pedido dentro de la ventana
+# se atiende en segundos. OJO: el cron de GitHub es impuntual por diseño
+# (los ticks pueden llegar cada 10-60+ min); la ventana compensa esa lentitud.
 on:
   schedule:
     - cron: "*/10 * * * *"
@@ -13,7 +15,7 @@ on:
 permissions:
   contents: write   # keepalive: evita que GitHub apague el cron a los 60 días
 
-# Nunca dos corridas a la vez (la completa puede tardar 40 min).
+# Nunca dos ventanas a la vez (la actualización completa puede tardar 40 min).
 concurrency:
   group: solicitudes-brokerap
   cancel-in-progress: false
@@ -21,50 +23,49 @@ concurrency:
 jobs:
   atender:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 75   # ventana (10) + una actualización completa con margen
     steps:
-      - name: ¿Hay solicitudes pendientes?
-        id: check
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          FULL=$(psql "$DATABASE_URL" -tAc "SELECT valor FROM meta WHERE clave='solicitud_actualizar'" || true)
-          AFINAR=$(psql "$DATABASE_URL" -tAc "SELECT valor FROM meta WHERE clave='solicitud_afinar'" || true)
-          echo "Actualizar: '${FULL}' · Afinar: '${AFINAR}'"
-          echo "full=$([ -n "${FULL// }" ] && echo si || echo no)" >> "$GITHUB_OUTPUT"
-          echo "afinar=$([ -n "${AFINAR// }" ] && echo si || echo no)" >> "$GITHUB_OUTPUT"
-
       - uses: actions/checkout@v4
-        if: steps.check.outputs.full == 'si' || steps.check.outputs.afinar == 'si'
       - uses: actions/setup-python@v5
-        if: steps.check.outputs.full == 'si' || steps.check.outputs.afinar == 'si'
         with:
           python-version: "3.13"
-      - name: Instalar dependencias
-        if: steps.check.outputs.full == 'si' || steps.check.outputs.afinar == 'si'
-        run: pip install -r requirements.txt
 
-      - name: Actualización completa (IG + portales + IA + radar)
-        if: steps.check.outputs.full == 'si'
+      - name: Ventana de atención (10 min escuchando la cola)
         env:
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_MODEL: claude-haiku-4-5-20251001
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: python job_actualizar.py
-
-      - name: Afinación rápida (motivos de descarte → filtros + radar)
-        if: steps.check.outputs.full == 'no' && steps.check.outputs.afinar == 'si'
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_MODEL: claude-haiku-4-5-20251001
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: python job_afinar.py
+        run: |
+          FIN=$(( SECONDS + 600 ))
+          INSTALADO=no
+          ATENDIDAS=0
+          while [ $SECONDS -lt $FIN ]; do
+            FULL=$(psql "$DATABASE_URL" -tAc "SELECT valor FROM meta WHERE clave='solicitud_actualizar'" || true)
+            AFINAR=$(psql "$DATABASE_URL" -tAc "SELECT valor FROM meta WHERE clave='solicitud_afinar'" || true)
+            if [ -n "${FULL// }" ] || [ -n "${AFINAR// }" ]; then
+              if [ "$INSTALADO" = no ]; then
+                echo "📬 Solicitud encontrada: instalando dependencias…"
+                pip install -q -r requirements.txt
+                INSTALADO=si
+              fi
+              if [ -n "${FULL// }" ]; then
+                echo "🔄 Atendiendo actualización completa…"
+                python job_actualizar.py
+              else
+                echo "🧠 Atendiendo afinación rápida…"
+                python job_afinar.py
+              fi
+              ATENDIDAS=$(( ATENDIDAS + 1 ))
+            fi
+            sleep 20
+          done
+          echo "Ventana cerrada. Solicitudes atendidas: $ATENDIDAS"
 
       # GitHub desactiva los crons tras 60 días sin commits; mini-commit de
       # mantenimiento cuando hace falta (sin acciones de terceros: bloqueadas).
       - name: Mantener vivo el robot (keepalive)
-        if: steps.check.outputs.full == 'si' || steps.check.outputs.afinar == 'si'
+        if: success()
         run: |
           DIAS=$(( ( $(date +%s) - $(git log -1 --format=%ct) ) / 86400 ))
           if [ "$DIAS" -ge 50 ]; then
