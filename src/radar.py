@@ -37,8 +37,15 @@ def _crear_tabla() -> None:
                 url TEXT, fuente TEXT, imagen TEXT,
                 asignado BOOLEAN, nuevo_24h BOOLEAN,
                 razones_ok TEXT, razones_no TEXT,
+                huella TEXT, ids_gemelos TEXT,
                 PRIMARY KEY (cliente, post_id)
             )"""))
+        # columnas nuevas sobre tablas viejas (ALTER tolerante)
+        for col in ("huella TEXT", "ids_gemelos TEXT"):
+            try:
+                con.execute(text(f"ALTER TABLE radar ADD COLUMN {col}"))
+            except Exception:  # noqa: BLE001 - ya existe
+                pass
 
 
 def publicar_radar(log=print) -> int:
@@ -128,6 +135,9 @@ def publicar_radar(log=print) -> int:
                 "nuevo_24h": (p.get("agregado") or "") in ayer,
                 "razones_ok": json.dumps(m.get("razones_ok") or [], ensure_ascii=False),
                 "razones_no": json.dumps(m.get("razones_no") or [], ensure_ascii=False),
+                "huella": huella_inmueble(p),
+                "ids_gemelos": json.dumps(p.get("ids_gemelos") or [p.get("id")],
+                                          ensure_ascii=False),
             })
 
     with db._conn() as con:

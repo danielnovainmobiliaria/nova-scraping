@@ -33,7 +33,22 @@
       "Bash(/usr/bin/grep -rn \"ADMIN\\\\|esAdmin\\\\|admin\" lib/*.ts)",
       "Bash(/usr/bin/grep -n \"es_admin\" app/admin/page.tsx)",
       "Bash(/usr/bin/grep -rn \"es_admin\" lib/types.ts app/api --include=\"*.ts\")",
-      "Bash(/usr/bin/grep -n \"^def huella_inmueble\\\\|^def dedup_posts\\\\|^def _norm_link\\\\|^def es_portal_post\\\\|^def fuente_post\\\\|^def dias_publicado\" app.py)"
+      "Bash(/usr/bin/grep -n \"^def huella_inmueble\\\\|^def dedup_posts\\\\|^def _norm_link\\\\|^def es_portal_post\\\\|^def fuente_post\\\\|^def dias_publicado\" app.py)",
+      "Bash(npm run *)",
+      "Bash(/usr/bin/grep -E \"radar|error|Error|✓ Compiled|Failed\")",
+      "Bash(node -e ' *)",
+      "mcp__claude-in-chrome__tabs_context_mcp",
+      "mcp__claude-in-chrome__navigate",
+      "mcp__claude-in-chrome__get_page_text",
+      "mcp__claude-in-chrome__computer",
+      "Bash(/usr/bin/grep -n \"CREATE TABLE IF NOT EXISTS clientes\" -A 6 src/db.py)",
+      "Bash(/usr/bin/grep -n \"def guardar_clientes\\\\|def leer_clientes\" -A 12 src/db.py)",
+      "Bash(/usr/bin/grep -n \"def proceso_de\" -A 20 app.py)",
+      "Bash(/usr/bin/grep -n '\"cliente\"' src/radar.py)",
+      "Bash(/usr/bin/grep -n 'proceso_de\\(' app.py)",
+      "Bash(/usr/bin/grep -n '\"enviado\"\\\\|\"descartado\"' app.py)",
+      "Bash(/usr/bin/grep -n \"def agregar_proceso\" -A 18 src/clientes.py)",
+      "Bash(/usr/bin/grep -E \"✓ Compiled|error|Error\")"
     ]
   }
 }
