@@ -4,9 +4,36 @@ Trae las publicaciones nuevas de Instagram, las lee con IA y las guarda en la ba
 de datos en la nube. Como el scraping es incremental, solo trae lo nuevo desde la
 última vez (barato). Las llaves vienen de los Secrets de GitHub Actions.
 """
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from src import config, db, extractor, limpieza, scraper, scraper_portales, solicitudes
+
+
+class _EnFrio(Exception):
+    """Señal interna: Instagram no toca todavía. No es un error."""
+
+
+HORAS_ENFRIAMIENTO_IG = 20
+
+
+def _instagram_en_frio() -> bool:
+    """¿Se leyó Instagram hace menos de HORAS_ENFRIAMIENTO_IG?
+
+    Cada pasada vuelve a pagar el peaje de los posts FIJADOS de cada perfil
+    (~1 por cuenta; el actor los cobra aunque se pida un corte más nuevo).
+    Medido en un ciclo real: 3 de 9 pasadas ocurrieron a menos de 20 horas de
+    la anterior y costaron US$0,77 sin traer nada nuevo.
+    """
+    marca = db.leer_meta("ultimo_scrape_ig_ts")
+    if not marca:
+        return False
+    try:
+        cuando = datetime.fromisoformat(marca)
+    except ValueError:
+        return False
+    if cuando.tzinfo is None:
+        cuando = cuando.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - cuando < timedelta(hours=HORAS_ENFRIAMIENTO_IG)
 
 
 def main() -> None:
@@ -24,6 +51,8 @@ def main() -> None:
     errores: list[str] = []
 
     try:
+        if _instagram_en_frio():
+            raise _EnFrio
         cuentas = config.leer_cuentas()
         # Cadencia adaptativa: cuentas sin publicar hace 10+ días van en corrida
         # APARTE cada 2 días. OJO: separadas para que su corte viejo no arrastre
@@ -60,6 +89,9 @@ def main() -> None:
             else:
                 print(f"😴 {len(dormidas)} cuenta(s) dormidas descansan hoy "
                       "(se revisan cada 2 días).", flush=True)
+    except _EnFrio:
+        print(f"😴 Instagram se leyó hace menos de {HORAS_ENFRIAMIENTO_IG} h: "
+              "se salta esta vez (los portales igual corren).", flush=True)
     except Exception as e:  # noqa: BLE001
         errores.append(f"Instagram: {e}")
         print(f"⚠️ Problema con Instagram (los portales igual se intentan): {e}", flush=True)

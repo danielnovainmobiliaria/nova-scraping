@@ -33,29 +33,43 @@ def _lecturas_por_cuenta() -> dict[str, str]:
         return {}
 
 
-def _cutoff_incremental(cuentas: list[str]) -> str:
-    """Desde qué fecha pedir publicaciones para NO repetir lo ya descargado.
+def _grupos_por_corte(cuentas: list[str]) -> list[tuple[str, list[str], bool]]:
+    """Agrupa las cuentas por la fecha EXACTA desde la que hay que pedirles.
 
-    Usa la última lectura EXITOSA más ANTIGUA entre las cuentas: si una cuenta
-    estuvo restringida unos días, al recuperarse la ventana retrocede lo necesario
-    para no perder sus posts (antes el corte era global y esos posts se perdían).
-    Nunca pasa del piso de 30 días.
+    Devuelve (corte_iso, cuentas, es_primera_lectura), lo más reciente primero.
+
+    Antes esto eran tres cubos gruesos ("al día", "rezagadas", "nuevas") y el
+    corte de cada cubo era el min() de sus fechas. Bastaba UNA cuenta atrasada
+    para que las otras sesenta del cubo volvieran a comprar hasta un mes de
+    historia ya pagada. Medido sobre un ciclo real de la cuenta: 2.631 de los
+    4.307 resultados (US$6,05, el 61% del gasto de Instagram) eran posts que ya
+    se habían comprado antes en el MISMO ciclo.
+
+    Agrupando por la fecha exacta, cada cuenta paga solo su ventana. Partir en
+    más corridas no cuesta nada: el actor cobra por resultado, no por corrida,
+    y cada cuenta sigue apareciendo en una sola.
     """
     piso = (datetime.now(timezone.utc) - timedelta(days=config.DIAS_RECIENTES)).date()
     lecturas = _lecturas_por_cuenta()
-    fechas = []
+    nunca: list[str] = []
+    por_corte: dict[str, list[str]] = {}
     for c in cuentas:
         f = lecturas.get(c)
-        if not f:
-            return piso.isoformat()   # alguna cuenta nunca leída → ventana completa
         try:
-            fechas.append(date.fromisoformat(f))
+            leida = date.fromisoformat(str(f)) if f else None
         except ValueError:
-            return piso.isoformat()
-    if not fechas:
-        return piso.isoformat()
-    desde = min(fechas) - timedelta(days=config.DIAS_SOLAPE)
-    return max(piso, desde).isoformat()
+            leida = None
+        if leida is None:
+            nunca.append(c)          # nunca leída: ventana completa y más posts
+            continue
+        corte = max(piso, leida - timedelta(days=config.DIAS_SOLAPE))
+        por_corte.setdefault(corte.isoformat(), []).append(c)
+
+    grupos = [(corte, ctas, False) for corte, ctas in
+              sorted(por_corte.items(), key=lambda kv: kv[0], reverse=True)]
+    if nunca:
+        grupos.append((piso.isoformat(), nunca, True))
+    return grupos
 
 
 CUARENTENA_DIAS = 7    # una cuenta marcada privada se reintenta a los 7 días
@@ -82,37 +96,6 @@ def _privadas_en_cuarentena() -> tuple[dict, set]:
         except ValueError:
             pass
     return crudo, vigentes
-
-
-def _buckets_por_lectura(cuentas: list[str]) -> list[tuple[str, list[str]]]:
-    """Agrupa las cuentas por qué tan atrasada está su última lectura.
-
-    Cada grupo corre APARTE con su propio corte: una cuenta nueva o rezagada
-    paga SU ventana, sin arrastrar el corte de las que están al día (ese
-    arrastre re-compró un mes completo dos veces, en julio y en agosto)."""
-    lecturas = _lecturas_por_cuenta()
-    hoy = datetime.now(timezone.utc).date()
-    frescas, rezagadas, nunca = [], [], []
-    for c in cuentas:
-        f = lecturas.get(c)
-        try:
-            dias = (hoy - date.fromisoformat(str(f))).days if f else None
-        except ValueError:
-            dias = None
-        if dias is None:
-            nunca.append(c)
-        elif dias <= 3:
-            frescas.append(c)
-        else:
-            rezagadas.append(c)
-    grupos = []
-    if frescas:
-        grupos.append(("al día", frescas))
-    if rezagadas:
-        grupos.append(("rezagadas", rezagadas))
-    if nunca:
-        grupos.append(("nuevas", nunca))
-    return grupos
 
 
 def scrapear_cuentas(cuentas: list[str], log=print) -> int:
@@ -151,9 +134,7 @@ def scrapear_cuentas(cuentas: list[str], log=print) -> int:
 
     # Instagram exige proxies residenciales y enlaces de perfil (directUrls),
     # de lo contrario bloquea la lectura ("Empty or private data").
-    for etiqueta, grupo in _buckets_por_lectura(cuentas):
-        corte = _cutoff_incremental(grupo)
-        primera = etiqueta == "nuevas"
+    for corte, grupo, primera in _grupos_por_corte(cuentas):
         run_input: dict[str, Any] = {
             "directUrls": [f"https://www.instagram.com/{u}/" for u in grupo],
             "resultsType": "posts",
@@ -161,6 +142,7 @@ def scrapear_cuentas(cuentas: list[str], log=print) -> int:
             "onlyPostsNewerThan": corte,
             "proxy": {"useApifyProxy": True, "apifyProxyGroups": ["RESIDENTIAL"]},
         }
+        etiqueta = "nuevas" if primera else f"desde {corte}"
         log(f"📷 Grupo «{etiqueta}»: {len(grupo)} cuenta(s), trayendo desde {corte}…")
         run = cliente.actor(ACTOR_ID).call(run_input=run_input)
         if run is None or not run.default_dataset_id:
@@ -191,6 +173,9 @@ def scrapear_cuentas(cuentas: list[str], log=print) -> int:
     db.guardar_meta("cuentas_restringidas", json.dumps(marcas, ensure_ascii=False))
 
     db.guardar_meta("ultimo_scrape", hoy)
+    # Marca con HORA: "ultimo_scrape" es solo el día y no sirve para saber si
+    # alguien volvió a pulsar el botón dos veces la misma tarde.
+    db.guardar_meta("ultimo_scrape_ig_ts", datetime.now(timezone.utc).isoformat())
     # Última lectura exitosa POR CUENTA.
     lecturas = _lecturas_por_cuenta()
     lecturas.update({c: hoy for c in leidas_ok})
