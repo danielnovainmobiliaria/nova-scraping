@@ -250,12 +250,21 @@ def extraer_pendientes(log=print, lote: bool = False) -> int:
     return procesados
 
 
+# Cuánto se espera a la Batches API antes de rendirse y leer a precio completo.
+ESPERA_LOTE_MIN = 10
+
+
 def _extraer_por_lote(client: anthropic.Anthropic, grupos, total: int, log) -> int:
     """Modo LOTE (Batches API): mismas lecturas a MITAD de precio.
 
-    Pensado para el robot de la madrugada, donde nadie espera la respuesta.
-    Espera hasta ~40 min; si el lote no termina, se cancela y el que llama
+    Espera ESPERA_LOTE_MIN; si el lote no termina, se cancela y el que llama
     hace el trabajo en modo normal.
+
+    Eran 40 min y salía mal el negocio: el lote ahorra la mitad de la lectura
+    con IA, que es como un quinto de lo que cuesta Apify — o sea, centavos. El
+    2026-09-08 Daniel esperó 40 minutos a un lote que igual no llegó y terminó
+    pagando precio completo DESPUÉS de esperarlos. Con 10 min se ahorra igual
+    cuando el lote responde rápido, y cuando no, se arranca media hora antes.
     """
     import time
 
@@ -270,12 +279,12 @@ def _extraer_por_lote(client: anthropic.Anthropic, grupos, total: int, log) -> i
         b = client.messages.batches.retrieve(batch.id)
         if b.processing_status == "ended":
             break
-        if time.time() - inicio > 40 * 60:
+        if time.time() - inicio > ESPERA_LOTE_MIN * 60:
             try:
                 client.messages.batches.cancel(batch.id)
             except Exception:  # noqa: BLE001
                 pass
-            raise RuntimeError("el lote no terminó en 40 min")
+            raise RuntimeError(f"el lote no terminó en {ESPERA_LOTE_MIN} min")
         time.sleep(20)
 
     procesados = 0
