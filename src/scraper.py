@@ -72,7 +72,14 @@ def _grupos_por_corte(cuentas: list[str]) -> list[tuple[str, list[str], bool]]:
     return grupos
 
 
-CUARENTENA_DIAS = 7    # una cuenta marcada privada se reintenta a los 7 días
+# Una cuenta que Instagram no dejó leer se reintenta a los 3 días.
+#
+# Eran 7 y salía caro: la mayoría de esos bloqueos son pasajeros, pero la
+# cuenta quedaba apagada una semana entera. El 2026-09-08 había 40 de 96
+# cuentas en cuarentena —el 42% del inventario— y 28 de ellas eran cuentas
+# sanas y productivas (@rvinmobiliaria con 21 inmuebles, @debedoutinmobiliaria
+# con 17) que solo habían tropezado un día.
+CUARENTENA_DIAS = 3
 
 
 def _privadas_en_cuarentena() -> tuple[dict, set]:
