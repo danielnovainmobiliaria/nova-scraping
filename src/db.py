@@ -180,6 +180,13 @@ def posts_recientes(desde_iso: str) -> list[dict[str, Any]]:
             "caption": fila["caption"], "fecha": fila["fecha"], "imagen": fila["imagen"],
             "agregado": fila.get("agregado") or "",
             **datos,
+            # OJO con el orden: `datos` (lo que leyó la IA) va después y pisa lo
+            # de arriba. Cuando la IA no encontraba el enlace del aviso dentro de
+            # la página, guardaba url=null y eso BORRABA la URL buena de la tabla:
+            # el broker veía la coincidencia sin forma de abrir el aviso y le
+            # tocaba descartarla sin poder mirarla. Afectaba a 189 inmuebles.
+            # La de la extracción solo gana si de verdad trae algo.
+            "url": (str(datos.get("url") or "").strip() or fila["url"]),
             "media": media,
         })
     return resultado
