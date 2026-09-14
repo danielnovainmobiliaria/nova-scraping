@@ -7,6 +7,7 @@ de datos en la nube. Como el scraping es incremental, solo trae lo nuevo desde l
 from datetime import date, datetime, timedelta, timezone
 
 from src import config, db, extractor, limpieza, scraper, scraper_portales, solicitudes
+from src import progreso
 
 
 class _EnFrio(Exception):
@@ -41,16 +42,28 @@ def main() -> None:
         raise SystemExit("Falta DATABASE_URL: este job debe escribir en la base de la nube.")
     print("== Actualización automática de Nova Scraping ==", flush=True)
     db.init_db()
+    try:
+        _correr()
+    finally:
+        # Pase lo que pase —error, SystemExit, corte del runner— la barra de
+        # progreso se cierra. Si quedara marcada, Brokerap mostraría una
+        # actualización corriendo para siempre.
+        progreso.terminar()
+
+
+def _correr() -> None:
     # Si esto lo pidió Brokerap, la solicitud queda atendida desde ya (una
     # nueva durante la corrida se atiende en el siguiente repaso).
     solicitudes.limpiar_solicitud(solicitudes.CLAVE_ACTUALIZAR)
     solicitudes.limpiar_solicitud(solicitudes.CLAVE_AFINAR)
+    progreso.empezar()
 
     # Cada fuente va por separado: si Instagram falla, los portales igual corren
     # (y viceversa). Solo se marca el día en rojo si TODO falló.
     errores: list[str] = []
 
     try:
+        progreso.marcar("instagram")
         if _instagram_en_frio():
             raise _EnFrio
         cuentas = config.leer_cuentas()
@@ -97,12 +110,14 @@ def main() -> None:
         print(f"⚠️ Problema con Instagram (los portales igual se intentan): {e}", flush=True)
 
     try:
+        progreso.marcar("ia")
         # Modo LOTE: nadie espera al robot → tarifa del 50% en la lectura IA.
         extractor.extraer_pendientes(log=print, lote=True)
     except Exception as e:  # noqa: BLE001
         errores.append(f"Lectura IA: {e}")
         print(f"⚠️ Problema leyendo captions con IA: {e}", flush=True)
 
+    progreso.marcar("portales")
     portales = config.leer_portales()
     # La VENTA se mueve lento: sus búsquedas corren un día sí, un día no
     # (los arriendos, que vuelan, corren a diario). Ahorra ~la mitad de Apify.
@@ -122,6 +137,7 @@ def main() -> None:
             print(f"⚠️ Problema leyendo portales: {e}", flush=True)
 
     try:
+        progreso.marcar("colas")
         # Todo lo que Brokerap dejó en cola (importaciones, manuales, motivos,
         # comentarios de afinación) se atiende antes del cruce.
         solicitudes.atender_pendientes(log=print)
@@ -129,12 +145,14 @@ def main() -> None:
         print(f"⚠️ Colas de Brokerap: {e}", flush=True)
 
     try:
+        progreso.marcar("radar")
         from src import radar
         radar.publicar_radar(log=print)
     except Exception as e:  # noqa: BLE001
         print(f"⚠️ Radar: {e}", flush=True)
 
     try:
+        progreso.marcar("cierre")
         limpieza.purgar_no_comercializables(log=print)
     except Exception as e:  # noqa: BLE001 - la limpieza jamás tumba el día
         print(f"⚠️ La limpieza de vencidos falló: {e}", flush=True)
