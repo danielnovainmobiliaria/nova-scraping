@@ -59,6 +59,7 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin texto adicional, sin ```), con 
   "banos": number|null,
   "parqueaderos": number|null,
   "estrato": number|null,
+  "piso": number|null,
   "antiguedad_anos": number|null,   // años de construido. "para estrenar"/"sobre planos"/
                                     // "obra nueva"/"proyecto nuevo" = 0; "X años de construido" = X
   "extras": [string],               // SOLO valores de esta lista: {EXTRAS_VALIDOS}
@@ -77,6 +78,9 @@ Reglas:
   (millones: ej. $3 a $40 millones) es "arriendo"; un precio de cientos o miles de millones
   (ej. $450M, $1.800.000.000) es "venta". Deja null SOLO si no hay ninguna pista.
 - "cuarto de servicio"/"alcoba de servicio"/"zona de ropas con baño" → "cuarto_servicio".
+- "piso": en qué piso está el apartamento si el aviso lo dice ("piso 6", "3er piso",
+  "sexto piso"). Penthouse o "último piso" = 99. OJO: "casa de 2 pisos" NO es el
+  piso 2, son los niveles de la casa; ahí va null.
 - "antiguedad_anos": años de construido si se menciona o se deduce. "para estrenar"/"a estrenar"/
   "sobre planos"/"obra nueva"/"proyecto nuevo"/"preventa" = 0; "remodelado" NO es lo mismo que nuevo
   (déjalo null salvo que diga los años); "X años de construido/antigüedad" = X; si no hay pista, null.
@@ -328,7 +332,7 @@ Devuelve ÚNICAMENTE un ARRAY JSON válido (sin texto extra, sin ```), un objeto
   "barrio": string|null, "zona": string|null, "direccion": string|null,
   "area_m2": number|null, "precio": number|null, "administracion": number|null,
   "habitaciones": number|null, "banos": number|null, "parqueaderos": number|null,
-  "estrato": number|null, "antiguedad_anos": number|null,
+  "estrato": number|null, "piso": number|null, "antiguedad_anos": number|null,
   "extras": [string],               // SOLO de: {EXTRAS_VALIDOS}
   "url": string|null,               // link directo al inmueble si aparece en el texto
   "publicado_hace_dias": number|null, // SI la página dice hace cuánto se publicó el aviso:
@@ -346,6 +350,9 @@ Reglas:
 - "publicado_hace_dias": SOLO si el texto lo dice explícitamente; NO lo inventes.
 - "operacion": si no es explícita, dedúcela por el precio (millones = arriendo; cientos/miles
   de millones = venta).
+- "piso": en qué piso está el apartamento si el aviso lo dice ("piso 6", "3er piso",
+  "sexto piso"). Penthouse o "último piso" = 99. OJO: "casa de 2 pisos" NO es el
+  piso 2, son los niveles de la casa; ahí va null.
 - "antiguedad_anos": "para estrenar"/"sobre planos"/"obra nueva"=0; "X años"=X; si no, null.
 - Ignora menús, filtros, banners, anuncios y texto que no describa un inmueble concreto.
 - Si no hay ningún inmueble, devuelve un array vacío []. NO inventes datos.

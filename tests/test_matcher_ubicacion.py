@@ -60,12 +60,21 @@ class TestExtrasAlternativos:
         assert _alternativas("terraza|balcon") == {"terraza", "balcon"}
 
     def test_cualquiera_de_las_dos_cumple(self):
-        assert _extra_cumplido("terraza o balcón", {"balcon"})
-        assert _extra_cumplido("terraza o balcón", {"terraza"})
+        assert _extra_cumplido("terraza o balcón", {"extras": ["balcon"]})
+        assert _extra_cumplido("terraza o balcón", {"extras": ["terraza"]})
 
     def test_ninguna_no_cumple(self):
-        assert not _extra_cumplido("terraza o balcón", {"parqueadero"})
-        assert not _extra_cumplido("terraza o balcón", set())
+        assert not _extra_cumplido("terraza o balcón", {"extras": ["parqueadero"]})
+        assert not _extra_cumplido("terraza o balcón", {"extras": []})
+
+    def test_si_el_extractor_la_perdio_se_relee_el_texto(self):
+        # Medido: pasa en 10 de 809 avisos. Como ahora un obligatorio que falta
+        # DESCARTA, perderlos sería caro.
+        assert _extra_cumplido("terraza o balcón", {"extras": [], "caption": "con terraza bbq"})
+        assert _extra_cumplido("terraza o balcón", {"extras": [], "caption": "piso 6 con balcones amplios"})
+
+    def test_pero_negada_no_cuenta(self):
+        assert not _extra_cumplido("terraza o balcón", {"extras": [], "caption": "apto SIN terraza"})
 
 
 class TestObligatorio:
@@ -91,3 +100,41 @@ class TestObligatorio:
         post = {"barrio": "Rosales", "extras": [], "es_inmueble": True}
         ev = evaluar(cli, post)
         assert ev is not None and any("no menciona" in r for r in ev["razones_no"])
+
+
+class TestPiso:
+    """Daniel (2026-09-14): "que entienda que si se busca un piso alto no
+    debería mostrar ni un segundo ni tercer piso"."""
+
+    CLI = {"operacion": "venta", "barrios": ["Chicó"],
+           "exclusiones": {"piso_min": 4}}
+
+    def _post(self, caption):
+        return {"barrio": "Chicó", "caption": caption, "es_inmueble": True}
+
+    def test_lee_el_piso_en_sus_muchas_formas(self):
+        from src.matcher import piso_del_post
+        assert piso_del_post({"caption": "apto en el piso 6"}) == 6
+        assert piso_del_post({"caption": "hermoso 3er piso"}) == 3
+        assert piso_del_post({"caption": "segundo piso exterior"}) == 2
+        assert piso_del_post({"caption": "penthouse con terraza"}) == 99
+        assert piso_del_post({"caption": "ultimo piso"}) == 99
+
+    def test_una_casa_de_dos_pisos_no_esta_en_el_piso_2(self):
+        from src.matcher import piso_del_post
+        assert piso_del_post({"caption": "casa de 2 pisos con jardin"}) is None
+
+    def test_si_el_aviso_dice_piso_bajo_se_descarta(self):
+        assert evaluar(self.CLI, self._post("apto en el piso 2")) is None
+        assert evaluar(self.CLI, self._post("hermoso 3er piso")) is None
+
+    def test_si_el_aviso_dice_piso_alto_pasa(self):
+        assert evaluar(self.CLI, self._post("piso 6 con vista")) is not None
+        assert evaluar(self.CLI, self._post("penthouse con terraza")) is not None
+
+    def test_si_el_aviso_NO_dice_el_piso_pasa_pero_avisado(self):
+        # Solo el 7% de los avisos lo menciona: descartar por no saber dejaría
+        # fuera casi todo el inventario. Daniel lo verifica en una llamada.
+        ev = evaluar(self.CLI, self._post("apartamento de 3 alcobas"))
+        assert ev is not None
+        assert any("no dice en qué piso" in r for r in ev["razones_no"])

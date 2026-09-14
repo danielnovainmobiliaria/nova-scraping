@@ -138,10 +138,33 @@ def _alternativas(extra: str) -> set[str]:
     return {t for t in partes if t}
 
 
-def _extra_cumplido(extra: str, extras_post: set[str]) -> bool:
-    """¿El aviso trae ALGUNA de las alternativas de este extra?"""
-    post_norm = {_norm(e) for e in extras_post}
-    return bool(_alternativas(extra) & post_norm)
+def _extra_cumplido(extra: str, post: dict[str, Any]) -> bool:
+    """¿El aviso trae ALGUNA de las alternativas de este extra?
+
+    Mira primero la lista `extras` que armó el extractor y, si ahí no está,
+    RELEE EL TEXTO del aviso. Esa segunda pasada importa porque desde el
+    2026-09-14 un extra obligatorio que falta DESCARTA el inmueble: medido
+    sobre los 2.795 avisos de Daniel, el extractor se comía la terraza o el
+    balcón en 10 casos que el texto sí mencionaba ("terraza bbq", "balcones
+    amplios"). Sin este respaldo, esos 10 se perderían sin que nadie se entere.
+
+    Usa _menciona_de_verdad, así que "sin terraza" no cuenta como terraza.
+    """
+    post_norm = {_norm(e) for e in (post.get("extras") or [])}
+    alternativas = _alternativas(extra)
+    if alternativas & post_norm:
+        return True
+    texto = _norm(post.get("caption", "")) + " " + _norm(post.get("resumen", ""))
+    if not texto.strip():
+        return False
+    # Plural incluido: el aviso dice "balcones amplios", no "balcon".
+    for a in alternativas:
+        if len(a) < 4:
+            continue
+        for forma in (a, a + "s", a + "es"):
+            if _menciona_de_verdad(texto, forma):
+                return True
+    return False
 
 
 # Los nombres que son ZONA (localidad), no barrio. Salen del propio mapa de
@@ -460,9 +483,8 @@ def _falla_obligatorio(cliente: dict[str, Any], post: dict[str, Any]) -> str | N
         # perder dinero". Si lo marcó OBLIGATORIO, obligatorio es: un aviso que
         # no lo menciona no se muestra. Lo que se pierde son avisos mudos que
         # quizá sí lo tenían; lo que se gana es no revisarlos uno por uno.
-        extras_post = set(post.get("extras") or [])
         falta = [e for e in (cliente.get("extras") or [])
-                 if str(e).strip() and not _extra_cumplido(e, extras_post)]
+                 if str(e).strip() and not _extra_cumplido(e, post)]
         if falta:
             return "extras: " + ", ".join(falta)
     return None
@@ -511,6 +533,49 @@ def _antiguedad_estimada(post: dict[str, Any]) -> tuple[float | None, bool]:
         return float(m.group(1)), False
     es_viejo = any(w in texto for w in _PALABRAS_VIEJO)
     return None, es_viejo
+
+
+_ORDINALES_PISO = {
+    "primer": 1, "primero": 1, "segundo": 2, "tercer": 3, "tercero": 3,
+    "cuarto": 4, "quinto": 5, "sexto": 6, "septimo": 7, "octavo": 8,
+    "noveno": 9, "decimo": 10,
+}
+
+# "piso 6", "piso no 6"
+_RE_PISO_NUM = re.compile(r"\bpiso\s*(?:n[o°º]?\s*)?(\d{1,2})\b")
+# "6to piso", "6 piso" — pero NO "de 2 pisos" (eso es un dúplex, no el piso 2).
+_RE_PISO_NUM2 = re.compile(r"(?<!de )\b(\d{1,2})\s*(?:do|ro|to|mo|vo|er|°|º)?\s*piso\b")
+_RE_PISO_ORD = re.compile(r"\b(" + "|".join(_ORDINALES_PISO) + r")\s+piso\b")
+_RE_PISO_ALTO = re.compile(r"\b(penthouse|pent\s*house|ultimo piso|pent-house)\b")
+
+
+def piso_del_post(post: dict[str, Any]) -> int | None:
+    """En qué piso está el inmueble, o None si el aviso no lo dice.
+
+    Solo el 7% de los avisos lo menciona (medido sobre los 2.795 de Daniel),
+    así que None es el caso NORMAL, no un error. Quien llame decide qué hacer
+    con la ignorancia — y la respuesta correcta nunca es descartar.
+    """
+    directo = post.get("piso")
+    if isinstance(directo, (int, float)) and 0 < directo < 60:
+        return int(directo)
+
+    texto = _norm(post.get("caption", "")) + " " + _norm(post.get("resumen", ""))
+    if not texto.strip():
+        return None
+    # Un penthouse o "último piso" es alto por definición, sin saber el número.
+    if _RE_PISO_ALTO.search(texto):
+        return 99
+    for rx in (_RE_PISO_NUM, _RE_PISO_NUM2):
+        m = rx.search(texto)
+        if m:
+            n = int(m.group(1))
+            if 0 < n < 60:
+                return n
+    m = _RE_PISO_ORD.search(texto)
+    if m:
+        return _ORDINALES_PISO[m.group(1)]
+    return None
 
 
 def _menciona_de_verdad(texto: str, nw: str) -> bool:
@@ -633,6 +698,23 @@ def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | Non
     if deseado_tipo and tipo_post and not _tipo_compatible(deseado_tipo, tipo_post):
         return f"es {tipo_post} (buscas {deseado_tipo})"
     # Antigüedad: pediste algo nuevo (tope de años de construido).
+    # PISO. Daniel (2026-09-14): "que entienda que si se busca un piso alto no
+    # debería mostrar ni un segundo ni tercer piso".
+    #
+    # Se descarta SOLO cuando el aviso dice en qué piso está. Lo dice el 7% de
+    # las veces, así que exigirlo siempre dejaría fuera casi todo el inventario
+    # — y él mismo puso la regla: lo que el aviso no alcanza a decir lo revisa
+    # a mano, lo que sí dice se respeta.
+    piso_min = exc.get("piso_min")
+    piso_max = exc.get("piso_max")
+    if piso_min or piso_max:
+        piso = piso_del_post(post)
+        if piso is not None:
+            if piso_min and piso < piso_min:
+                return f"piso {piso} (pediste del {piso_min:g} hacia arriba)"
+            if piso_max and piso != 99 and piso > piso_max:
+                return f"piso {piso} (pediste hasta el {piso_max:g})"
+
     amax = exc.get("antiguedad_max")
     if amax is not None:
         anos, es_viejo = _antiguedad_estimada(post)
@@ -813,12 +895,24 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
     else:
         puntaje += 8
 
+    # Si pidió un piso concreto y el aviso no lo dice, se muestra pero avisado:
+    # es de las cosas que él verifica en dos minutos con una llamada.
+    exc_piso = (cliente.get("exclusiones") or {})
+    if exc_piso.get("piso_min") or exc_piso.get("piso_max"):
+        _p = piso_del_post(post)
+        if _p is None:
+            razones_no.append("⚠️ el aviso no dice en qué piso está (confírmalo)")
+        elif _p == 99:
+            razones_ok.append("último piso / penthouse")
+        else:
+            razones_ok.append(f"piso {_p}")
+
     # ── Extras (peso 15) ─────────────────────────────────────
     extras_cliente = [e for e in (cliente.get("extras") or []) if str(e).strip()]
     extras_post = set(post.get("extras") or [])
     peso_total += 15
     if extras_cliente:
-        presentes = [e for e in extras_cliente if _extra_cumplido(e, extras_post)]
+        presentes = [e for e in extras_cliente if _extra_cumplido(e, post)]
         faltantes = [e for e in extras_cliente if e not in presentes]
         puntaje += 15 * (len(presentes) / len(extras_cliente))
         if presentes:
