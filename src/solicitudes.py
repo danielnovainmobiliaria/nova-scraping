@@ -27,6 +27,43 @@ def limpiar_solicitud(clave: str) -> None:
     db.guardar_meta(clave, "")
 
 
+def _aplicar_afinacion(c: dict, af: dict, log=print) -> None:
+    """Vuelca en el cliente (copia en memoria) lo que la IA entendió del comentario.
+
+    Las DOS direcciones de la afinación, en un solo sitio porque las dos colas de
+    abajo hacían exactamente lo mismo copiado:
+      · quitar  -> exclusiones (barrios, palabras, topes, tipo)
+      · agregar -> extras y obligatorios de la ficha
+
+    La segunda se abrió el 2026-09-14: antes, un "que siempre tenga parqueadero"
+    no tenía dónde aterrizar y se quedaba de comentario suelto que el motor no lee.
+    Siempre SUMA: nunca le borra a un cliente un requisito que ya tenía.
+    """
+    excl = c.get("exclusiones") or {}
+    for b in af["excluir_barrios"]:
+        if b not in (excl.get("barrios") or []):
+            excl.setdefault("barrios", []).append(b)
+    for p_ in af["excluir_palabras"]:
+        if p_ not in (excl.get("palabras") or []):
+            excl.setdefault("palabras", []).append(p_)
+    if af["limites"]:
+        excl.setdefault("limites", {}).update(af["limites"])
+    if af.get("tipo"):
+        excl["tipo"] = af["tipo"]
+    c["exclusiones"] = excl
+    # Los requisitos positivos pasan por clientes.fusionar_requisitos, que es
+    # quien sabe que marcar "extras" obligatorio no exige el extra recién
+    # nombrado sino TODOS los de la ficha. Aquí se copiaba a mano y prendía el
+    # candado a ciegas: un "súbele que necesita terraza sí o sí" dejaba a Juan
+    # Camilo Mora en 8 de 2.551 avisos, exigiéndole el family room que él nunca
+    # puso como condición.
+    sin_exigir = mod_clientes.fusionar_requisitos(
+        c, af.get("agregar_extras"), af.get("obligatorios"))
+    if sin_exigir:
+        log(f"⚠️ {c.get('nombre')}: sumé {', '.join(sin_exigir)} como deseo, NO como "
+            f"condición (marcarlo aquí le exigiría TODOS sus requisitos a la vez)")
+
+
 def atender_afinaciones(log=print) -> int:
     """Aprende de los motivos de descarte escritos desde Brokerap.
 
@@ -64,21 +101,10 @@ def atender_afinaciones(log=print) -> int:
                 if af.get("error"):
                     pr["afinado"] = False
                     continue
-                if (af["excluir_barrios"] or af["excluir_palabras"]
-                        or af["limites"] or af.get("tipo")):
+                if (af["excluir_barrios"] or af["excluir_palabras"] or af["limites"]
+                        or af.get("tipo") or af.get("agregar_extras") or af.get("obligatorios")):
                     # sobre la copia en memoria; guardar_lista persiste todo junto
-                    excl = c.get("exclusiones") or {}
-                    for b in af["excluir_barrios"]:
-                        if b not in (excl.get("barrios") or []):
-                            excl.setdefault("barrios", []).append(b)
-                    for p_ in af["excluir_palabras"]:
-                        if p_ not in (excl.get("palabras") or []):
-                            excl.setdefault("palabras", []).append(p_)
-                    if af["limites"]:
-                        excl.setdefault("limites", {}).update(af["limites"])
-                    if af.get("tipo"):
-                        excl["tipo"] = af["tipo"]
-                    c["exclusiones"] = excl
+                    _aplicar_afinacion(c, af, log)
                 aprendidos += 1
                 con_motivo_nuevo = True
                 log(f"🧠 {c.get('nombre')}: aprendí del motivo «{obs[:50]}»")
@@ -130,18 +156,7 @@ def atender_comentarios(log=print) -> int:
             if af.get("error"):
                 quedan.append(item)
                 continue
-            excl = c.get("exclusiones") or {}
-            for b in af["excluir_barrios"]:
-                if b not in (excl.get("barrios") or []):
-                    excl.setdefault("barrios", []).append(b)
-            for p_ in af["excluir_palabras"]:
-                if p_ not in (excl.get("palabras") or []):
-                    excl.setdefault("palabras", []).append(p_)
-            if af["limites"]:
-                excl.setdefault("limites", {}).update(af["limites"])
-            if af.get("tipo"):
-                excl["tipo"] = af["tipo"]
-            c["exclusiones"] = excl
+            _aplicar_afinacion(c, af, log)
             coms = c.get("comentarios_ia") or []
             coms.append(texto)
             c["comentarios_ia"] = coms

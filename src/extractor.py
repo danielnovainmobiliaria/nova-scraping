@@ -16,6 +16,20 @@ from . import config, db
 
 # Lista cerrada de "extras" para que siempre se normalicen igual y el cruce
 # con los clientes sea confiable.
+#
+# Los 8 últimos entraron el 2026-09-14 porque había requerimientos que NO se
+# podían ni escribir: Luisa Galindo pedía "SÍ O SÍ piscina / club house" y su
+# propia ficha admitía que el motor no tenía esas palabras; Edwin Cabrera,
+# "casa con jardín"; Jorge Herrera y Rodolfo, "exterior" (Rodolfo lo emulaba
+# excluyendo la palabra "interior"); Ana Alba, Claudia García y Carlos Salazar,
+# "iluminado"; Juan Camilo Mora, "family room".
+#
+# Ninguno se agregó a ojo. Medido sobre los 2.795 avisos de la base (2.551 son
+# inmueble y siguen disponibles), cada palabra aparece en el texto de:
+#   gimnasio 20,2% · club_house 19,4% · iluminado 18,0% · exterior 17,6% ·
+#   ascensor 8,0% · family_room 7,8% · piscina 6,5% · jardin 4,0%
+# "jardin" parece poquísimo hasta que se mira dónde importa: en las 220 CASAS
+# del universo sube a 34,1%, y el jardín se le pide a una casa, no a un apto.
 EXTRAS_VALIDOS = [
     "estudio",
     "terraza",
@@ -29,6 +43,14 @@ EXTRAS_VALIDOS = [
     "chimenea",
     "duplex",
     "penthouse",
+    "jardin",
+    "piscina",
+    "club_house",
+    "gimnasio",
+    "ascensor",
+    "family_room",
+    "exterior",
+    "iluminado",
 ]
 
 # Criterios que pueden marcarse como NO negociables.
@@ -36,6 +58,115 @@ OBLIGATORIOS_VALIDOS = ["barrio", "presupuesto", "habitaciones", "banos", "metra
 
 # Perfil de flexibilidad del cliente.
 FLEX_VALIDOS = ["estricto", "medio", "flexible"]
+
+# Separadores con los que un humano (o la IA) escribe una ALTERNATIVA:
+# "terraza o balcón", "terraza/balcón", "terraza|balcón". Son los mismos tres
+# que ya parte matcher._alternativas; si allá cambian, hay que cambiarlos aquí.
+_SEPARADOR_ALTERNATIVA = re.compile(r"\s+o\s+|\s*[/|]\s*", re.IGNORECASE)
+
+
+def _clave_extra(pieza: str) -> str:
+    """Convierte una alternativa suelta en su clave del motor, o "" si no existe.
+
+    Tolera cómo lo escribe un humano: tildes ("balcón"), mayúsculas y espacios
+    ("cuarto de servicio"). No inventa: lo que no caiga en EXTRAS_VALIDOS se va.
+    """
+    t = str(pieza or "").lower().strip()
+    for a, b in {"á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ñ": "n"}.items():
+        t = t.replace(a, b)
+    t = re.sub(r"[^a-z0-9]+", "_", t).strip("_")
+    # "cuarto_de_servicio" -> "cuarto_servicio": el motor no lleva el "de".
+    if t not in EXTRAS_VALIDOS:
+        t = t.replace("_de_", "_")
+    return t if t in EXTRAS_VALIDOS else ""
+
+
+def limpiar_extras(lista: Any) -> list[str]:
+    """Valida los extras de un CLIENTE aceptando alternativas ("terraza o balcón").
+
+    Por qué existe: hasta hoy esto era `[e for e in extras if e in EXTRAS_VALIDOS]`,
+    y eso BORRABA en silencio cualquier extra con alternativas, porque
+    "terraza o balcón" no es ninguna de las claves sueltas de la lista. O sea: aunque el
+    prompt le pidiera a la IA escribir la alternativa, el filtro se la comía en
+    la línea siguiente y el requisito desaparecía sin dejar rastro —exactamente
+    lo que le pasó a Rodolfo Velázquez, que pidió "terraza o balcón OBLIGATORIO"
+    y terminó con extras ["terraza"] a secas.
+
+    Lo que cuesta esa pérdida, medido sobre los 2.551 avisos vivos y contando
+    como cuenta el motor —matcher._extra_cumplido mira la lista `extras` Y RELEE
+    EL CAPTION, que es lo que radar.py le entrega—: "terraza" sola alcanza 745
+    avisos (29,2%); "balcón" sola, 611 (24,0%); "terraza o balcón" llega a 1.073
+    (42,1%). Quedarse con "terraza" tira a la basura 328 avisos (12,9%) que SÍ
+    tienen balcón — y desde que un extra obligatorio descarta, no es que pierdan
+    puntos: es que no aparecen.
+
+    (Mirando solo la lista `extras` del extractor salen 501/447/809 —19,5%,
+    17,4% y 31,5%—, y por ahí se midió primero. Son los avisos que la IA alcanzó
+    a etiquetar, no los que el cruce encuentra: el caption agrega casi 300.)
+
+    Devuelve la alternativa en la forma canónica que ya entiende
+    matcher._alternativas: las claves del motor unidas por " o ".
+
+    Si UNA de las alternativas no existe en el motor ("sauna o terraza"), se cae
+    el extra COMPLETO, no solo la mitad desconocida. Quedarse con "terraza" haría
+    más ESTRICTO lo que el cliente pidió suelto, y marcado como obligatorio
+    escondería los avisos con sauna y sin terraza: justo lo contrario de la
+    regla de Daniel de descartar solo por lo que el aviso dice de verdad. Así el
+    requisito se queda en las notas, a la vista, para que él lo verifique a mano.
+    """
+    salida: list[str] = []
+    for crudo in (lista or []):
+        partes = [p for p in _SEPARADOR_ALTERNATIVA.split(str(crudo or "")) if p.strip()]
+        claves = [_clave_extra(p) for p in partes]
+        if not claves or not all(claves):
+            continue   # nada reconocible (o solo a medias): mejor sin filtro que con uno falso
+        # dict.fromkeys = quita repetidos sin perder el orden en que se pidieron.
+        valor = " o ".join(dict.fromkeys(claves))
+        if valor not in salida:
+            salida.append(valor)
+    return salida
+
+
+# Cómo se escribe DE VERDAD cada extra nuevo en los avisos de Bogotá. Nadie
+# escribe "club_house" ni "family_room": escribe "salón comunal" y "estar de
+# TV". Esta tabla es la MISMA de matcher.SINONIMOS_EXTRA — allá se usa para
+# releer el caption, acá para enseñarle a la IA qué palabra mapea a qué clave.
+# Si se separan, tests/test_extras_vocabulario.py lo caza.
+SINONIMOS_EXTRA = {
+    "jardin": ["jardín", "jardines", "antejardín", "jardín privado",
+               "zona verde privada"],
+    "piscina": ["piscina", "piscinas"],
+    "club_house": ["club house", "clubhouse", "salón social", "salón comunal",
+                   "salón de eventos", "zonas húmedas"],
+    "gimnasio": ["gimnasio", "gym"],
+    "ascensor": ["ascensor", "ascensores"],
+    "family_room": ["family room", "sala de TV", "salón de TV", "estar de TV",
+                    "estar de alcobas", "sala familiar"],
+    "exterior": ["exterior", "apartamento exterior", "vista exterior"],
+    "iluminado": ["iluminado", "iluminada", "luminoso", "luminosa",
+                  "iluminación natural", "luz natural", "mucha luz",
+                  "buena luz", "bien iluminado"],
+}
+
+# Las reglas de extras que van en los DOS prompts de avisos. Las tres trampas
+# salieron de leer los 2.795 avisos, no de suponer: "zona social" aparece en
+# 277 y casi siempre es la sala del propio apartamento; de los 52 "patio", 29
+# son "patio de ropas"; y de los 127 "estar", la mayoría son "sala de estar".
+REGLAS_EXTRAS = "Cómo se dice cada extra en los avisos de Bogotá:\n" + "\n".join(
+    f"  · {k} ← " + ", ".join(f'"{x}"' for x in v)
+    for k, v in SINONIMOS_EXTRA.items()
+) + """
+OJO con cuatro confusiones que arruinan el cruce:
+  · "zona social" es la sala-comedor DEL APARTAMENTO, NO un club house. Solo
+    es club_house lo que sea del EDIFICIO o del CONJUNTO ("el conjunto cuenta
+    con salón social", "club house con piscina y gimnasio").
+  · "patio de ropas" / "patio interior" es la zona de lavandería, NO jardin.
+    Solo es jardin un jardín o zona verde PRIVADA del inmueble.
+  · "sala de estar" es la sala, NO family_room. Sí lo son "family room",
+    "estar de TV" y "estar de alcobas" (un segundo salón, aparte de la sala).
+  · "exterior" e "iluminado" SOLO si el aviso los dice con esas palabras. No
+    los deduzcas de que tenga balcón, ventanales o buena vista."""
+
 
 SYSTEM_PROMPT = f"""Eres un asistente experto en el mercado inmobiliario de Bogotá, Colombia.
 Recibes el caption (texto) de una publicación de Instagram de un broker y extraes
@@ -78,6 +209,7 @@ Reglas:
   (millones: ej. $3 a $40 millones) es "arriendo"; un precio de cientos o miles de millones
   (ej. $450M, $1.800.000.000) es "venta". Deja null SOLO si no hay ninguna pista.
 - "cuarto de servicio"/"alcoba de servicio"/"zona de ropas con baño" → "cuarto_servicio".
+{REGLAS_EXTRAS}
 - "piso": en qué piso está el apartamento si el aviso lo dice ("piso 6", "3er piso",
   "sexto piso"). Penthouse o "último piso" = 99. OJO: "casa de 2 pisos" NO es el
   piso 2, son los niveles de la casa; ahí va null.
@@ -348,6 +480,7 @@ Reglas:
   (1.900 = 1900000000); "$1.900M"/"1900 millones" = 1900000000. El apóstrofo es separador
   ("1'900.000.000" = 1900000000). "MM" = millones.
 - "publicado_hace_dias": SOLO si el texto lo dice explícitamente; NO lo inventes.
+{REGLAS_EXTRAS}
 - "operacion": si no es explícita, dedúcela por el precio (millones = arriendo; cientos/miles
   de millones = venta).
 - "piso": en qué piso está el apartamento si el aviso lo dice ("piso 6", "3er piso",
@@ -472,7 +605,8 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin texto extra, sin ```), con esta
   "habitaciones_min": number|null,
   "habitaciones_max": number|null,  // ver regla de habitaciones abajo
   "banos_min": number|null,
-  "extras": [string],               // SOLO valores de: {EXTRAS_VALIDOS}
+  "extras": [string],               // SOLO valores de: {EXTRAS_VALIDOS}.
+                                    // Un elemento PUEDE ser una ALTERNATIVA: ver regla abajo.
   "obligatorios": [string],         // criterios NO negociables. SOLO de:
                                     // ["barrio","presupuesto","habitaciones","banos","metraje","extras"]
   "flexibilidad": "estricto"|"medio"|"flexible",  // qué tan exigente es el cliente
@@ -492,6 +626,22 @@ Reglas de interpretación (mercado bogotano):
 - "mts2"/"m2"/"mtrs"/"metros" = área. "mín 60 m2" -> area_min 60.
   "entre 60 y 90 m2" -> area_min 60, area_max 90. "máx 120" -> area_max 120.
 - "cuarto de servicio"/"alcoba de servicio" -> "cuarto_servicio".
+- Extras del cliente, cómo se dicen: "casa con jardín"/"zona verde privada" -> jardin;
+  "club house"/"salón social"/"salón comunal"/"zonas húmedas" -> club_house;
+  "family room"/"sala de TV"/"estar de TV" -> family_room; "gimnasio"/"gym" -> gimnasio;
+  "exterior" -> exterior; "iluminado"/"buena luz"/"mucha luz"/"luz natural" -> iluminado.
+  OJO: "zona social" NO es club_house (es la sala del apartamento) y "patio de ropas"
+  NO es jardin (es la lavandería).
+- Si al cliente le sirve CUALQUIERA de dos ("piscina o club house", "piscina / club
+  house"), escríbelo como UN solo extra con " o " en medio: "piscina o club_house".
+  Son alternativas, no dos exigencias.
+- ALTERNATIVAS ("A o B"): si al cliente le sirve CUALQUIERA de dos cosas ("terraza o
+  balcón", "depósito o cuarto de servicio"), NO elijas una ni las pongas como dos extras
+  sueltos (dos sueltos = el motor pide LAS DOS). Escríbelo como UN SOLO elemento con la
+  palabra "o" en medio: "terraza o balcon". Ese formato el motor sí lo entiende: le basta
+  con que el aviso traiga una de las dos. Las dos partes tienen que salir de la lista de
+  arriba; si una no está (ej. "sauna o terraza"), no lo fuerces: deja el extra por fuera
+  y escribe la exigencia en "notas" para que el broker la verifique a mano.
 - "obligatorios": palabras SUAVES como "preferible", "preferiblemente", "idealmente",
   "ojalá", "sería bueno", "le gustaría" JAMÁS generan obligatorios (son deseos: van en
   extras/notas y suman puntaje, no filtran).
@@ -499,7 +649,12 @@ Reglas de interpretación (mercado bogotano):
   "indispensable", "obligatorio", "innegociable", "solo"/"únicamente". OJO: pedir
   "3 habitaciones" o "mínimo 100 m2" NO es obligatorio por sí solo (eso ya lo filtra el
   buscador); en la duda deja la lista VACÍA. Mapea: "solo en Chicó"->barrio;
-  "mínimo 3 hab sí o sí"->habitaciones; "80 m2 indispensable"->metraje.
+  "mínimo 3 hab sí o sí"->habitaciones; "80 m2 indispensable"->metraje;
+  "terraza o balcón OBLIGATORIO" -> extras ["terraza o balcon"] Y obligatorios ["extras"];
+  "sí o sí parqueadero" -> extras ["parqueadero"] Y obligatorios ["extras"].
+  OJO con este último: una característica exigida va SIEMPRE en las dos listas. Ponerla
+  solo en "extras" la deja como un deseo que suma puntos, y el inmueble sin ella igual
+  aparece. La exigencia se pierde si no marcas también "extras" en "obligatorios".
 - "prioridad": "alta" si el texto sugiere urgencia ("tiene afán", "urgente", "necesita ya",
   "se muda pronto", "entrega su apto", "responde rápido"); "baja" si está "explorando"/"sin
   afán"/"para el otro año"; si no se nota, "media".
@@ -570,7 +725,7 @@ def interpretar_clientes(textos: list[str], log=print) -> list[dict[str, Any]]:
             continue
 
         # Normalización al formato de la app.
-        datos["extras"] = [e for e in (datos.get("extras") or []) if e in EXTRAS_VALIDOS]
+        datos["extras"] = limpiar_extras(datos.get("extras"))
         datos["obligatorios"] = [o for o in (datos.get("obligatorios") or []) if o in OBLIGATORIOS_VALIDOS]
         _fx = str(datos.get("flexibilidad") or "medio").lower().strip()
         datos["flexibilidad"] = _fx if _fx in FLEX_VALIDOS else "medio"
@@ -607,16 +762,26 @@ cliente que encuentres, con estas claves:
   "prioridad": "alta"|"media"|"baja", "notas": string|null
 }}]
 
-"extras" SOLO de: {EXTRAS_VALIDOS}. "obligatorios" SOLO de: {OBLIGATORIOS_VALIDOS} — ÚNICAMENTE si el texto usa palabras
+"extras" SOLO de: {EXTRAS_VALIDOS}. Si al cliente le sirve CUALQUIERA de dos ("terraza o balcón",
+"depósito o cuarto de servicio"), va como UN SOLO elemento con "o" en medio -> "terraza o balcon";
+dos elementos sueltos significan que quiere LAS DOS. Las dos partes deben salir de la lista; si
+una no está (ej. "sauna o terraza"), déjalo por fuera de extras y escríbelo en "notas". "obligatorios" SOLO de: {OBLIGATORIOS_VALIDOS} — ÚNICAMENTE si el texto usa palabras
 explícitas de exigencia ("sí o sí"/"indispensable"/"obligatorio"/"solo"); pedir "3 hab" o
-"mínimo 100 m2" NO cuenta. En la duda, lista VACÍA.
+"mínimo 100 m2" NO cuenta. En la duda, lista VACÍA. Una CARACTERÍSTICA exigida va en las DOS
+listas: "terraza o balcón obligatorio" -> extras ["terraza o balcon"] + obligatorios ["extras"];
+si solo la pones en extras, queda como deseo y el inmueble sin ella igual aparece.
 "flexibilidad": "estricto" si el cliente NO cede / es muy exigente; "flexible" si es abierto a
 más opciones; "medio" si no se nota. "prioridad": "alta" si hay urgencia ("afán", "urgente",
 "necesita ya", "se muda pronto"); "baja" si "sin afán"/"explorando"; si no se nota, "media".
 Reglas (mercado bogotano): "12M"/"12 millones"=12000000; "MM"=millones; "$450M" en venta=450000000;
 "1.900.000.000" tal cual. Rangos ("800M-900M","11M-14M"): usa el MÁXIMO. "comprar"/"compra" ->
 operacion "venta"; "arrendar"/"arriendo" -> "arriendo". Habitaciones EXACTAS: "2 alcobas/habs"= min 2 y max 2; "2 o 3"= min 2 max 3; "mínimo 3"/"3+"= min 3 max 5;
-"mts2/m2/metros"=área. "cuarto de servicio" -> "cuarto_servicio". Si la zona viene por calles/carreras,
+"mts2/m2/metros"=área. "cuarto de servicio" -> "cuarto_servicio".
+Extras: "casa con jardín"->jardin; "club house"/"salón social"/"salón comunal"->club_house;
+"family room"/"sala de TV"->family_room; "gym"->gimnasio; "iluminado"/"buena luz"->iluminado;
+"exterior"->exterior. "zona social" NO es club_house; "patio de ropas" NO es jardin.
+Alternativas ("piscina o club house") en UN solo extra: "piscina o club_house".
+Si la zona viene por calles/carreras,
 deduce los barrios reales de Bogotá de ese sector. Teléfono solo dígitos.
 Apodo bogotano: "las santas" = Santa Bibiana, San Patricio, Santa Paula y Santa Bárbara (ponlos todos).
 Si hay un solo cliente, devuelve un array con un solo objeto. NO inventes clientes que no estén.
@@ -650,7 +815,7 @@ def interpretar_texto_libre(texto: str, log=print) -> list[dict[str, Any]]:
     for d in datos:
         if not isinstance(d, dict):
             continue
-        d["extras"] = [e for e in (d.get("extras") or []) if e in EXTRAS_VALIDOS]
+        d["extras"] = limpiar_extras(d.get("extras"))
         d["obligatorios"] = [o for o in (d.get("obligatorios") or []) if o in OBLIGATORIOS_VALIDOS]
         _fx = str(d.get("flexibilidad") or "medio").lower().strip()
         d["flexibilidad"] = _fx if _fx in FLEX_VALIDOS else "medio"
@@ -682,9 +847,17 @@ Devuelve ÚNICAMENTE un objeto JSON con SOLO los campos que deben CAMBIAR (omite
   "zona": string, "presupuesto_max": number,
   "area_min": number, "area_max": number,
   "habitaciones_min": number, "habitaciones_max": number, "banos_min": number,
-  "extras": [string],               // lista COMPLETA final, SOLO de: {EXTRAS_VALIDOS}
+  "extras": [string],               // lista COMPLETA final, SOLO de: {EXTRAS_VALIDOS}.
+                                    // Si le sirve CUALQUIERA de dos, van como UN elemento
+                                    // con "o" en medio: "terraza o balcon" (dos elementos
+                                    // sueltos = quiere las dos).
   "obligatorios": [string],         // SOLO de {OBLIGATORIOS_VALIDOS} y SOLO con exigencia
-                                    // explícita ("sí o sí"/"indispensable")
+                                    // explícita ("sí o sí"/"indispensable"). Una
+                                    // característica exigida va en las DOS listas:
+                                    // "ahora necesita terraza o balcón sí o sí" ->
+                                    // extras ["terraza o balcon"] + obligatorios ["extras"]
+                                    // (con el resto de obligatorios que YA tenía, porque
+                                    // esta lista se reemplaza completa).
   "flexibilidad": "estricto"|"medio"|"flexible",
   "prioridad": "alta"|"media"|"baja",
   "notas": string                   // SOLO el texto NUEVO que haya que agregar a las notas
@@ -730,7 +903,7 @@ def interpretar_edicion(texto: str, cliente: dict[str, Any]) -> dict[str, Any]:
         return {}
     # Normalización defensiva (mismas listas cerradas de siempre).
     if "extras" in cambios:
-        cambios["extras"] = [e for e in (cambios.get("extras") or []) if e in EXTRAS_VALIDOS]
+        cambios["extras"] = limpiar_extras(cambios.get("extras"))
     if "obligatorios" in cambios:
         cambios["obligatorios"] = [o for o in (cambios.get("obligatorios") or [])
                                    if o in OBLIGATORIOS_VALIDOS]
@@ -770,17 +943,36 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin texto extra), con estas claves:
                           // que rechazó. SOLO de esta lista: {EXTRAS_VALIDOS}.
                           // Ej: rechazó "sin parqueadero" -> ["parqueadero"]; rechazó
                           // "viejo/para remodelar" -> ["remodelado"].
+                          // Si le sirve CUALQUIERA de dos, ponlas como UN elemento con "o"
+                          // en medio ("terraza o balcon"): dos elementos sueltos le exigen
+                          // las dos y le esconden inmuebles que sí le servían.
 }}
 Reglas: incluye solo lo que se deduzca claramente. Si no hay nada claro, usa listas vacías.
 """
 
 
-SYSTEM_AFINACION = """Eres un asistente inmobiliario experto en la geografía de Bogotá, Colombia.
-El broker está revisando las coincidencias de un cliente y da una instrucción para LIMPIAR
-(anular) los inmuebles que NO cumplen.
+SYSTEM_AFINACION = f"""Eres un asistente inmobiliario experto en la geografía de Bogotá, Colombia.
+El broker está revisando las coincidencias de un cliente y da una instrucción. Casi siempre es
+para LIMPIAR (anular) los inmuebles que NO cumplen, pero también puede ser para AGREGARLE al
+cliente un requisito que faltaba ("súbele que necesita terraza sí o sí").
 
 Devuelve ÚNICAMENTE un objeto JSON válido (sin texto extra, sin ```), con estas claves:
-{
+{{
+  "agregar_extras": [string],   // características que el cliente SÍ debe tener y que hay que
+                                // SUMARLE a su ficha. SOLO de: {EXTRAS_VALIDOS}.
+                                // "que siempre tenga parqueadero" -> ["parqueadero"];
+                                // "necesita terraza o balcón" -> ["terraza o balcon"] (UN solo
+                                // elemento con "o" en medio cuando le sirve CUALQUIERA de las
+                                // dos; dos elementos sueltos le exigirían las dos).
+                                // Se SUMA a lo que ya tenía: nunca le quita extras.
+  "obligatorios": [string],     // qué de eso es NO NEGOCIABLE. SOLO de: {OBLIGATORIOS_VALIDOS}.
+                                // Llénalo solo con exigencia explícita ("sí o sí",
+                                // "indispensable", "obligatorio", "no me muestres nada sin…").
+                                // Una característica exigida va en las DOS listas:
+                                // "necesita terraza sí o sí" -> agregar_extras ["terraza"] +
+                                // obligatorios ["extras"]. OJO: marcar algo aquí DESCARTA los
+                                // avisos que digan que no lo cumplen, así que si el broker solo
+                                // dice "ojalá"/"preferible", deja esta lista VACÍA.
   "excluir_barrios": [string],  // barrios/sectores a EXCLUIR por completo. Si el broker pone un
                                 // límite geográfico, EXPÁNDELO a los barrios reales que quedan
                                 // FUERA. En Bogotá, a MAYOR número de calle = más al NORTE.
@@ -791,7 +983,7 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin texto extra, sin ```), con esta
                                 // "solo del Chicó hacia el sur" -> excluye lo que esté al norte.
   "excluir_palabras": [string], // frases que, si aparecen en el aviso, lo anulan por completo
                                 // (ej. "primer piso", "para remodelar", "remate", "permuta").
-  "limites": {                  // TOPES numéricos que anulan lo que se pase. null si no aplica.
+  "limites": {{                  // TOPES numéricos que anulan lo que se pase. null si no aplica.
     "area_max": number|null,    // "nada por encima de 160 m2" / "máx 160 metros" -> 160
     "area_min": number|null,    // "mínimo 80 m2" / "nada menor a 80" -> 80
     "precio_max": number|null,  // tope de precio en pesos COP. "que no pase de 1.800 millones"
@@ -803,13 +995,13 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin texto extra, sin ```), con esta
                                 // -> pocos años (ej. 5); "máximo 6 años de construido" -> 6;
                                 // "nada viejo" -> ~10. Interpreta la INTENCIÓN aunque venga con
                                 // doble negación ("no quiere nada que no sea nuevo" = quiere nuevo).
-  },
+  }},
   "tipo": "apartamento"|"casa"|"apartaestudio"|"penthouse"|"local"|"oficina"|null,
                                 // tipo de inmueble que SÍ busca, si el broker lo aclara.
                                 // "solo apartamentos"/"nada de casas" -> "apartamento";
                                 // "solo casas" -> "casa". null si no lo menciona.
   "resumen": string            // frase corta en español de lo que entendiste y vas a anular.
-}
+}}
 Si el broker DESCARTA un inmueble de referencia por ser "muy grande/pequeño/caro/barato", usa
 los datos de ese inmueble como límite, pero PON EL TOPE UN POCO POR DENTRO para que ese mismo
 inmueble y los similares queden fuera. Ej: descartó uno de 300 m² por muy grande -> area_max 290;
@@ -827,8 +1019,8 @@ contexto), ni el nombre de la localidad que contiene sus barrios (si pide Chicó
 barrios ESPECÍFICOS que el broker rechaza.
 Si el motivo del descarte NO habla de los gustos del cliente sino de un hecho del AVISO
 ("está repetido", "duplicado", "es el mismo de otro broker", "ya se lo envié", "ya está
-vendido/arrendado", "ya no está disponible"), NO crees NINGÚN filtro: devuelve listas vacías,
-límites en null y tipo null.
+vendido/arrendado", "ya no está disponible"), NO crees NINGÚN filtro: devuelve TODAS las listas
+vacías (incluidas "agregar_extras" y "obligatorios"), límites en null y tipo null.
 Cifras aproximadas NO son topes exactos: "alrededor de/unos/cerca de X m²" -> area_min = 0.8*X
 (ej. "busca algo alrededor de los 250 metros" -> area_min 200, jamás 240 ni 250). Solo usa la
 cifra tal cual si el broker dice "mínimo X" o "nada menor a X".
@@ -841,8 +1033,19 @@ barrios que no existan. Usa nombres reales de barrios de Bogotá.
 
 
 def interpretar_afinacion(comentario: str, cliente: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Convierte una instrucción del broker en filtros DUROS (barrios/palabras a anular)."""
-    vacio = {"excluir_barrios": [], "excluir_palabras": [], "limites": {}, "tipo": None, "resumen": ""}
+    """Convierte una instrucción del broker en filtros DUROS y en requisitos NUEVOS.
+
+    Dos direcciones, no una:
+      · quitar  -> excluir_barrios / excluir_palabras / limites / tipo
+      · agregar -> agregar_extras / obligatorios
+
+    La segunda se abrió el 2026-09-14: hasta ese día la afinación solo sabía
+    EXCLUIR, así que "súbele que necesita terraza sí o sí" no tenía a dónde ir y
+    el broker tenía que abrir la ficha y marcarlo a mano (o, como pasó con
+    Rodolfo Velázquez, escribirlo en las notas y que nadie se enterara).
+    """
+    vacio = {"excluir_barrios": [], "excluir_palabras": [], "limites": {}, "tipo": None,
+             "agregar_extras": [], "obligatorios": [], "resumen": ""}
     if not config.ANTHROPIC_API_KEY or not (comentario or "").strip():
         return vacio
     contexto = ""
@@ -879,11 +1082,23 @@ def interpretar_afinacion(comentario: str, cliente: dict[str, Any] | None = None
                 "banos_min", "antiguedad_max")}
     limites = {k: v for k, v in limites.items() if v is not None}
     tipo = str(datos.get("tipo") or "").lower().strip() or None
+    # Los extras nuevos pasan por el mismo limpiador de siempre, así que aquí
+    # también sirve "terraza o balcon" y se descarta lo que el motor no conoce
+    # (una "piscina" inventada se iría a la basura en vez de volverse un
+    # requisito imposible que nadie cumple).
+    agregar_extras = limpiar_extras(datos.get("agregar_extras"))
+    obligatorios = [o for o in (datos.get("obligatorios") or []) if o in OBLIGATORIOS_VALIDOS]
+    # "extras" como obligatorio sin ningún extra que exigir no filtra nada: o lo
+    # trae esta misma instrucción, o ya estaba en la ficha del cliente.
+    if "extras" in obligatorios and not agregar_extras and not (cliente or {}).get("extras"):
+        obligatorios = [o for o in obligatorios if o != "extras"]
     return {
         "excluir_barrios": [str(b).strip() for b in datos.get("excluir_barrios", []) if str(b).strip()][:30],
         "excluir_palabras": [str(p).lower().strip() for p in datos.get("excluir_palabras", []) if str(p).strip()][:15],
         "limites": limites,
         "tipo": tipo,
+        "agregar_extras": agregar_extras,
+        "obligatorios": obligatorios,
         "resumen": str(datos.get("resumen") or "").strip(),
     }
 
@@ -909,5 +1124,5 @@ def aprender_preferencias(observaciones: list[str]) -> dict[str, Any]:
         return {"palabras": [], "extras": []}
     return {
         "palabras": [str(p).lower().strip() for p in datos.get("palabras", []) if str(p).strip()][:8],
-        "extras": [e for e in (datos.get("extras") or []) if e in EXTRAS_VALIDOS],
+        "extras": limpiar_extras(datos.get("extras")),
     }

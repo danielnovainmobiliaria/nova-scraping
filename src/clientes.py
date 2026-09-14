@@ -13,7 +13,7 @@ from typing import Any
 
 import pandas as pd
 
-from . import db
+from . import db, matcher
 
 # Los clientes se guardan en la base de datos (db.py), que puede ser local
 # (SQLite) o en la nube (Postgres), para que no se pierdan al reiniciar.
@@ -340,6 +340,88 @@ def agregar_exclusiones(nombre: str, barrios=None, palabras=None, limites=None, 
                 exc["tipo"] = tipo
             c["exclusiones"] = exc
     guardar_lista(lista)
+
+
+def fusionar_requisitos(c: dict, extras=None, obligatorios=None) -> list[str]:
+    """Suma requisitos POSITIVOS sobre un cliente EN MEMORIA y devuelve los que NO quedaron exigidos.
+
+    El gemelo de agregar_exclusiones, para el otro lado de la afinación. Hasta el
+    2026-09-14 el broker solo podía decirle al robot qué QUITAR; para "súbele que
+    necesita terraza sí o sí" tocaba abrir la ficha y marcarlo a mano, y si lo
+    escribía en las notas no pasaba nada: las notas son texto muerto para el motor
+    (eso fue justo lo de Rodolfo Velázquez, que pidió terraza o balcón OBLIGATORIO
+    en sus notas y el cruce nunca se enteró).
+
+    SIEMPRE suma, nunca quita: un requisito que ya estaba marcado no se puede
+    perder porque una afinación posterior no lo vuelva a mencionar.
+
+    LO QUE NO PUEDE HACER, y por eso las dos guardas de abajo: marcar "extras"
+    como obligatorio NO exige el extra que el broker acaba de nombrar, exige
+    TODOS los extras duros de la ficha a la vez (matcher._falla_obligatorio los
+    recorre completos). Los extras, en cambio, casi siempre entraron como
+    DESEOS: la IA mete en esa lista todo lo que el cliente mencionó.
+
+    Medido sobre los 2.551 avisos vivos y las fichas reales de hoy, prender el
+    filtro sin mirar lo que arrastra la ficha es demoledor:
+      · Juan Camilo Mora  (terraza+parqueadero+remodelado+family_room) →    8 avisos (0,3%)
+      · Daniella Villalba (terraza+remodelado)                         →   67 avisos (2,6%)
+      · Edwin Cabrera     (terraza o balcón+jardín)                    →   81 avisos (3,2%)
+      · María Benavides   (remodelado+parqueadero)                     →  133 avisos (5,2%)
+      · Jaime Guerrero    (cuarto_servicio+terraza+estudio)            →  136 avisos (5,3%)
+    Un "súbele que necesita terraza sí o sí" dejaría a Juan Camilo Mora en 8
+    avisos exigiéndole un family room que él nunca puso como condición. Esa es
+    justo la regla de Daniel al revés: descartar por algo que nadie dijo.
+
+    Devuelve la lista de extras que quedaron SIN exigir para que quien llame lo
+    muestre; se aplican igual como deseos (suman puntaje), pero no filtran.
+    """
+    extras = [e for e in (extras or []) if str(e).strip()]
+    obligatorios = list(obligatorios or [])
+    if not extras and not obligatorios:
+        return []
+
+    previos = list(c.get("extras") or [])
+    # Los extras SUAVES ("exterior", "iluminado") nunca descartan —matcher los
+    # deja pasar con advertencia—, así que no entran en esta cuenta.
+    duro = lambda e: not matcher.es_extra_suave(e)  # noqa: E731
+    duros_nuevos = [e for e in extras if e not in previos and duro(e)]
+    duros_previos = [e for e in previos if e not in extras and duro(e)]
+    ya_exigia = "extras" in (c.get("obligatorios") or [])
+    pendientes: list[str] = []
+
+    # Guarda 1 — el filtro YA estaba prendido. Un extra nuevo que llega como
+    # DESEO ("súbele que ojalá tenga jardín") se volvería no negociable solo por
+    # caer en la misma lista. A Rodolfo, que ya exige terraza o balcón, un
+    # "jardín" de regalo lo bajaría a los 102 avisos que lo mencionan (4,0%).
+    if ya_exigia and "extras" not in obligatorios and duros_nuevos:
+        pendientes += duros_nuevos
+        extras = [e for e in extras if e not in duros_nuevos]
+
+    # Guarda 2 — se pide prender el filtro, pero la ficha arrastra deseos que
+    # nadie exigió. Prenderlo los convierte a TODOS en condición. Se suman los
+    # extras (que sumen puntaje, para eso los pidió) y el candado se deja para
+    # que el broker lo ponga a mano viendo qué se lleva por delante.
+    if "extras" in obligatorios and not ya_exigia and duros_previos:
+        obligatorios = [o for o in obligatorios if o != "extras"]
+        pendientes += [e for e in extras if duro(e)]
+
+    # dict.fromkeys = quita repetidos conservando el orden en que se pidieron.
+    if extras:
+        c["extras"] = list(dict.fromkeys(previos + extras))
+    if obligatorios:
+        c["obligatorios"] = list(dict.fromkeys((c.get("obligatorios") or []) + obligatorios))
+    return list(dict.fromkeys(pendientes))
+
+
+def agregar_requisitos(nombre: str, extras=None, obligatorios=None) -> list[str]:
+    """fusionar_requisitos sobre la ficha guardada. Devuelve lo que quedó sin exigir."""
+    pendientes: list[str] = []
+    lista = cargar_guardados()
+    for c in lista:
+        if c.get("nombre", "").lower() == nombre.lower():
+            pendientes = fusionar_requisitos(c, extras, obligatorios)
+    guardar_lista(lista)
+    return pendientes
 
 
 def limpiar_exclusiones(nombre: str) -> None:

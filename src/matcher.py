@@ -138,6 +138,117 @@ def _alternativas(extra: str) -> set[str]:
     return {t for t in partes if t}
 
 
+# Cómo se escribe DE VERDAD cada extra en los avisos de Bogotá. Nadie escribe
+# "club_house" ni "family_room": escribe "salón comunal" y "estar de TV". Sin
+# esta tabla, releer el caption solo encontraba la palabra clave literal, que
+# es justo la que no aparece nunca.
+#
+# extractor.SINONIMOS_EXTRA es la MISMA tabla, en el idioma del prompt: lo que
+# allá se le enseña a la IA es exactamente lo que acá se busca en el texto.
+# (Vive duplicada por lo mismo que OBLIGATORIOS_VALIDOS más abajo: el motor de
+# cruce no puede importar el extractor, que arrastra la librería `anthropic`.
+# tests/test_extras_vocabulario.py compara las dos listas para que no se
+# separen.)
+#
+# Las tres trampas de abajo salieron de LEER los avisos, no de suponer:
+#  · "zona social" NO es club house. Son 277 avisos y en casi todos es la
+#    sala-comedor del propio apartamento ("amplia zona social", "balcón en la
+#    zona social"). Aceptarla habría inflado club_house de 494 a 673 avisos
+#    con puro falso positivo.
+#  · "patio" NO es jardín. De los 52 avisos que dicen "patio", 29 son "patio
+#    de ropas" o "patio interior" — la zona de lavandería.
+#  · "sala de estar" NO es family room: es la sala. De los 127 avisos con la
+#    palabra "estar", solo sirven "estar de TV" y "estar de alcobas".
+SINONIMOS_EXTRA = {
+    "jardin": ["jardin", "jardines", "antejardin", "jardin privado",
+               "zona verde privada"],
+    "piscina": ["piscina", "piscinas"],
+    "club_house": ["club house", "clubhouse", "salon social", "salon comunal",
+                   "salon de eventos", "zonas humedas"],
+    "gimnasio": ["gimnasio", "gym"],
+    "ascensor": ["ascensor", "ascensores"],
+    "family_room": ["family room", "sala de tv", "salon de tv", "estar de tv",
+                    "estar de alcobas", "sala familiar"],
+    "exterior": ["exterior", "apartamento exterior", "vista exterior"],
+    "iluminado": ["iluminado", "iluminada", "luminoso", "luminosa",
+                  "iluminacion natural", "luz natural", "mucha luz",
+                  "buena luz", "bien iluminado"],
+}
+
+# Extras DESCRIPTIVOS: que el aviso NO los diga no prueba que el inmueble no
+# los tenga. Son la regla de oro de Daniel aplicada al vocabulario — "hay datos
+# que son difíciles de ver en descripciones [...] eso es algo que yo puedo
+# revisar"— frente a "si no tiene terraza y el cliente sí o sí necesita
+# terraza, no debería salir".
+#
+# La diferencia no es de opinión, está medida sobre los 1.475 avisos con
+# descripción de verdad (caption de 400 caracteres o más), contando con los
+# mismos sinónimos de arriba (que es como los cuenta el motor):
+#   · "exterior" lo dicen 422 (28,6%) y "interior" 135 (9,2%): el 63,9% no dice
+#     ni lo uno ni lo otro. Si callar significara "interior", casi dos tercios
+#     del mercado de Chicó y Rosales serían interiores. No lo son.
+#   · "iluminado" lo dicen 448 (30,4%) y "oscuro"/"oscura"/"poca luz"/"sin luz"
+#     lo dice CERO. Un broker jamás escribe que un apartamento es oscuro; que
+#     no diga que es iluminado no es un dato, es silencio.
+# Por eso estos extras SUMAN cuando aparecen y no restan cuando faltan: el
+# aviso sale con una advertencia para que Daniel lo confirme, igual que ya
+# pasa con el piso. Cargarlos como extras normales era catastrófico: medido,
+# Claudia García pasaba de 24 coincidencias a 0 y Ana Alba de 9 a 0.
+EXTRAS_SUAVES = {"exterior", "iluminado"}
+
+
+def _formas_extra(alternativa: str) -> set[str]:
+    """Todas las maneras de escribir una alternativa (su clave + sus sinónimos)."""
+    formas = {alternativa}
+    for clave, sinos in SINONIMOS_EXTRA.items():
+        if alternativa == _norm(clave):
+            formas |= {_norm(x) for x in sinos}
+    return {f for f in formas if f}
+
+
+def es_extra_suave(extra: str) -> bool:
+    """¿Es un extra DESCRIPTIVO (de los que callar no prueba nada)?
+
+    Solo si TODAS sus alternativas lo son: "terraza o exterior" tiene una parte
+    dura (terraza), así que se trata como duro y sí puede restar.
+    """
+    alts = _alternativas(extra)
+    suaves = {_norm(e) for e in EXTRAS_SUAVES}
+    return bool(alts) and alts <= suaves
+
+
+def _con_plurales(forma: str) -> set[str]:
+    """Todas las formas de escribir un sinónimo en singular y en plural.
+
+    En español el plural se le pega a TODAS las palabras del grupo: "salón
+    social" se escribe "salones sociales", no "salón socials". El motor solo
+    probaba a pluralizar el final, así que los sinónimos de dos palabras solo
+    se encontraban en singular.
+
+    Lo que costaba, medido sobre los 2.551 avisos vivos: 14 anuncian el club
+    house del conjunto en plural ("el conjunto cuenta con gym, salones
+    sociales", "2 salones comunales y parqueadero de visitantes") y no los
+    encontraba ninguno. Con Luisa Galindo, que tiene "piscina o club_house"
+    como OBLIGATORIO, perder un aviso no es perderle puntos: es que no
+    aparece — justo lo que Daniel no quiere que pase con lo que el aviso SÍ
+    dice.
+    """
+    palabras = forma.split()
+    if not palabras:
+        return set()
+    # Solo el singular completo y el plural completo. Las mezclas ("salones
+    # social") no las escribe nadie, y probar todas las combinaciones
+    # multiplicaría las búsquedas por aviso sin ganar un solo caso.
+    # Las palabras de 1 o 2 letras se dejan quietas: son conectores ("de") o
+    # siglas ("tv"), que en plural no cambian.
+    plural = " ".join(p + ("s" if p[-1:] in "aeiou" else "es") if len(p) > 2 else p
+                      for p in palabras)
+    # El plural de la última palabra también, y no por simetría: 3 avisos dicen
+    # "family rooms" (en inglés solo se pluraliza el final), y la regla española
+    # de arriba los perdía.
+    return {forma, forma + "s", forma + "es", plural}
+
+
 def _extra_cumplido(extra: str, post: dict[str, Any]) -> bool:
     """¿El aviso trae ALGUNA de las alternativas de este extra?
 
@@ -148,20 +259,31 @@ def _extra_cumplido(extra: str, post: dict[str, Any]) -> bool:
     balcón en 10 casos que el texto sí mencionaba ("terraza bbq", "balcones
     amplios"). Sin este respaldo, esos 10 se perderían sin que nadie se entere.
 
+    Desde el mismo día la relectura usa SINONIMOS_EXTRA, y por eso ahora
+    funciona con el vocabulario nuevo: los 2.551 avisos vivos se leyeron ANTES
+    de que existieran "piscina" o "club_house", así que su lista `extras` jamás
+    los va a traer. Todo lo que encuentra de ellos sale de esta relectura del
+    caption — que es la razón por la que no hay que reprocesar nada.
+
     Usa _menciona_de_verdad, así que "sin terraza" no cuenta como terraza.
     """
     post_norm = {_norm(e) for e in (post.get("extras") or [])}
-    alternativas = _alternativas(extra)
-    if alternativas & post_norm:
+    formas: set[str] = set()
+    for alternativa in _alternativas(extra):
+        formas |= _formas_extra(alternativa)
+    if formas & post_norm:
         return True
     texto = _norm(post.get("caption", "")) + " " + _norm(post.get("resumen", ""))
     if not texto.strip():
         return False
-    # Plural incluido: el aviso dice "balcones amplios", no "balcon".
-    for a in alternativas:
-        if len(a) < 4:
+    # Plural incluido: el aviso dice "balcones amplios", no "balcon"; y
+    # "salones sociales", no "salon social".
+    for a in formas:
+        # El piso de 3 deja pasar "gym", que es como la mitad del mercado
+        # escribe gimnasio. Son sinónimos curados a mano, no palabras sueltas.
+        if len(a) < 3:
             continue
-        for forma in (a, a + "s", a + "es"):
+        for forma in _con_plurales(a):
             if _menciona_de_verdad(texto, forma):
                 return True
     return False
@@ -492,8 +614,14 @@ def _falla_obligatorio(cliente: dict[str, Any], post: dict[str, Any]) -> str | N
         # perder dinero". Si lo marcó OBLIGATORIO, obligatorio es: un aviso que
         # no lo menciona no se muestra. Lo que se pierde son avisos mudos que
         # quizá sí lo tenían; lo que se gana es no revisarlos uno por uno.
+        # …pero SOLO con los extras duros. Un extra suave ("exterior",
+        # "iluminado") marcado obligatorio no puede descartar, porque su
+        # ausencia en el texto no es un dato: 0 de 1.475 avisos descriptivos
+        # dicen que un inmueble es oscuro. Descartar por eso sería inventarse
+        # el defecto. Esos van con advertencia y los verifica Daniel.
         falta = [e for e in (cliente.get("extras") or [])
-                 if str(e).strip() and not _extra_cumplido(e, post)]
+                 if str(e).strip() and not es_extra_suave(e)
+                 and not _extra_cumplido(e, post)]
         if falta:
             return "extras: " + ", ".join(falta)
     return None
@@ -613,6 +741,146 @@ _TIPOS_NO_VIVIENDA = {"oficina", "local", "bodega", "consultorio", "lote",
                       "parqueadero", "oficinas", "local comercial"}
 
 
+# ── PERÍMETRO DE CALLES ───────────────────────────────────────────────────
+#
+# Bogotá está en cuadrícula: las CALLES crecen hacia el norte y las CARRERAS
+# hacia el occidente. Por eso media ficha de Daniel tiene el área de búsqueda
+# escrita como dos rangos de números —"calle 60 a la 106", "entre carrera 8 y
+# 10"— y hasta hoy el motor no los leía: 5 clientes tenían su perímetro escrito
+# en las notas y no filtraba nada.
+#
+# CUÁNTO SE PUEDE VERIFICAR (medido el 2026-09-14 sobre los 2.795 avisos):
+#   · 1.055 avisos (38%) traen algo en `direccion`.
+#   · De esos, este lector saca calle o carrera en 926 → 33% del inventario
+#     (36% de los 2.565 que son inmueble).
+#   · Los otros 1.869 no se pueden ubicar en la cuadrícula: o no hay dirección,
+#     o dice "Edificio Prato", "Frente al Gun Club", "CEDRITOS".
+# Con dos tercios del inventario mudo, el perímetro NO puede exigirse siempre.
+# Vale la regla de oro de Daniel: se descarta lo que el aviso DICE que está
+# fuera; lo que no se alcanza a leer sale con advertencia y él lo confirma.
+#
+# SOLO SE LEE EL CAMPO `direccion`, NUNCA EL CAPTION. Medido: de los 1.740
+# avisos sin dirección, solo 14 nombran una calle en el texto, y los 14 la
+# nombran como REFERENCIA, no como domicilio ("cerca a la Calle 140", "conecta
+# con la Calle 26", "a minutos de la Calle 109"). Leer el caption ubicaría un
+# apartamento de Cedritos en la calle 140 y uno de Suba en el aeropuerto.
+#
+# LO QUE ESTE LECTOR NO CUBRE, A PROPÓSITO (todo esto devuelve "no se pudo
+# leer", así que pasa con advertencia en vez de descartarse por error):
+#   · Diagonales y transversales: van en diagonal, no caen en un número de
+#     calle ni de carrera. Son 33 avisos; 29 quedan sin leer y los otros 4 se
+#     aprovechan solo por la vía que cruzan ("Tv 57 con Calle 104B" → calle 104).
+#   · Avenidas con nombre (Boyacá, Suba, NQS, Circunvalar, Autopista): habría
+#     que inventar un mapa de equivalencias y una equivalencia mal puesta
+#     descarta inmuebles buenos. "Avenida Calle 26" y "Avenida Carrera 30" sí
+#     se leen, porque ahí el número viene dicho.
+#   · Las carreras "este" (Cra 1 Este, Cra 4 Este): están al oriente de la
+#     carrera 1, en otra numeración; no se pueden comparar con un rango normal.
+#     La calle de esa misma dirección sí se lee.
+#   · Los perímetros escritos en numeración SUR. Los 5 clientes que lo tienen
+#     buscan en el norte, así que una dirección "Calle 84 Sur" se considera
+#     fuera de un rango de calles del norte (son 29 avisos, todos del sur de
+#     verdad: Usme, Ciudad Bolívar, Madelena, Rafael Uribe).
+_VIA_CALLE = r"(?:avenida calle|av\.? calle|calle|clle|cll|cl|ac)"
+_VIA_CRA = (r"(?:avenida (?:carrera|cra|kra|kr)|av\.? (?:carrera|cra|cr|kr)|"
+            r"carrera|carr|cra|kra|cr|kr|ak)")
+# El número de la vía puede traer letra y "bis": "94A", "127C bis", "74 Bis".
+_NUM_VIA = r"(\d{1,3})\s*(?:[a-h]\b)?\s*(?:bis\b)?"
+_RE_DIR_CALLE = re.compile(r"\b" + _VIA_CALLE + r"\s*" + _NUM_VIA)
+_RE_DIR_CRA = re.compile(r"\b" + _VIA_CRA + r"\s*" + _NUM_VIA)
+# El número que sigue a la vía principal es el de la vía CRUZADA: en
+# "Calle 94 # 11-30" el 11 es la carrera; en "Carrera 8 #170-52" el 170 es la
+# calle. _norm ya borró el '#', así que aquí solo queda el "con" o nada.
+_RE_DIR_CRUCE = re.compile(r"^\s*(?:sur|este)?\s*(?:con|nro|no|n)?\s*(\d{1,3})(?!\d)")
+# Números que existen en Bogotá. Fuera de esto es basura de lectura (un
+# "Cra 159", el "# 00-20" de un edificio) y se trata como dato que no se pudo leer.
+_CALLE_MAX = 300
+_CARRERA_MAX = 130
+
+
+def direccion_del_post(post: dict[str, Any]) -> tuple[int | None, int | None, bool]:
+    """(calle, carrera, es_del_sur) de la dirección del aviso.
+
+    Cada número es None cuando el aviso no permite leerlo, que es el caso
+    NORMAL: dos de cada tres avisos no tienen dirección utilizable. Quien
+    llame decide qué hacer con la ignorancia — y nunca es descartar.
+    """
+    t = _norm(post.get("direccion"))
+    if not t:
+        return None, None, False
+    # El "sur" tiene que ir PEGADO al número de la vía ("calle 84 sur",
+    # "# 39I - 81 Sur", "diagonal 78 bis sur"): es la única marca que descarta
+    # sin haber leído la cuadrícula, así que no puede dispararla el nombre de
+    # un edificio del norte ("Mirador del Sur", "Parque Sur"). Medido: las 29
+    # direcciones con "sur" de los 2.795 avisos la traen pegada al número —las
+    # 29 se siguen detectando— y todas son del sur de verdad (Usme, Ciudad
+    # Bolívar, Madelena, Rafael Uribe).
+    sur = bool(re.search(r"(?:\d\s*[a-z]?|\bbis)\s*sur\b", t))
+    # "Cra 1 Este" está al oriente de la carrera 1: otra numeración, no se compara.
+    hay_este = bool(re.search(r"\beste\b", t))
+
+    mc = _RE_DIR_CALLE.search(t)
+    mk = _RE_DIR_CRA.search(t)
+    calle = int(mc.group(1)) if mc else None
+    carrera = int(mk.group(1)) if mk else None
+    # Un número imposible ("Cra 159", el "# 00-20" de un edificio) delata una
+    # dirección mal escrita: se descarta LA LECTURA ENTERA, porque el número
+    # cruzado que la acompaña tampoco es de fiar.
+    if calle is not None and not (1 <= calle <= _CALLE_MAX):
+        return None, None, sur
+    if carrera is not None and not (1 <= carrera <= _CARRERA_MAX):
+        return None, None, sur
+    # Solo una vía nombrada: el número que viene justo después es el de la cruzada.
+    if mc and not mk:
+        m = _RE_DIR_CRUCE.match(t[mc.end():])
+        carrera = int(m.group(1)) if m else None
+    elif mk and not mc:
+        m = _RE_DIR_CRUCE.match(t[mk.end():])
+        calle = int(m.group(1)) if m else None
+
+    if calle is not None and not (1 <= calle <= _CALLE_MAX):
+        calle = None
+    if carrera is not None and (hay_este or not (1 <= carrera <= _CARRERA_MAX)):
+        carrera = None
+    return calle, carrera, sur
+
+
+def _perimetro(cliente: dict[str, Any]) -> dict[str, Any]:
+    """El perímetro del cliente, esté en la raíz de exclusiones o bajo 'limites'."""
+    exc = cliente.get("exclusiones") or {}
+    per = exc.get("perimetro") or (exc.get("limites") or {}).get("perimetro")
+    return per if isinstance(per, dict) else {}
+
+
+def _fuera_del_perimetro(per: dict[str, Any], post: dict[str, Any]) -> str | None:
+    """Motivo por el que la dirección del aviso queda fuera del perímetro, o None.
+
+    None significa DOS cosas distintas y a propósito: "está dentro" y "no se
+    pudo leer". Las dos se muestran; la segunda sale marcada con advertencia
+    desde evaluar(), porque es una dirección que Daniel confirma en un minuto.
+    """
+    if not per:
+        return None
+    calle, carrera, sur = direccion_del_post(post)
+    c_min, c_max = per.get("calle_min"), per.get("calle_max")
+    k_min, k_max = per.get("carrera_min"), per.get("carrera_max")
+    if (c_min or c_max) and sur:
+        # Los perímetros vienen escritos en numeración del norte; una "Calle 84
+        # Sur" está a media ciudad de distancia, no en la calle 84.
+        return "dirección en el sur de la ciudad (el perímetro es del norte)"
+    if calle is not None:
+        if c_min and calle < c_min:
+            return f"calle {calle} (tu perímetro empieza en la {c_min:g})"
+        if c_max and calle > c_max:
+            return f"calle {calle} (tu perímetro llega hasta la {c_max:g})"
+    if carrera is not None:
+        if k_min and carrera < k_min:
+            return f"carrera {carrera} (tu perímetro empieza en la {k_min:g})"
+        if k_max and carrera > k_max:
+            return f"carrera {carrera} (tu perímetro llega hasta la {k_max:g})"
+    return None
+
+
 def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | None:
     """Filtro DURO por comentarios del broker: barrios o palabras que anulan el inmueble.
 
@@ -674,6 +942,13 @@ def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | Non
                     return f"contiene «{w}» (excluido por ti)"
             elif _menciona_de_verdad(texto_res, nw):
                 return f"contiene «{w}» (excluido por ti)"
+    # Perímetro de calles y carreras ("calle 60 a la 106, entre carrera 8 y 10").
+    # Mismo trato que el piso: descarta SOLO si la dirección se pudo leer y queda
+    # fuera. Se lee en 33% de los avisos; en el otro 67% pasa con advertencia.
+    fuera = _fuera_del_perimetro(_perimetro(cliente), post)
+    if fuera:
+        return f"fuera de tu perímetro: {fuera}"
+
     # Topes numéricos duros pedidos por el broker.
     area = post.get("area_m2")
     if exc.get("area_max") and area and area > exc["area_max"]:
@@ -939,9 +1214,42 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
         else:
             razones_ok.append(f"piso {_p}")
 
+    # Perímetro: lo que quedaba fuera ya se descartó arriba, así que aquí solo
+    # falta decirle si la dirección se pudo verificar o no. Dos de cada tres
+    # avisos no traen dirección utilizable: si no se avisa, él no tiene forma
+    # de saber cuáles revisar a mano.
+    # Se responde EJE POR EJE, solo por los que el cliente puso: decir "dentro
+    # de tu perímetro" por un eje que él no limitó es prometerle una
+    # verificación que nunca se hizo. Pasaba de verdad: a María, que solo tiene
+    # tope de calle (hasta la 95), el aviso "Carrera 106 con Cra 23" —de donde
+    # no se puede leer ninguna calle— le salía como "dentro de tu perímetro
+    # (carrera 106)", y está en Fontibón, a media ciudad de Rosales.
+    _per = _perimetro(cliente)
+    if _per:
+        _calle, _carrera, _ = direccion_del_post(post)
+        _pide_calle = bool(_per.get("calle_min") or _per.get("calle_max"))
+        _pide_cra = bool(_per.get("carrera_min") or _per.get("carrera_max"))
+        _vistos = ([f"calle {_calle}"] if _pide_calle and _calle is not None else []) + \
+                  ([f"carrera {_carrera}"] if _pide_cra and _carrera is not None else [])
+        _faltan = (["la calle"] if _pide_calle and _calle is None else []) + \
+                  (["la carrera"] if _pide_cra and _carrera is None else [])
+        if _vistos:
+            razones_ok.append("dentro de tu perímetro (" + " con ".join(_vistos) + ")")
+        if _faltan:
+            # 2 de cada 3 avisos no traen dirección utilizable: sin este aviso
+            # él no tiene forma de saber cuáles le toca revisar a mano.
+            razones_no.append("⚠️ el aviso no dice " + " ni ".join(_faltan) +
+                              " (no se pudo verificar tu perímetro)")
+
     # ── Extras (peso 15) ─────────────────────────────────────
     extras_cliente = [e for e in (cliente.get("extras") or []) if str(e).strip()]
     extras_post = set(post.get("extras") or [])
+    # Se parten en dos: los DUROS pesan y pueden restar; los SUAVES solo suman.
+    # Sin esta división, agregarle "iluminado" a la ficha de Claudia García la
+    # dejaba en 0 coincidencias (tenía 24), porque pedir un extra y no verlo
+    # cuesta los 15 puntos del bloque MÁS el multiplicador de 0,7 del final.
+    extras_suaves = [e for e in extras_cliente if es_extra_suave(e)]
+    extras_cliente = [e for e in extras_cliente if e not in extras_suaves]
     peso_total += 15
     if extras_cliente:
         presentes = [e for e in extras_cliente if _extra_cumplido(e, post)]
@@ -988,6 +1296,19 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
     if extras_cliente and not presentes:
         score = round(score * 0.7)
         razones_no.append("⚠️ no trae ninguna de las características que pediste")
+
+    # Extras SUAVES: suman un empujón cuando el aviso los dice y no castigan
+    # cuando calla. Es el mismo trato que ya recibe el piso unas líneas arriba
+    # —se muestra avisado— y por la misma razón: Daniel lo confirma en dos
+    # minutos, y descartarlo a ciegas le esconde inmuebles que sí le sirven.
+    if extras_suaves:
+        vistos = [e for e in extras_suaves if _extra_cumplido(e, post)]
+        if vistos:
+            score = min(100, score + 4 * len(vistos))
+            razones_ok.append("el aviso dice: " + ", ".join(sorted(vistos)))
+        for e in extras_suaves:
+            if e not in vistos:
+                razones_no.append(f"⚠️ el aviso no dice si es {e} (confírmalo)")
 
     # Aprendizaje: baja el puntaje si se parece a lo que el cliente ya descartó.
     pen, razones_pref = _ajuste_preferencias(cliente, post)

@@ -419,14 +419,19 @@ def recalcular_preferencias(nombre: str) -> None:
 
 
 def aplicar_exclusiones_de_texto(nombre: str, texto: str, cliente=None) -> dict:
-    """Interpreta un texto (comentario o motivo de descarte) y aplica sus FILTROS DUROS
-    (barrios, palabras, topes numéricos, antigüedad) al cliente. Devuelve lo que entendió.
+    """Interpreta un texto (comentario o motivo de descarte) y lo aplica al cliente.
 
-    Así, lo que el broker escribe al descartar o afinar ANULA inmuebles similares —los
-    actuales y los que lleguen— no solo les baja el puntaje.
+    Dos direcciones: los FILTROS DUROS que anulan (barrios, palabras, topes,
+    antigüedad) y los REQUISITOS que suman ("que siempre tenga parqueadero" ->
+    extras + obligatorios). Devuelve lo que entendió.
+
+    Así, lo que el broker escribe al descartar o afinar ANULA inmuebles similares
+    —los actuales y los que lleguen— no solo les baja el puntaje; y lo que exige
+    queda escrito en la ficha, no perdido en un comentario que el motor no lee.
     """
     vacio = {"excluir_barrios": [], "excluir_palabras": [], "limites": {},
-             "tipo": None, "resumen": ""}
+             "tipo": None, "agregar_extras": [], "obligatorios": [], "sin_exigir": [],
+             "resumen": ""}
     if not config.ANTHROPIC_API_KEY or not (texto or "").strip():
         return vacio
     try:
@@ -436,6 +441,14 @@ def aplicar_exclusiones_de_texto(nombre: str, texto: str, cliente=None) -> dict:
             mod_clientes.agregar_exclusiones(
                 nombre, af["excluir_barrios"], af["excluir_palabras"],
                 af["limites"], af.get("tipo"))
+        if af.get("agregar_extras") or af.get("obligatorios"):
+            # Lo que devuelve son los extras que se sumaron como DESEO y no como
+            # condición, porque exigirlos habría exigido de paso todo lo demás
+            # que el cliente había pedido suelto (ver fusionar_requisitos). Va a
+            # la vista, no a un log: si esto se calla, el broker cree que dejó
+            # puesto un filtro que no existe.
+            af["sin_exigir"] = mod_clientes.agregar_requisitos(
+                nombre, af.get("agregar_extras"), af.get("obligatorios"))
         return af
     except Exception:  # noqa: BLE001
         return {**vacio, "error": True}
@@ -1271,8 +1284,12 @@ with tab_clientes:
                         from src import extractor
                         cambios = extractor.interpretar_edicion(txt_m, cliente_m)
                         af_m = aplicar_exclusiones_de_texto(sel_m, txt_m, cliente_m)
+                    # "No entendí nada" tiene que mirar TODO lo que la afinación
+                    # sabe aplicar; si no, un "súbele que necesita terraza sí o sí"
+                    # se aplicaba de verdad pero la pantalla decía que no entendió.
                     if not cambios and not (af_m.get("excluir_barrios") or
-                                            af_m.get("excluir_palabras") or af_m.get("limites")):
+                                            af_m.get("excluir_palabras") or af_m.get("limites") or
+                                            af_m.get("agregar_extras") or af_m.get("obligatorios")):
                         st.warning("No entendí ningún cambio concreto. Sé más específico "
                                    "(ej: «presupuesto 1.500M», «2 o 3 habitaciones»).")
                     else:
@@ -1299,8 +1316,18 @@ with tab_clientes:
                                     aplicados.append(k)
                         mod_clientes.guardar_lista(lista_g)
                         detalle = ", ".join(dict.fromkeys(aplicados)) or "filtros"
+                        # Lo que se sumó como deseo y NO como condición tiene que
+                        # decirse aquí mismo: si se calla, el broker se queda
+                        # creyendo que dejó un filtro puesto que no existe. (El
+                        # st.rerun de abajo se lleva cualquier st.warning aparte,
+                        # por eso va dentro del mismo mensaje.)
+                        sin_ex = af_m.get("sin_exigir") or []
+                        aviso = ("  ⚠️ " + ", ".join(sin_ex) + " quedó como deseo, no como "
+                                 "condición: exigirlo aquí le exigiría de paso TODOS los "
+                                 "requisitos de la ficha. Márcalo en «Ajuste manual» si "
+                                 "quieres que descarte.") if sin_ex else ""
                         st.success(f"✏️ Cambios aplicados a {cambios.get('nombre', sel_m)}: "
-                                   f"{detalle}. ✅")
+                                   f"{detalle}. ✅{aviso}")
                         refrescar_hoja_clientes()
                         st.rerun()
                 except Exception as e:  # noqa: BLE001
