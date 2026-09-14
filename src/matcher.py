@@ -366,8 +366,17 @@ def _match_ubicacion(cliente: dict[str, Any], post: dict[str, Any]) -> tuple[flo
     zona_post_real = _zona_de(post_barrio) or _norm(post_zona)
     for b in barrios_cliente:
         if _zona_de(b) and _zona_de(b) == zona_post_real:
-            # Zona correcta pero OTRO barrio: se muestra con advertencia, nunca como pleno.
-            return 0.75, f"misma zona ({_zona_de(b)}), otro barrio — verifícalo"
+            # Zona correcta pero OTRO barrio.
+            #
+            # Valía 0.75, y como ubicación pesa 25 sobre 110, equivocarse de
+            # barrio costaba 6 puntos de 100: medido, 402 de 1.189 cruces (34%)
+            # eran de barrios que el cliente no pidió, y llegaban a 94. A Laura
+            # Mojica le pasaba en 105 de sus 135 tarjetas.
+            #
+            # A 0.40 el barrio equivocado cuesta ~15 puntos: sigue saliendo
+            # —a veces el de al lado sirve— pero por debajo de los que sí
+            # coinciden, que es donde debe estar.
+            return 0.40, f"misma zona ({_zona_de(b)}), otro barrio — verifícalo"
 
     # 2) coincidencia por zona pedida (nivel zona: nunca cuenta como barrio exacto)
     if zona_cliente:
@@ -610,6 +619,11 @@ def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | Non
     Devuelve el motivo si el inmueble debe anularse, o None si pasa.
     """
     exc = cliente.get("exclusiones") or {}
+    # Los topes numéricos que aprende la IA desde Brokerap se guardan anidados
+    # bajo "limites", pero aquí se leían en la raíz: NINGUNO se aplicaba. La
+    # tarjeta #1 de Juan Camilo era un edificio de 22 años con su regla en 10.
+    # Se leen de los dos sitios; la raíz manda si están en ambos.
+    exc = {**(exc.get("limites") or {}), **exc}
     barrios_x = _expandir_apodos(exc.get("barrios") or [])
     palabras_x = exc.get("palabras") or []
     if barrios_x:
@@ -737,15 +751,26 @@ def _ajuste_preferencias(cliente: dict[str, Any], post: dict[str, Any]
     texto = _norm(post.get("caption", "")) + " " + _norm(post.get("resumen", ""))
     razones: list[str] = []
     pen = 0
+    # Los barrios que el cliente SÍ pide nunca pueden castigarlo: la IA a veces
+    # aprende "antiguo" de un descarte y eso golpea a "Antiguo Country", que es
+    # justo uno de los barrios pedidos.
+    pedidos = " ".join(_norm(b) for b in (cliente.get("barrios") or []))
     for w in palabras:
         nw = _norm(w)
-        if nw and nw in texto:
+        if not nw or len(nw) < 4:
+            continue
+        if nw in pedidos:
+            continue
+        # _menciona_de_verdad en vez de 'nw in texto': con substring suelto,
+        # "antiguo" pegaba dentro de "Antiguo Country" y "sin terraza" contaba
+        # como terraza. El resto del archivo ya usaba esta función; aquí no.
+        if _menciona_de_verdad(texto, nw):
             pen += 15
             razones.append(f"a este cliente no le gustó algo así: «{w}»")
-    extras_post = set(post.get("extras") or [])
     for ex in req_extras:
-        if ex not in extras_post:
-            pen += 8
+        # Lo aprendido también entiende alternativas y relee el texto del aviso.
+        if not _extra_cumplido(ex, post):
+            pen += 20
             razones.append(f"no menciona {ex} (lo pidió tras descartar otro)")
     return min(pen, 45), razones
 
@@ -791,7 +816,10 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
     # En ARRIENDO el costo real del cliente es canon + administración.
     admin = post.get("administracion") or 0
     precio_total = precio
-    if precio and admin and _inferir_operacion(post) == "arriendo":
+    # El aviso dice "ambos" en 142 casos (5%): ahí manda lo que busca el
+    # CLIENTE, no lo que declare el aviso, o la administración se pierde.
+    busca_arriendo = _op_cliente(cliente.get("operacion", "")) == "arriendo"
+    if precio and admin and (busca_arriendo or _inferir_operacion(post) == "arriendo"):
         precio_total = precio + admin
     peso_total += 30
     if presupuesto and precio:
@@ -815,7 +843,7 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
         razones_no.append("⚠️ el aviso no indica precio (no se pudo verificar presupuesto)")
     else:
         puntaje += 30  # el cliente no puso presupuesto → no penaliza
-    if presupuesto and precio and not admin and _inferir_operacion(post) == "arriendo":
+    if presupuesto and precio and not admin and (busca_arriendo or _inferir_operacion(post) == "arriendo"):
         razones_no.append("sin dato de administración (confírmala)")
 
     # ── Habitaciones (peso 12, EXACTAS por defecto) ──────────
@@ -849,7 +877,11 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
     p_ubi, razon_ubi = _match_ubicacion(cliente, post)
     puntaje += p_ubi * 25
     peso_total += 25
-    (razones_ok if p_ubi >= 0.6 else razones_no).append(razon_ubi)
+    # Solo una coincidencia de barrio de verdad va como razón A FAVOR. Las de
+    # zona (0.40) y las de "ubicación parecida" traen la palabra "verifícalo"
+    # y salían en la columna de lo bueno: 273 de 892 filas del radar decían
+    # "verifícalo" entre las razones a favor.
+    (razones_ok if p_ubi >= 0.85 else razones_no).append(razon_ubi)
     # Si pidió zonas concretas y el inmueble no pega NADA con ellas, es un mal match.
     ubicacion_fallo = bool((cliente.get("barrios") or cliente.get("zona")) and p_ubi < 0.3)
 
@@ -945,6 +977,17 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
     if ubicacion_fallo:
         score = round(score * 0.4)
         razones_no.append("⚠️ fuera de las zonas que pediste")
+
+    # Pidió características y el aviso no trae NI UNA.
+    #
+    # Los pesos suman 110 y el umbral es 80, así que fallar extras por completo
+    # costaba 15 de 110 —unos 13 puntos— y el inmueble salía igual: medido, 177
+    # de 317 tarjetas de clientes que pidieron extras no traían ninguno, y
+    # llegaban a 86. Restar no alcanza cuando lo que falla es justo lo que el
+    # cliente pidió; por eso multiplica, igual que la ubicación.
+    if extras_cliente and not presentes:
+        score = round(score * 0.7)
+        razones_no.append("⚠️ no trae ninguna de las características que pediste")
 
     # Aprendizaje: baja el puntaje si se parece a lo que el cliente ya descartó.
     pen, razones_pref = _ajuste_preferencias(cliente, post)

@@ -36,7 +36,7 @@ class TestUbicacion:
     def test_la_zona_deducida_no_cuenta_como_barrio(self):
         # Virrey está en la zona chapinero, pero no es "Chapinero Alto".
         p, razon = _match_ubicacion(CLI, {"barrio": "VIRREY"})
-        assert p == 0.75
+        assert p == 0.40   # el barrio equivocado cuesta ~15 puntos, no 6
         assert "misma zona" in razon
 
     def test_zona_declarada_generica_no_cuenta_como_barrio(self):
