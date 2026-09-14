@@ -16,10 +16,16 @@ from typing import Any
 from rapidfuzz import fuzz
 
 # Flexibilidad por defecto (se puede ajustar desde la app con un deslizador).
-# 0.20 = margen del 20% definido por Daniel: acepta hasta 20% por encima del
-# presupuesto o por fuera del rango de metraje, con puntaje que baja gradualmente.
-FLEX_PRECIO = 0.20
-FLEX_AREA = 0.20
+#
+# 0.10 desde el 2026-09-14. Estaba en 0.20 y Daniel lo cortó a la mitad:
+# "quiero que la lectura de cada inmueble sea más rigurosa, creo que estamos
+# siendo demasiado flexibles y eso está haciendo que la herramienta no funcione
+# como realmente debe funcionar". Con 20%%, a alguien con techo de 800 millones
+# le salían inmuebles de 930. Medido sobre sus 2.795 posts y 23 clientes: con
+# umbral 80 y estos márgenes las coincidencias bajan de 1.290 a 741 y ningún
+# cliente se queda sin nada.
+FLEX_PRECIO = 0.10
+FLEX_AREA = 0.10
 
 # Piso de presupuesto: margen del 20% hacia ABAJO (0.80 = muestra desde el 80%
 # del presupuesto). Más barato que eso se considera otro segmento y no se muestra.
@@ -112,6 +118,39 @@ def _norm(texto: str | None) -> str:
     for a, b in reemplazos.items():
         t = t.replace(a, b)
     return re.sub(r"[^a-z0-9 ]", " ", t).strip()
+
+
+def _alternativas(extra: str) -> set[str]:
+    """Un extra puede ofrecer ALTERNATIVAS: "terraza o balcón" vale con cualquiera.
+
+    Daniel (2026-09-14): "con rodolfo velazquez es claro que necesita terraza o
+    balcón". Antes extras era una lista plana comparada por intersección, así
+    que no había forma de decir "cualquiera de estas dos" — o se pedían las dos
+    o se pedía una sola y la otra no contaba.
+
+    Se acepta como lo escribe un humano: "terraza o balcón", "terraza/balcón",
+    "terraza|balcón".
+    """
+    # Se separa ANTES de normalizar: _norm borra la barra, y "terraza/balcón"
+    # llegaba convertido en el extra único "terraza balcon".
+    crudo = str(extra or "").replace("/", "|").replace(" o ", "|").replace(" O ", "|")
+    partes = [_norm(t) for t in crudo.split("|")]
+    return {t for t in partes if t}
+
+
+def _extra_cumplido(extra: str, extras_post: set[str]) -> bool:
+    """¿El aviso trae ALGUNA de las alternativas de este extra?"""
+    post_norm = {_norm(e) for e in extras_post}
+    return bool(_alternativas(extra) & post_norm)
+
+
+# Los nombres que son ZONA (localidad), no barrio. Salen del propio mapa de
+# arriba, así que crecen solos cuando alguien agrega un barrio nuevo.
+_NOMBRES_ZONA = set(BARRIO_A_ZONA.values())
+
+
+def _es_nombre_de_zona(texto: str) -> bool:
+    return _norm(texto) in _NOMBRES_ZONA
 
 
 def _zona_de(barrio: str) -> str:
@@ -224,17 +263,33 @@ def _tokens_lugar(texto: str) -> set[str]:
     return {t for t in _norm(texto).split() if len(t) >= 3 and t not in _ZONAS_GENERICAS}
 
 
-def _mismo_lugar(a: str, b: str) -> bool:
-    """¿'a' y 'b' nombran el mismo lugar? Compara por PALABRAS completas.
+def _lista_lugar(texto: str) -> list[str]:
+    """Como _tokens_lugar pero CONSERVANDO EL ORDEN. El orden importa: ver abajo."""
+    return [t for t in _norm(texto).split() if len(t) >= 3 and t not in _ZONAS_GENERICAS]
 
-    'Chicó' vs 'Chicó Reservado' → sí (chico ⊆ {chico, reservado}).
-    'Chía' vs 'Chicó' → no (palabras distintas; antes el fuzzy los confundía).
+
+def _mismo_lugar(a: str, b: str) -> bool:
+    """¿'a' y 'b' nombran el mismo lugar? Uno tiene que EMPEZAR por el otro.
+
+    'Chicó' vs 'Chicó Reservado' → sí (Chicó Reservado es parte del Chicó).
+    'Chía' vs 'Chicó' → no (palabras distintas).
     'Chicó Norte' vs 'Norte' → no ('norte' solo es genérico).
+
+    'Chapinero Alto' vs 'San Luis Chapinero' → NO, y esto es el arreglo del
+    2026-09-14. Antes se comparaban CONJUNTOS: {chapinero} ⊆ {san, luis,
+    chapinero} daba verdadero, y a Rodolfo —que pidió Chapinero Alto— le
+    salían inmuebles de San Luis Chapinero como "barrio coincide". Son barrios
+    distintos que apenas comparten una palabra.
+
+    La regla del prefijo separa las dos cosas: un barrio que ESPECIFICA a otro
+    empieza por él ("Chicó Norte" empieza por "Chicó"); uno que solo lo
+    menciona, no ("San Luis Chapinero" no empieza por "Chapinero").
     """
-    ta, tb = _tokens_lugar(a), _tokens_lugar(b)
-    if not ta or not tb:
+    la, lb = _lista_lugar(a), _lista_lugar(b)
+    if not la or not lb:
         return False
-    return ta <= tb or tb <= ta
+    corto, largo = (la, lb) if len(la) <= len(lb) else (lb, la)
+    return largo[:len(corto)] == corto
 
 
 def _match_ubicacion(cliente: dict[str, Any], post: dict[str, Any]) -> tuple[float, str]:
@@ -248,8 +303,21 @@ def _match_ubicacion(cliente: dict[str, Any], post: dict[str, Any]) -> tuple[flo
     post_barrio = post.get("barrio") or ""
     post_zona = post.get("zona") or ""
     post_dir = post.get("direccion") or ""
+    # OJO CON LO QUE CUENTA COMO BARRIO (arreglo del 2026-09-14):
+    #
+    #  · La zona DEDUCIDA del barrio (_zona_de) ya no entra. Entraba, y la zona
+    #    de Virrey y de Chicó Norte es "chapinero": un cliente que pidió
+    #    "Chapinero Alto" recibía esos inmuebles con puntaje PLENO y el cartel
+    #    "barrio coincide".
+    #  · La zona DECLARADA por el aviso solo entra si no es el nombre de una
+    #    localidad. Los brokers le ponen "Chapinero" a media ciudad —el código
+    #    ya lo advertía más abajo—, pero también usan el campo zona para poner
+    #    un barrio de verdad ("Rosales", "Chicó"), y esos sí deben contar.
+    #
+    # Una zona no es un barrio: el paso 1b de abajo la trata como lo que es
+    # (0.75 y con advertencia).
     candidatos_post = _expandir_apodos(
-        [post_barrio, post_zona, post_dir, _zona_de(post_barrio)])
+        [post_barrio, post_dir] + ([] if _es_nombre_de_zona(post_zona) else [post_zona]))
 
     # 1) ¿coincide algún barrio pedido con lo que dice el post? (palabras completas)
     #    Se revisan TODOS los barrios pedidos ANTES de conformarse con "misma zona".
@@ -383,8 +451,20 @@ def _falla_obligatorio(cliente: dict[str, Any], post: dict[str, Any]) -> str | N
             p_ubi, _ = _match_ubicacion(cliente, post)
             if p_ubi < 0.8:
                 return "barrio/zona"
-    # OJO: "extras" obligatorios NO anulan aquí: que un caption no mencione el
-    # parqueadero no prueba que no exista. Se penaliza fuerte en evaluar() en su lugar.
+    if "extras" in oblig:
+        # ANTES esto no descartaba, solo restaba 25 puntos, con el argumento de
+        # que un caption que no menciona el parqueadero no prueba que no exista.
+        # Daniel lo vio al revés y tiene razón (2026-09-14): "me está mostrando
+        # opciones que no tienen ni lo uno ni lo otro, y peor aun, ni se
+        # mencionan en la descripción [...] para no perder el tiempo y no
+        # perder dinero". Si lo marcó OBLIGATORIO, obligatorio es: un aviso que
+        # no lo menciona no se muestra. Lo que se pierde son avisos mudos que
+        # quizá sí lo tenían; lo que se gana es no revisarlos uno por uno.
+        extras_post = set(post.get("extras") or [])
+        falta = [e for e in (cliente.get("extras") or [])
+                 if str(e).strip() and not _extra_cumplido(e, extras_post)]
+        if falta:
+            return "extras: " + ", ".join(falta)
     return None
 
 
@@ -734,25 +814,21 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
         puntaje += 8
 
     # ── Extras (peso 15) ─────────────────────────────────────
-    extras_cliente = set(cliente.get("extras") or [])
+    extras_cliente = [e for e in (cliente.get("extras") or []) if str(e).strip()]
     extras_post = set(post.get("extras") or [])
     peso_total += 15
     if extras_cliente:
-        presentes = extras_cliente & extras_post
-        faltantes = extras_cliente - extras_post
+        presentes = [e for e in extras_cliente if _extra_cumplido(e, extras_post)]
+        faltantes = [e for e in extras_cliente if e not in presentes]
         puntaje += 15 * (len(presentes) / len(extras_cliente))
         if presentes:
             razones_ok.append("incluye: " + ", ".join(sorted(presentes)))
         if faltantes:
             razones_no.append("no menciona: " + ", ".join(sorted(faltantes)))
-        # Extras marcados como OBLIGATORIOS: castigo fuerte si no se mencionan (no se
-        # anula del todo: que el caption no los liste no prueba que no existan).
-        if faltantes and "extras" in set(cliente.get("obligatorios") or []):
-            pen_extras_oblig = 25
-            razones_no.append("⚠️ no menciona algo OBLIGATORIO ("
-                              + ", ".join(sorted(faltantes)) + ") — confírmalo antes de enviar")
-        else:
-            pen_extras_oblig = 0
+        # Los extras OBLIGATORIOS ya no llegan hasta aquí: los corta
+        # _falla_obligatorio antes de puntuar nada. Esto es solo para los
+        # deseables, que sí restan sin descartar.
+        pen_extras_oblig = 0
     else:
         puntaje += 15
         pen_extras_oblig = 0
