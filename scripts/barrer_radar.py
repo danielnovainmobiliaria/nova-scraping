@@ -1,20 +1,21 @@
-"""Saca del radar las coincidencias cuyo barrio no es de los que pidió el cliente.
+"""Saca del radar lo que ya no cumple, sin esperar a la próxima corrida.
 
-Daniel (2026-09-15): "de una vez haz un barrido con la búsqueda actual, si no
-responde el barrio, borra esos inmuebles".
+Dos motivos para sacar un cruce:
 
-El motor ya quedó estricto (`_match_ubicacion` devuelve negativo cuando el aviso
-dice estar en un barrio conocido que no es de los pedidos), pero eso solo aplica
-a los cruces NUEVOS. Las filas que ya están en la tabla `radar` se calcularon
-con la regla vieja, y ahí siguen hasta la próxima corrida completa del robot.
-Esto las revisa una por una con la regla nueva.
+  · El BARRIO del aviso no es de los que pidió el cliente.
+  · El PUNTAJE quedó por debajo del umbral configurado.
 
-Usa el MISMO `_match_ubicacion` que el motor, no una regla aparte: si mañana la
-regla cambia, este barrido cambia con ella y no hay dos criterios que se
-contradigan.
+Los dos existen por lo mismo: el motor solo decide sobre los cruces NUEVOS, y
+las filas que ya están en la tabla `radar` se calcularon con las reglas de
+antes. Cuando se endurece una regla o se sube el deslizador de "coincidencia
+mínima", lo viejo sigue ahí hasta la próxima corrida completa del robot.
 
-    python3 scripts/barrer_barrio_ajeno.py           # solo informa
-    python3 scripts/barrer_barrio_ajeno.py --borrar  # borra de verdad
+El barrio se juzga con el MISMO `_match_ubicacion` del motor y el umbral se lee
+de la MISMA `config_radar` que usa el robot: no hay un segundo criterio que
+pueda contradecir al primero.
+
+    python3 scripts/barrer_radar.py           # solo informa
+    python3 scripts/barrer_radar.py --borrar  # borra de verdad
 """
 from __future__ import annotations
 
@@ -29,6 +30,7 @@ from sqlalchemy import text  # noqa: E402
 
 from src import db  # noqa: E402
 from src.matcher import _match_ubicacion  # noqa: E402
+from src.radar import _config  # noqa: E402
 
 
 def fichas_por_nombre() -> dict[str, dict[str, Any]]:
@@ -58,7 +60,7 @@ def filas_del_radar() -> list[dict[str, Any]]:
                 except Exception:  # noqa: BLE001 - un json roto no detiene el barrido
                     d = {}
             filas.append({
-                "cliente": cliente, "post_id": post_id, "score": score,
+                "cliente": cliente, "post_id": post_id, "score": score or 0,
                 "post": {
                     "barrio": d.get("barrio") or barrio_radar or "",
                     "zona": d.get("zona") or "",
@@ -73,25 +75,40 @@ def main() -> int:
     fichas = fichas_por_nombre()
     filas = filas_del_radar()
 
+    umbral = _config()["umbral"]
+
     sobran: list[tuple[str, str]] = []
     porque: dict[str, list[str]] = defaultdict(list)
-    sin_ficha = 0
+    por_barrio = por_puntaje = sin_ficha = 0
+    quedan: dict[str, int] = defaultdict(int)
 
     for f in filas:
         cliente = fichas.get(f["cliente"])
         if not cliente:
             sin_ficha += 1
             continue
-        p, razon = _match_ubicacion(cliente, f["post"])
+        p, _razon = _match_ubicacion(cliente, f["post"])
         if p < 0:
             sobran.append((f["cliente"], f["post_id"]))
             porque[f["cliente"]].append(f"{f['post']['barrio']} (score {f['score']})")
+            por_barrio += 1
+        elif f["score"] < umbral:
+            sobran.append((f["cliente"], f["post_id"]))
+            por_puntaje += 1
+        else:
+            quedan[f["cliente"]] += 1
 
     print(f"Cruces en el radar: {len(filas)}")
     if sin_ficha:
         print(f"  ({sin_ficha} sin ficha de cliente: no se tocan)")
-    print(f"Con barrio ajeno:   {len(sobran)}")
+    print(f"  barrio ajeno:        {por_barrio}")
+    print(f"  bajo el umbral ({umbral}%): {por_puntaje}")
+    print(f"  SOBRAN EN TOTAL:     {len(sobran)}   (quedarían {len(filas) - sin_ficha - len(sobran)})")
     print()
+    vacios = [c for c in fichas if c not in quedan and any(f["cliente"] == c for f in filas)]
+    if vacios:
+        print("⚠️  Se quedan SIN NINGUNA coincidencia: " + ", ".join(sorted(vacios)))
+        print()
     for nombre in sorted(porque, key=lambda n: -len(porque[n])):
         pedidos = ", ".join(fichas[nombre].get("barrios") or []) or "(sin barrios)"
         print(f"  {nombre}: {len(porque[nombre])} de sobra")
