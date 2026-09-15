@@ -33,11 +33,41 @@ class TestUbicacion:
         assert p == 1.0
         assert "Chicó" in razon and "Chapinero" not in razon  # nombra el barrio CORRECTO
 
-    def test_la_zona_deducida_no_cuenta_como_barrio(self):
-        # Virrey está en la zona chapinero, pero no es "Chapinero Alto".
+    def test_barrio_distinto_se_descarta_aunque_sea_la_misma_zona(self):
+        # Virrey está en la zona chapinero, pero no es ninguno de los pedidos.
+        #
+        # Valió 0.75, luego 0.40 (el barrio equivocado costaba ~15 puntos en vez
+        # de 6). Seguía apareciendo, y descartarlos uno por uno seguía siendo
+        # trabajo de Daniel: "si bien son cerca son barrios diferentes y esto me
+        # hace perder el tiempo" (2026-09-15). Ahora se descarta: negativo.
         p, razon = _match_ubicacion(CLI, {"barrio": "VIRREY"})
-        assert p == 0.40   # el barrio equivocado cuesta ~15 puntos, no 6
-        assert "misma zona" in razon
+        assert p < 0
+        assert "Virrey" in razon or "VIRREY" in razon
+
+    def test_si_no_sabemos_el_barrio_no_se_descarta_a_ciegas(self):
+        # El aviso no dice barrio, o dice uno que no está en nuestro mapa: no hay
+        # nada que verificar, así que no se descarta (pierde puntos, eso sí).
+        assert _match_ubicacion(CLI, {"barrio": ""})[0] == 0.0
+        assert _match_ubicacion(CLI, {"barrio": "Villa Carolina del Sur"})[0] == 0.0
+
+    def test_la_localidad_en_el_aviso_no_es_un_barrio(self):
+        # Caso real (Guillermo Caez, 2026-09-15): un apartamento de Chicó con
+        # score 83 traía zona="Usaquén". Leer eso como "el barrio es Usaquén" lo
+        # descartaba, cuando la localidad no contradice nada — y la dirección
+        # (Calle 92 con Carrera 12) decía Chicó.
+        cli = {"barrios": ["Chicó", "Rosales"]}
+        p, _ = _match_ubicacion(cli, {"barrio": "", "zona": "Usaquén",
+                                      "direccion": "Calle 92 con Carrera 12"})
+        assert p >= 0, "el campo zona nunca descarta: los avisos lo llenan mal"
+        # Ni siquiera cuando dice una localidad que no tiene que ver.
+        p2, _ = _match_ubicacion(cli, {"barrio": "", "zona": "Cota"})
+        assert p2 >= 0
+
+    def test_pedir_la_localidad_es_pedir_la_zona_entera(self):
+        # Escribir "Chapinero" en la casilla de barrios no es pedir un barrio:
+        # es pedir la localidad, y entonces cualquier barrio de adentro sirve.
+        p, razon = _match_ubicacion({"barrios": ["Chapinero"]}, {"barrio": "Rosales"})
+        assert p == 0.85 and "Chapinero" in razon
 
     def test_zona_declarada_generica_no_cuenta_como_barrio(self):
         # El aviso dice zona="Chapinero" (los brokers se lo ponen a media ciudad).
@@ -49,8 +79,10 @@ class TestUbicacion:
         p, razon = _match_ubicacion(CLI, {"barrio": "", "zona": "Rosales"})
         assert p == 1.0 and "Rosales" in razon
 
-    def test_fuera_de_bogota_no_coincide(self):
-        assert _match_ubicacion(CLI, {"barrio": "Cota"})[0] == 0.0
+    def test_fuera_de_bogota_se_descarta(self):
+        # Cota está en nuestro mapa (como su propia zona), así que sabemos que
+        # NO es ninguno de los barrios pedidos: se descarta, no se castiga.
+        assert _match_ubicacion(CLI, {"barrio": "Cota"})[0] < 0
 
 
 class TestExtrasAlternativos:

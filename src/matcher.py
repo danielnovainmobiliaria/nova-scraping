@@ -482,34 +482,76 @@ def _match_ubicacion(cliente: dict[str, Any], post: dict[str, Any]) -> tuple[flo
                 return 1.0, f"barrio coincide: {b}"
             mejor = max(mejor, fuzz.token_sort_ratio(nb, nc) / 100.0)
 
-    # 1b) Ningún barrio exacto: ¿al menos cae en la misma zona REAL?
-    # OJO: la zona real del post sale de NUESTRO mapa de barrios (Santa Bárbara →
-    # Usaquén), no de lo que el aviso declare (a veces le ponen "Chapinero" a todo).
+    # 1b) Ningún barrio pedido coincide. Si SABEMOS en qué barrio está el aviso
+    # y no es de los pedidos, se descarta.
+    #
+    # Daniel (2026-09-15): "si el barrio no responde a los barrios que puse en
+    # cada cliente, no lo muestres, veo que pongo barrios como nogal, cabrera,
+    # virrey y me salen opciones en rosales, si bien son cerca son barrios
+    # diferentes y esto me hace perder el tiempo".
+    #
+    # Antes esto valía 0.40 ("misma zona, otro barrio — verifícalo"). Bajarlo de
+    # 0.75 a 0.40 ya los había hundido en el orden, pero seguían apareciendo, y
+    # el trabajo de descartarlos uno por uno seguía siendo suyo. El barrio es
+    # DATO VERIFICABLE, como la terraza: si el aviso dice en cuál está y no es
+    # el pedido, no hay nada que verificar.
+    #
+    # Se exige reconocerlo en NUESTRO mapa de barrios antes de descartar: si el
+    # aviso trae un nombre que no conocemos, puede ser un alias de uno pedido y
+    # se sigue de largo (abajo lo atrapan la zona o el parecido de escritura).
+    # Un "barrio" pedido que en realidad es el nombre de una localidad
+    # ("Chapinero", "Usaquén") no es un barrio: pedirlo es pedir la zona entera,
+    # y entonces cualquier barrio de adentro sirve.
+    barrios_reales = [b for b in barrios_cliente if not _es_nombre_de_zona(b)]
+    zonas_pedidas = {_norm(b) for b in barrios_cliente if _es_nombre_de_zona(b)}
+    if zona_cliente:
+        zonas_pedidas.add(_norm(zona_cliente))
+    # Las localidades donde caen los barrios pedidos (Santa Bárbara → usaquén).
+    zonas_de_lo_pedido = zonas_pedidas | {_zona_de(b) for b in barrios_cliente if _zona_de(b)}
+
+    # ¿En qué barrio dice el aviso que está, si lo reconocemos?
+    #
+    # Solo se mira el campo BARRIO. El campo `zona` se usa para sumar (si trae un
+    # barrio de verdad, el paso 1 lo aprovecha) pero nunca para descartar: los
+    # avisos lo llenan mal. Caso real: un apartamento de Chicó con score 83
+    # traía zona="Usaquén"; leer eso como "el barrio es Usaquén" lo borraba,
+    # cuando la dirección (Calle 92 con Carrera 12) y el resumen decían Chicó.
+    barrio_post = ""
+    if _norm(post_barrio):
+        if _es_nombre_de_zona(post_barrio):
+            # Es una LOCALIDAD en la casilla del barrio. Solo contradice si es
+            # una localidad distinta de donde están los barrios pedidos:
+            # "Usaquén" habiendo pedido Santa Bárbara no dice nada nuevo;
+            # "Cota" habiendo pedido Rosales es otro municipio.
+            if _norm(post_barrio) not in zonas_de_lo_pedido:
+                barrio_post = post_barrio
+        elif _zona_de(post_barrio):
+            barrio_post = post_barrio
+
+    if barrios_reales and barrio_post and _zona_de(barrio_post) not in zonas_pedidas:
+        return -1.0, f"queda en {barrio_post}, y no es de los barrios que pediste"
+
+    # Cae en la misma zona pero no sabemos el barrio exacto: sigue valiendo poco.
     zona_post_real = _zona_de(post_barrio) or _norm(post_zona)
     for b in barrios_cliente:
         if _zona_de(b) and _zona_de(b) == zona_post_real:
-            # Zona correcta pero OTRO barrio.
-            #
-            # Valía 0.75, y como ubicación pesa 25 sobre 110, equivocarse de
-            # barrio costaba 6 puntos de 100: medido, 402 de 1.189 cruces (34%)
-            # eran de barrios que el cliente no pidió, y llegaban a 94. A Laura
-            # Mojica le pasaba en 105 de sus 135 tarjetas.
-            #
-            # A 0.40 el barrio equivocado cuesta ~15 puntos: sigue saliendo
-            # —a veces el de al lado sirve— pero por debajo de los que sí
-            # coinciden, que es donde debe estar.
             return 0.40, f"misma zona ({_zona_de(b)}), otro barrio — verifícalo"
 
     # 2) coincidencia por zona pedida (nivel zona: nunca cuenta como barrio exacto)
-    if zona_cliente:
-        nz_tokens = _tokens_lugar(zona_cliente) or {_norm(zona_cliente)}
+    #
+    # La zona pedida puede venir por el campo `zona` o escrita en la lista de
+    # barrios ("Chapinero"). Las dos cuentan: escribir la localidad en la
+    # casilla de barrios es pedir la localidad entera, y antes eso daba 0 —
+    # el inmueble salía castigado por estar justo donde se pidió.
+    for z in ([zona_cliente] if zona_cliente else []) + [b for b in barrios_cliente if _es_nombre_de_zona(b)]:
+        nz_tokens = _tokens_lugar(z) or {_norm(z)}
         for c in [_zona_de(post_barrio), post_zona, post_barrio]:
             nc = _norm(c)
-            if nc and (nz_tokens & (_tokens_lugar(nc) or {nc}) or _norm(zona_cliente) == nc):
-                if barrios_cliente:
+            if nc and (nz_tokens & (_tokens_lugar(nc) or {nc}) or _norm(z) == nc):
+                if barrios_reales:
                     # Pidió barrios concretos y solo cuadra la zona general: señal débil.
-                    return 0.5, f"solo coincide la zona general ({zona_cliente}) — barrio distinto"
-                return 0.85, f"zona coincide: {zona_cliente}"
+                    return 0.5, f"solo coincide la zona general ({z}) — barrio distinto"
+                return 0.85, f"zona coincide: {z}"
 
     # 3) Parecido de escritura (typos): umbral alto para no confundir lugares distintos.
     if mejor >= 0.88:
@@ -1150,6 +1192,10 @@ def evaluar(cliente: dict[str, Any], post: dict[str, Any],
 
     # ── Ubicación (peso 25) ──────────────────────────────────
     p_ubi, razon_ubi = _match_ubicacion(cliente, post)
+    # Negativo = el aviso dice estar en un barrio que no es de los pedidos.
+    # Se descarta, igual que un precio fuera del margen.
+    if p_ubi < 0:
+        return None
     puntaje += p_ubi * 25
     peso_total += 25
     # Solo una coincidencia de barrio de verdad va como razón A FAVOR. Las de
