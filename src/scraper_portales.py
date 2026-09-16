@@ -184,6 +184,12 @@ def scrapear_portales(urls: list[str], log=print, max_paginas: int | None = None
                     _guardar_directo(it, fuente)
                 log(f"🆓 @{fuente}: {len(items_fr)} avisos ESTRUCTURADOS por lectura "
                     "directa (sin Apify, sin IA, con fecha real).")
+            elif "somosselecto.com" in u:
+                items_se = portales_directo.leer_selecto(u, log=log)
+                for it in items_se:
+                    _guardar_directo(it, fuente)
+                log(f"🆓 @{fuente}: {len(items_se)} avisos ESTRUCTURADOS por lectura "
+                    "directa (sin Apify, sin IA, con link propio).")
             else:
                 texto = portales_directo.leer_texto_simple(u, log=log)
                 # Se reutiliza EXACTAMENTE la misma tubería de lectura con IA.

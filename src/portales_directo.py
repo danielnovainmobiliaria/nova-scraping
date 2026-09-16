@@ -34,7 +34,8 @@ PAGINAS_FINCARAIZ = 3      # páginas por búsqueda (≈21 avisos c/u); gratis
 
 
 def soporta(url: str) -> bool:
-    return "fincaraiz.com.co" in url or any(d in url for d in DOMINIOS_SIMPLES)
+    return ("fincaraiz.com.co" in url or "somosselecto.com" in url
+            or any(d in url for d in DOMINIOS_SIMPLES))
 
 
 def _bajar(url: str) -> str:
@@ -134,6 +135,126 @@ def leer_fincaraiz(url: str, log=print) -> list[dict]:
                 frescos += 1
         if not frescos:      # página sin nada nuevo → las siguientes menos
             break
+    return items
+
+
+# ── Selecto (somosselecto.com): estructurado desde los atributos del CMS ──
+#
+# Daniel (2026-09-16) pidió agregar somosselecto.com/propiedades. Es un sitio
+# Webflow y trae TODAS sus propiedades en una sola página (63 el día que se
+# agregó, sin paginación), cada campo marcado con fs-list-field="…": precio,
+# administración, alcobas, baños, parqueaderos, área, contrato, ciudad, zona,
+# tipo, amoblamiento, antigüedad y los "ambientes". Se lee de ahí y no por IA:
+# sale gratis, sin errores de lectura y con el LINK de cada inmueble, que el
+# camino de texto plano pierde (a la IA le llega el texto sin los href).
+#
+# El barrio va en el TÍTULO ("Apartamento con balcón en venta, Chico oriental."),
+# no en la zona (ahí ponen la localidad: "Chapinero"). Por eso el barrio se
+# saca del título, y la zona queda como zona.
+
+_RE_TARJETA_SELECTO = re.compile(r'class="item-project w-dyn-item"')
+_RE_CAMPO_SELECTO = re.compile(r'fs-list-field="([^"]+)"[^>]*>([^<]*)<')
+_RE_LINK_SELECTO = re.compile(r'href="(/properties/[^"]+)"')
+_RE_FOTO_SELECTO = re.compile(r'background-image:url\(&quot;([^&]+)&quot;\)')
+
+
+def _num_co(x: str | None) -> float | None:
+    """'6.184.000.000' → 6184000000; '3,5' → 3.5; '' → None."""
+    if not x:
+        return None
+    t = x.strip().replace("$", "").replace(" ", "")
+    if re.fullmatch(r"\d{1,3}(\.\d{3})+", t):
+        t = t.replace(".", "")
+    t = t.replace(",", ".")
+    return _num(t)
+
+
+def _barrio_del_titulo(titulo: str) -> str | None:
+    """'Apartamento con balcón en venta, Chico oriental.' → 'Chico oriental'.
+    'Apartamento a la venta con terraza en VIDERE, Chico Oriental.' → 'Chico Oriental'."""
+    t = titulo.strip().rstrip(".")
+    if "," in t:
+        # "Casa campestre en venta, en La Calera." → "La Calera"
+        cola = re.sub(r"^en\s+", "", t.rsplit(",", 1)[1].strip(), flags=re.I)
+        if 3 <= len(cola) <= 40:
+            return cola
+    m = re.search(r"\ben\s+([A-ZÁÉÍÓÚÑ][\w\sáéíóúñÁÉÍÓÚÑ]{2,40})$", t)
+    return m.group(1).strip() if m else None
+
+
+def _mapear_selecto(tarjeta: str) -> dict[str, Any] | None:
+    campos: dict[str, list[str]] = {}
+    for k, v in _RE_CAMPO_SELECTO.findall(tarjeta):
+        campos.setdefault(k.strip().lower(), []).append(_html.unescape(v).strip())
+
+    def uno(k: str) -> str:
+        return next((v for v in campos.get(k, []) if v), "")
+
+    def ultimo(k: str) -> str:
+        return next((v for v in reversed(campos.get(k, [])) if v and not v.lower().startswith("precio")), "")
+
+    m = _RE_LINK_SELECTO.search(tarjeta)
+    if not m:
+        return None
+    link = "https://www.somosselecto.com" + m.group(1)
+    titulo = uno("nombre")
+    venta = _num_co(uno("precio-venta"))
+    arriendo = _num_co(uno("precio-arriendo"))
+    contrato = uno("contrato").lower()
+    es_arriendo = "arriendo" in contrato or (arriendo and not venta)
+    precio = arriendo if es_arriendo else venta
+    if not precio:
+        return None
+    anti = None
+    tiempo = uno("tiempo").lower()
+    if "estrenar" in tiempo:
+        anti = 0
+    elif (mm := re.search(r"(\d+)\s*a", tiempo)):
+        anti = float(mm.group(1))
+    extras = [e for e in campos.get("ambiente", []) if e]
+    if "penthouse" in (uno("tipo") + " " + titulo).lower():
+        extras.append("penthouse")
+    if "amoblado" in uno("amoblamiento").lower() and "sin" not in uno("amoblamiento").lower():
+        extras.append("amoblado")
+    foto = _RE_FOTO_SELECTO.search(tarjeta)
+    datos = {
+        "es_inmueble": True,
+        "operacion": "arriendo" if es_arriendo else "venta",
+        "tipo": (uno("tipo") or "apartamento").lower(),
+        # El sitio marca con fs-list-field="zona" TAMBIÉN el rótulo "Precio
+        # venta" de la tarjeta; la zona de verdad es el último valor.
+        "barrio": _barrio_del_titulo(titulo), "zona": ultimo("zona") or None,
+        "direccion": None,
+        "area_m2": _num_co(uno("area")),
+        "precio": precio, "administracion": _num_co(uno("administracion")),
+        "habitaciones": _num_co(uno("alcobas")),
+        "banos": _num_co(uno("baños")) or _num_co(uno("banos")),
+        "parqueaderos": _num_co(uno("parqueaderos")),
+        "estrato": None,
+        "antiguedad_anos": anti,
+        "extras": extras,
+        "resumen": titulo[:150],
+        "no_disponible": False,
+        "publicado_hace_dias": None,
+    }
+    return {
+        "url": link,
+        "caption": (titulo + ". " + ", ".join(extras))[:1200],
+        "imagen": _html.unescape(foto.group(1)) if foto else "",
+        "fecha": None,            # Selecto no publica fecha: queda "visto el"
+        "datos": datos,
+    }
+
+
+def leer_selecto(url: str, log=print) -> list[dict]:
+    html_txt = _bajar(url)
+    cortes = [m.start() for m in _RE_TARJETA_SELECTO.finditer(html_txt)] + [len(html_txt)]
+    items: list[dict] = []
+    for a, b in zip(cortes, cortes[1:]):
+        it = _mapear_selecto(html_txt[a:b])
+        if it:
+            items.append(it)
+    log(f"   somosselecto.com: {len(items)} avisos en la página")
     return items
 
 
