@@ -7,6 +7,8 @@ cualquier sitio (Metrocuadrado, Fincaraíz, webs de agencias, etc.).
 """
 from __future__ import annotations
 
+import re
+
 import hashlib
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
@@ -50,6 +52,16 @@ def _paginas_extra(url: str, cuantas: int) -> list[str]:
         return [f"{base}/?page={n}" for n in range(2, 2 + cuantas)]
     if "fincaraiz.com" in url:
         return [f"{base}/pagina{n}" for n in range(2, 2 + cuantas)]
+    # Bela: /busqueda/pagina/1/gestion/venta → se cambia el número de página.
+    if "belainmobiliaria.com" in url and "/pagina/" in url:
+        return [re.sub(r"/pagina/\d+", f"/pagina/{n}", url) for n in range(2, 2 + cuantas)]
+    # Motor tipo Wasi (space, hook, vpandco): la página va en la MISMA consulta,
+    # así que aquí no sirve `base` — partirla por "?" se lleva los filtros y
+    # devolvería la búsqueda entera sin el barrio ni la operación.
+    if "/search?" in url:
+        sin_pagina = re.sub(r"[?&]page=\d+", "", url)
+        union = "&" if "?" in sin_pagina else "?"
+        return [f"{sin_pagina}{union}page={n}" for n in range(2, 2 + cuantas)]
     return []
 
 

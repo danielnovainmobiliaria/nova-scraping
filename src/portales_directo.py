@@ -20,8 +20,16 @@ import requests
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126 Safari/537.36")
 
+# Sitios que renderizan en el servidor: se leen directo y GRATIS, sin Apify.
+#
+# Los tres últimos entraron el 2026-09-15 y comparten motor (el patrón
+# /search?id_city=…&business_type[]=for_sale). Comprobado antes de agregarlos:
+# space devuelve 17 precios en el HTML, hook 15, vpandco 14 — no hace falta
+# JavaScript. `.inmo.co` cubre de una a hook y a vpandco, que ya eran fuentes
+# pero estaban pasando por Apify sin necesidad.
 DOMINIOS_SIMPLES = ("inmobiliariaaldana.com", "debedout.co", "myhome.com.co",
-                    "topliving.com.co")
+                    "topliving.com.co",
+                    "spaceinmobiliaria.com", ".inmo.co", "belainmobiliaria.com")
 PAGINAS_FINCARAIZ = 3      # páginas por búsqueda (≈21 avisos c/u); gratis
 
 
