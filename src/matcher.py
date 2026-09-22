@@ -166,6 +166,18 @@ SINONIMOS_EXTRA = {
     "club_house": ["club house", "clubhouse", "salon social", "salon comunal",
                    "salon de eventos", "zonas humedas"],
     "gimnasio": ["gimnasio", "gym"],
+    # Medido el 2026-09-22 sobre 2.155 avisos con descripción: "parque
+    # infantil" 128, "zona infantil" 55, "salón infantil / de niños" 33,
+    # "juegos infantiles" 19, "zona de niños" 11; y otros 100 dicen "niños"
+    # de otras formas ("parque para niños", "juego de niños"). Nadie escribe
+    # "zona_infantil". Pedido para Carolina Wil (amenities para niños).
+    "zona_infantil": ["zona infantil", "zonas infantiles", "parque infantil",
+                      "parques infantiles", "juegos infantiles",
+                      "juego de ninos", "juegos de ninos", "juegos para ninos",
+                      "parque de ninos", "parque para ninos", "parques para ninos",
+                      "zona de ninos", "zona para ninos", "zonas para ninos",
+                      "salon infantil", "salon de ninos", "ludoteca",
+                      "playground", "kids club", "jardin infantil", "guarderia"],
     "ascensor": ["ascensor", "ascensores"],
     "family_room": ["family room", "sala de tv", "salon de tv", "estar de tv",
                     "estar de alcobas", "sala familiar"],

@@ -47,6 +47,7 @@ EXTRAS_VALIDOS = [
     "piscina",
     "club_house",
     "gimnasio",
+    "zona_infantil",
     "ascensor",
     "family_room",
     "exterior",
@@ -139,6 +140,13 @@ SINONIMOS_EXTRA = {
     "club_house": ["club house", "clubhouse", "salón social", "salón comunal",
                    "salón de eventos", "zonas húmedas"],
     "gimnasio": ["gimnasio", "gym"],
+    "zona_infantil": ["zona infantil", "zonas infantiles", "parque infantil",
+                      "parques infantiles", "juegos infantiles",
+                      "juego de niños", "juegos de niños", "juegos para niños",
+                      "parque de niños", "parque para niños", "parques para niños",
+                      "zona de niños", "zona para niños", "zonas para niños",
+                      "salón infantil", "salón de niños", "ludoteca",
+                      "playground", "kids club", "jardín infantil", "guardería"],
     "ascensor": ["ascensor", "ascensores"],
     "family_room": ["family room", "sala de TV", "salón de TV", "estar de TV",
                     "estar de alcobas", "sala familiar"],
@@ -628,7 +636,7 @@ Reglas de interpretación (mercado bogotano):
 - "cuarto de servicio"/"alcoba de servicio" -> "cuarto_servicio".
 - Extras del cliente, cómo se dicen: "casa con jardín"/"zona verde privada" -> jardin;
   "club house"/"salón social"/"salón comunal"/"zonas húmedas" -> club_house;
-  "family room"/"sala de TV"/"estar de TV" -> family_room; "gimnasio"/"gym" -> gimnasio;
+  "family room"/"sala de TV"/"estar de TV" -> family_room; "gimnasio"/"gym" -> gimnasio; "parque infantil"/"zona de niños"/"ludoteca" -> zona_infantil;
   "exterior" -> exterior; "iluminado"/"buena luz"/"mucha luz"/"luz natural" -> iluminado.
   OJO: "zona social" NO es club_house (es la sala del apartamento) y "patio de ropas"
   NO es jardin (es la lavandería).

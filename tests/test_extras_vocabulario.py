@@ -213,3 +213,21 @@ class TestLasDosTablasNoSeSeparan:
         for palabra in ("piscina", "club_house", "jardin", "exterior",
                         "iluminado", "family_room", "gimnasio", "ascensor"):
             assert palabra in validos, palabra
+
+
+class TestZonaInfantil:
+    """Amenities para niños (Carolina Wil, 2026-09-22). Los avisos dicen
+    "parque infantil" (128), "zona infantil" (55), "salón de niños" (33),
+    "juegos infantiles" (19)... nunca "zona_infantil"."""
+
+    def test_parque_infantil(self):
+        assert _extra_cumplido("zona_infantil", aviso("Conjunto con piscina, gimnasio y parque infantil."))
+
+    def test_parque_para_ninos(self):
+        assert _extra_cumplido("zona_infantil", aviso("El conjunto cuenta con: seguridad 24 horas, parque para niños, teatrino."))
+
+    def test_juego_de_ninos(self):
+        assert _extra_cumplido("zona_infantil", aviso("Áreas de uso social: juego de niños, salón social, piscina."))
+
+    def test_un_apartamento_sin_nada_de_eso_no_cumple(self):
+        assert not _extra_cumplido("zona_infantil", aviso("Apartamento con chimenea, estudio y dos parqueaderos."))
