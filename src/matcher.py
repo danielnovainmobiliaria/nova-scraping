@@ -206,7 +206,14 @@ SINONIMOS_EXTRA = {
 # aviso sale con una advertencia para que Daniel lo confirme, igual que ya
 # pasa con el piso. Cargarlos como extras normales era catastrófico: medido,
 # Claudia García pasaba de 24 coincidencias a 0 y Ana Alba de 9 a 0.
-EXTRAS_SUAVES = {"exterior", "iluminado"}
+# zona_infantil también es suave, por otra razón: es una amenidad del EDIFICIO
+# y los avisos casi nunca enumeran las zonas comunes. Medido con Carolina Wil
+# (2026-09-22): de 34 arriendos que le cuadraban en todo lo demás, UNO
+# mencionaba zona infantil o piscina. Como extra duro la dejaba en cero;
+# como suave le suma cuando el aviso lo dice y, si calla, sale con la
+# advertencia para que Daniel lo confirme, que es lo que él pidió para lo que
+# "es difícil de ver en descripciones".
+EXTRAS_SUAVES = {"exterior", "iluminado", "zona_infantil"}
 
 
 def _formas_extra(alternativa: str) -> set[str]:
