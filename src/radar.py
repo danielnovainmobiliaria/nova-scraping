@@ -101,7 +101,7 @@ def _crear_tabla() -> None:
             pass
 
 
-def publicar_radar(log=print) -> int:
+def publicar_radar(log=print, enriquecer_fichas: bool = True) -> int:
     """Calcula las coincidencias visibles (misma lógica de la pestaña 3) y las
     publica en la tabla `radar`. Devuelve cuántas tarjetas quedaron."""
     _crear_tabla()
@@ -123,10 +123,25 @@ def publicar_radar(log=print) -> int:
     pool = dedup_posts([p for p in posts
                         if p.get("es_inmueble", True) and not matcher.esta_vendido(p)
                         and fresco(p)])
-    resultados = matcher.cruzar(clientes, pool, score_minimo=cfg["umbral"],
-                                flex_precio=cfg["flex_precio"],
-                                flex_area=cfg["flex_area"],
-                                piso_precio=cfg["piso_precio"])
+    def _cruzar(lista):
+        return matcher.cruzar(clientes, lista, score_minimo=cfg["umbral"],
+                              flex_precio=cfg["flex_precio"],
+                              flex_area=cfg["flex_area"],
+                              piso_precio=cfg["piso_precio"])
+    resultados = _cruzar(pool)
+
+    # Ficha completa SOLO de lo que pasó el cruce (ver enriquecer.py): con el
+    # piso, la antigüedad y la descripción larga el cruce se rehace, y lo que
+    # ya no está publicado se cae aquí mismo.
+    if enriquecer_fichas:
+        try:
+            from . import enriquecer
+            candidatos = {id(m["post"]): m["post"] for ms in resultados.values() for m in ms}
+            if enriquecer.enriquecer(list(candidatos.values()), log=log):
+                pool = [p for p in pool if not matcher.esta_vendido(p)]
+                resultados = _cruzar(pool)
+        except Exception as e:  # noqa: BLE001 - la ficha nunca tumba el radar
+            log(f"⚠️ No se pudieron abrir las fichas: {e}")
 
     por_link = {}
     for p in posts:

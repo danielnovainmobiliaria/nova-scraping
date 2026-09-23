@@ -101,10 +101,15 @@ def atender_afinaciones(log=print) -> int:
                 if af.get("error"):
                     pr["afinado"] = False
                     continue
-                if (af["excluir_barrios"] or af["excluir_palabras"] or af["limites"]
-                        or af.get("tipo") or af.get("agregar_extras") or af.get("obligatorios")):
-                    # sobre la copia en memoria; guardar_lista persiste todo junto
-                    _aplicar_afinacion(c, af, log)
+                # Un motivo de descarte YA NO se vuelve filtro duro. Daniel
+                # (2026-09-23): "dejé de ponerlos porque siento que me reducía
+                # ya a demasiadas opciones y mataba todo y no volvía a ver nada
+                # por cada cliente". Tenía razón: "piso bajo" se volvía piso_min
+                # y "para remodelar" antiguedad_max, y cada regla borraba media
+                # base. Lo duro solo nace de la ficha o del cuadro de afinación
+                # (atender_comentarios), que es una instrucción deliberada. El
+                # motivo queda como preferencia SUAVE (abajo) y en `resumen`.
+                del af
                 aprendidos += 1
                 con_motivo_nuevo = True
                 log(f"🧠 {c.get('nombre')}: aprendí del motivo «{obs[:50]}»")
@@ -121,7 +126,7 @@ def atender_afinaciones(log=print) -> int:
     if hubo_cambios:
         mod_clientes.guardar_lista(lista)
     if aprendidos:
-        log(f"🧠 Afinación: {aprendidos} motivo(s) convertidos en filtros.")
+        log(f"🧠 Afinación: {aprendidos} motivo(s) aprendidos como preferencia (ordenan, no descartan).")
     return aprendidos
 
 

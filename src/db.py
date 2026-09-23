@@ -119,6 +119,14 @@ def actualizar_media(post_id: str, media: list) -> None:
         )
 
 
+def actualizar_caption(post_id: str, caption: str) -> None:
+    """La ficha completa del inmueble se pega al caption: el motor relee el
+    texto para terraza, remodelado, vista, CBS (matcher._extra_cumplido)."""
+    with _conn() as con:
+        con.execute(text("UPDATE posts SET caption = :c WHERE id = :id"),
+                    {"c": caption[:6000], "id": post_id})
+
+
 def actualizar_fecha(post_id: str, fecha: str) -> None:
     """Corrige la fecha de un post (ej. cuando el portal sí dice cuándo se publicó)."""
     with _conn() as con:

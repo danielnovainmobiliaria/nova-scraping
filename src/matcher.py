@@ -1075,6 +1075,17 @@ def _falla_exclusion(cliente: dict[str, Any], post: dict[str, Any]) -> str | Non
     return None
 
 
+# Lo aprendido de los descartes ORDENA, no esconde. Eran 15 / 20 con tope 45:
+# con el umbral en 80 y las tarjetas entre 82 y 100, una sola palabra
+# aprendida sacaba la tarjeta de la vista, y dos la mataban. Daniel dejó de
+# poner motivos por eso (2026-09-23). Ahora una palabra baja 6, un extra
+# aprendido 8, y en total nunca más de 15: lo parecido a lo que descartó baja
+# en la lista, pero sigue ahí.
+PEN_PALABRA = 6
+PEN_EXTRA = 8
+PEN_TOPE = 15
+
+
 def _ajuste_preferencias(cliente: dict[str, Any], post: dict[str, Any]
                          ) -> tuple[int, list[str]]:
     """Penaliza inmuebles parecidos a lo que el cliente ya descartó.
@@ -1101,14 +1112,14 @@ def _ajuste_preferencias(cliente: dict[str, Any], post: dict[str, Any]
         # "antiguo" pegaba dentro de "Antiguo Country" y "sin terraza" contaba
         # como terraza. El resto del archivo ya usaba esta función; aquí no.
         if _menciona_de_verdad(texto, nw):
-            pen += 15
+            pen += PEN_PALABRA
             razones.append(f"a este cliente no le gustó algo así: «{w}»")
     for ex in req_extras:
         # Lo aprendido también entiende alternativas y relee el texto del aviso.
         if not _extra_cumplido(ex, post):
-            pen += 20
+            pen += PEN_EXTRA
             razones.append(f"no menciona {ex} (lo pidió tras descartar otro)")
-    return min(pen, 45), razones
+    return min(pen, PEN_TOPE), razones
 
 
 def evaluar(cliente: dict[str, Any], post: dict[str, Any],
