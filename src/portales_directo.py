@@ -28,8 +28,9 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
 # JavaScript. `.inmo.co` cubre de una a hook y a vpandco, que ya eran fuentes
 # pero estaban pasando por Apify sin necesidad.
 DOMINIOS_SIMPLES = ("inmobiliariaaldana.com", "debedout.co", "myhome.com.co",
-                    "topliving.com.co",
+                    "topliving.com.co", "coolhouse.com.co", "muvstudio.com.co", "pads.com.co",
                     "spaceinmobiliaria.com", ".inmo.co", "belainmobiliaria.com")
+PAGINAS_SIMPLES = 2        # páginas por búsqueda en los sitios de lectura directa
 PAGINAS_FINCARAIZ = 3      # páginas por búsqueda (≈21 avisos c/u); gratis
 
 
@@ -357,10 +358,58 @@ def leer_selecto(url: str, log=print) -> list[dict]:
 # ── Sitios simples: HTML → texto para la lectura con IA de siempre ──
 
 _RE_TAGS = re.compile(r"<script.*?</script>|<style.*?</style>|<[^>]+>", re.S)
+_RE_ENLACE = re.compile(r'<a\b[^>]*?href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.S | re.I)
+_RE_ENLACE_SIN_TEXTO = re.compile(r'<a\b[^>]*?href=["\']([^"\']+)["\'][^>]*>', re.I)
+
+
+def _conservar_enlaces(html_txt: str, base: str) -> str:
+    """Deja el link de cada <a> escrito en el texto, al lado de su contenido.
+
+    Daniel (2026-09-23): "en myhome hace rato no me sale uno puntual sino que
+    me muestra como un general de aptos". Pasaba porque el HTML se volvía
+    texto plano SIN los href: la IA leía precio, barrio y metraje pero no
+    tenía de dónde sacar el link, y la tarjeta terminaba apuntando a la
+    página de búsqueda. Con el link junto al aviso, el prompt de portales
+    (que ya pide "url: link directo al inmueble si aparece en el texto") lo
+    devuelve, y la tarjeta abre la ficha del inmueble."""
+    from urllib.parse import urljoin
+
+    def _abs(h: str) -> str:
+        h = _html.unescape(h.strip())
+        if h.startswith(("#", "javascript:", "mailto:", "tel:", "callto:", "wa.me", "whatsapp:")):
+            return ""
+        return urljoin(base, h)
+
+    def _con_texto(m: re.Match) -> str:
+        h = _abs(m.group(1))
+        return f" {m.group(2)} [{h}] " if h else m.group(2)
+
+    texto = _RE_ENLACE.sub(_con_texto, html_txt)
+    return texto
+
+
+def paginas_simples(url: str, cuantas: int = PAGINAS_SIMPLES) -> list[str]:
+    """Páginas 1..N de una búsqueda en los sitios de lectura directa.
+
+    Patrones verificados el 2026-09-23: WordPress/Houzez (coolhouse, debedout,
+    aldana, myhome) paginan con /page/N/; el motor de topliving y bela con
+    /pagina/N/; los Wasi (space, hook, vpandco) con &page=N."""
+    if cuantas <= 1:
+        return [url]
+    if "/pagina/" in url:
+        return [re.sub(r"/pagina/\d+", f"/pagina/{n}", url) for n in range(1, cuantas + 1)]
+    if "/search?" in url:
+        sin = re.sub(r"[?&]page=\d+", "", url)
+        return [url] + [f"{sin}&page={n}" for n in range(2, cuantas + 1)]
+    if any(d in url for d in ("coolhouse.com.co", "debedout.co", "inmobiliariaaldana.com",
+                              "myhome.com.co")) and "?" not in url:
+        base = url.rstrip("/")
+        return [url] + [f"{base}/page/{n}/" for n in range(2, cuantas + 1)]
+    return [url]
 
 
 def leer_texto_simple(url: str, log=print) -> str:
-    html_txt = _bajar(url)
+    html_txt = _conservar_enlaces(_bajar(url), url)
     texto = _RE_TAGS.sub(" ", html_txt)
     texto = _html.unescape(texto)
     texto = re.sub(r"[ \t]{2,}", " ", texto)

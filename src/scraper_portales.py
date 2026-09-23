@@ -223,9 +223,20 @@ def scrapear_portales(urls: list[str], log=print, max_paginas: int | None = None
                 log(f"🆓 @{fuente}: {len(items_se)} avisos ESTRUCTURADOS por lectura "
                     "directa (sin Apify, sin IA, con link propio).")
             else:
-                texto = portales_directo.leer_texto_simple(u, log=log)
-                # Se reutiliza EXACTAMENTE la misma tubería de lectura con IA.
-                _procesar([{"url": u, "markdown": texto}])
+                # Se reutiliza EXACTAMENTE la misma tubería de lectura con IA,
+                # página por página: si la 2 no trae nada, ahí se para.
+                for pagina in portales_directo.paginas_simples(u):
+                    try:
+                        texto = portales_directo.leer_texto_simple(pagina, log=log)
+                    except Exception as e:  # noqa: BLE001
+                        if pagina == u:
+                            raise
+                        log(f"   (sin página siguiente en {fuente}: {e})")
+                        break
+                    antes = nuevos
+                    _procesar([{"url": pagina, "markdown": texto}])
+                    if pagina != u and nuevos == antes:
+                        break
                 log(f"🆓 @{fuente}: leído por conexión directa (sin Apify).")
         except Exception as e:  # noqa: BLE001 - si lo directo falla, Apify lo cubre
             log(f"⚠️ Directo falló para {fuente} ({e}); pasa al lector con navegador.")
