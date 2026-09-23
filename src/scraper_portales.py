@@ -78,6 +78,27 @@ def _fecha_publicacion(d: dict, hoy) -> tuple[str, bool]:
     return hoy.isoformat(), True
 
 
+def _barrios_que_piden_los_clientes() -> tuple[list[str], list[str]]:
+    """(barrios donde piden apartamento, barrios donde piden casa) de las fichas
+    ACTIVAS (sin pausa), sin repetir. Si la lista de clientes falla, vacío."""
+    try:
+        from . import clientes as mod_clientes
+        fichas = [c for c in mod_clientes.cargar_guardados()
+                  if (c.get("estado") or "activo") == "activo" and not c.get("en_pausa")]
+    except Exception:  # noqa: BLE001
+        return [], []
+    from .portales_directo import slug_barrio
+    aptos: dict[str, str] = {}
+    casas: dict[str, str] = {}
+    for c in fichas:
+        destino = casas if "casa" in str(c.get("tipo") or "").lower() else aptos
+        for b in (c.get("barrios") or []):
+            sl = slug_barrio(b)
+            if sl:
+                destino.setdefault(sl, str(b).strip())
+    return list(aptos.values()), list(casas.values())
+
+
 def scrapear_portales(urls: list[str], log=print, max_paginas: int | None = None) -> int:
     """Lee los portales/sitios indicados y guarda los inmuebles encontrados.
 
@@ -184,6 +205,17 @@ def scrapear_portales(urls: list[str], log=print, max_paginas: int | None = None
                     _guardar_directo(it, fuente)
                 log(f"🆓 @{fuente}: {len(items_fr)} avisos ESTRUCTURADOS por lectura "
                     "directa (sin Apify, sin IA, con fecha real).")
+                if portales_directo.es_busqueda_de_toda_bogota(u):
+                    barrios, casas = _barrios_que_piden_los_clientes()
+                    antes = nuevos
+                    extra = portales_directo.leer_fincaraiz_por_barrios(
+                        u, barrios, log=log, casas=casas)
+                    for it in extra:
+                        _guardar_directo(it, fuente)
+                    log(f"🆓 @{fuente}: +{len(extra)} avisos abriendo la búsqueda por los "
+                        f"{len(barrios)} barrios que piden tus clientes"
+                        + (f" y {len(casas)} de casas" if casas else "")
+                        + f" ({nuevos - antes} nuevos).")
             elif "somosselecto.com" in u:
                 items_se = portales_directo.leer_selecto(u, log=log)
                 for it in items_se:

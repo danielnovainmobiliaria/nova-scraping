@@ -117,15 +117,77 @@ def _paginas_de(url: str, cuantas: int) -> list[str]:
     return [url] + [f"{base}/pagina{n}" for n in range(2, cuantas + 1)]
 
 
-def leer_fincaraiz(url: str, log=print) -> list[dict]:
+def es_busqueda_de_toda_bogota(url: str) -> bool:
+    """La búsqueda general de la ciudad (…/bogota/bogota-dc), sin barrio."""
+    return "fincaraiz.com.co" in url and url.rstrip("/").endswith("/bogota/bogota-dc")
+
+
+def slug_barrio(nombre: str) -> str:
+    """'Chicó Navarra' → 'chico-navarra' (así arma Fincaraíz sus rutas)."""
+    t = str(nombre or "").lower().strip()
+    for a, b in {"á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ñ": "n", "ü": "u"}.items():
+        t = t.replace(a, b)
+    t = re.sub(r"[^a-z0-9]+", "-", t).strip("-")
+    return t
+
+
+def busquedas_por_barrio(url_ciudad: str, barrios: list[str],
+                         casas: list[str] = ()) -> list[str]:
+    """La búsqueda de toda Bogotá, abierta barrio por barrio.
+
+    Daniel (2026-09-23): "veo pocos hallazgos [...] siento que radar no está
+    siendo aprovechado al máximo". Medido ese día: la búsqueda general de
+    Fincaraíz trae los avisos más recientes de TODA la ciudad (770 en 30 días),
+    y la mayoría caen en Cedritos, Colina, Salitre… donde ningún cliente busca.
+    De Rosales, que piden 8 clientes, llegaban 37. Fincaraíz tiene una ruta por
+    barrio (…/bogota/rosales) con el mismo JSON, gratis: se abre una por cada
+    barrio que piden los clientes activos, y así el inventario que entra es el
+    de los barrios que importan, no el de la ciudad entera.
+    """
+    base = url_ciudad.rstrip("/")
+    if not base.endswith("/bogota/bogota-dc"):
+        return []
+    raiz = base[: -len("/bogota-dc")]
+    # Un cliente que busca CASA no encuentra nada en una búsqueda de
+    # apartamentos (Edwin Cabrera: casa en arriendo, 0 coincidencias porque
+    # todas las rutas de portal eran de apartamentos). Fincaraíz tiene la misma
+    # ruta con /casas/: se abre por cada barrio donde alguien pide casa.
+    raiz_casas = raiz.replace("/apartamentos/", "/casas/")
+    urls: list[str] = []
+    for lista, r in ((barrios, raiz), (casas, raiz_casas)):
+        for b in lista:
+            sl = slug_barrio(b)
+            if sl and sl != "bogota" and f"{r}/{sl}" not in urls:
+                urls.append(f"{r}/{sl}")
+    return urls
+
+
+def _titulo(html_txt: str) -> str:
+    m = re.search(r"<title>([^<]*)</title>", html_txt, re.S)
+    return m.group(1).strip() if m else ""
+
+
+def titulo_es_de_barrio(titulo: str) -> bool:
+    """Fincaraíz no da 404 por un barrio que no conoce: devuelve la búsqueda de
+    toda la ciudad con título "Apartamentos en Venta en Bogotá, d.c.". Un
+    barrio de verdad se ve en el título: "… en Chico, Bogotá"."""
+    # El ÚLTIMO " en " antes de la coma: "Apartamentos en Venta en Chico, Bogotá".
+    m = re.search(r"(?:.* en )([^,]{2,60}), ", titulo)
+    return bool(m) and slug_barrio(m.group(1)) not in ("bogota", "bogota-d-c")
+
+
+def leer_fincaraiz(url: str, log=print, solo_si_es_barrio: bool = False) -> list[dict]:
     items: list[dict] = []
     vistos: set[str] = set()
     for pagina in _paginas_de(url, PAGINAS_FINCARAIZ):
         try:
-            crudos = _listados_next_data(_bajar(pagina))
+            html_txt = _bajar(pagina)
         except requests.RequestException as e:
             log(f"   ⚠️ {pagina[:60]}: {e}")
             continue
+        if solo_si_es_barrio and pagina == url and not titulo_es_de_barrio(_titulo(html_txt)):
+            return []            # Fincaraíz no conoce ese barrio: devolvió la ciudad entera
+        crudos = _listados_next_data(html_txt)
         frescos = 0
         for e in crudos:
             it = _mapear_fincaraiz(e)
@@ -135,6 +197,40 @@ def leer_fincaraiz(url: str, log=print) -> list[dict]:
                 frescos += 1
         if not frescos:      # página sin nada nuevo → las siguientes menos
             break
+    return items
+
+
+def leer_fincaraiz_por_barrios(url_ciudad: str, barrios: list[str], log=print,
+                               casas: list[str] = ()) -> list[dict]:
+    """Lee la búsqueda de toda Bogotá abierta por cada barrio pedido.
+
+    Devuelve los avisos sin repetir (por link). Los barrios que Fincaraíz no
+    reconoce se saltan en silencio (su ruta devuelve la ciudad entera, que ya
+    se leyó). Van en paralelo de a 4: son ~50 rutas de 3 páginas, gratis."""
+    from concurrent.futures import ThreadPoolExecutor
+    urls = busquedas_por_barrio(url_ciudad, barrios, casas)
+    if not urls:
+        return []
+
+    def _una(u: str) -> tuple[str, list[dict]]:
+        try:
+            return u, leer_fincaraiz(u, log=lambda *_: None, solo_si_es_barrio=True)
+        except Exception as e:  # noqa: BLE001 - un barrio caído no tumba los demás
+            log(f"   ⚠️ {u.rsplit('/', 1)[-1]}: {e}")
+            return u, []
+
+    items: list[dict] = []
+    vistos: set[str] = set()
+    con_avisos: list[str] = []
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for u, lista in pool.map(_una, urls):
+            if lista:
+                con_avisos.append(("🏡 " if "/casas/" in u else "") + u.rsplit("/", 1)[-1])
+            for it in lista:
+                if it["url"] not in vistos:
+                    vistos.add(it["url"])
+                    items.append(it)
+    log(f"   barrios con avisos ({len(con_avisos)}/{len(urls)}): " + ", ".join(con_avisos))
     return items
 
 

@@ -121,14 +121,19 @@ def _correr() -> None:
     portales = config.leer_portales()
     # La VENTA se mueve lento: sus búsquedas corren un día sí, un día no
     # (los arriendos, que vuelan, corren a diario). Ahorra ~la mitad de Apify.
+    # Solo descansan las que CUESTAN (las que van por Apify): Fincaraíz,
+    # Selecto y las webs de lectura directa son gratis, y dejarlas quietas un
+    # día no ahorra nada; solo atrasa un día lo que ya se podía ver.
+    from src import portales_directo
     if date.today().toordinal() % 2:
         descansan = [u for u in portales
-                     if "venta" in u.lower() or "for-sale" in u.lower()]
+                     if ("venta" in u.lower() or "for-sale" in u.lower())
+                     and not portales_directo.soporta(u)]
         if descansan:
-            print(f"↔️ Hoy descansan {len(descansan)} búsqueda(s) de VENTA "
-                  "(corren mañana; los arriendos van a diario).", flush=True)
-            portales = [u for u in portales
-                        if "venta" not in u.lower() and "for-sale" not in u.lower()]
+            print(f"↔️ Hoy descansan {len(descansan)} búsqueda(s) de VENTA por "
+                  "navegador (corren mañana; las gratis y los arriendos van a "
+                  "diario).", flush=True)
+            portales = [u for u in portales if u not in descansan]
     if portales:
         try:
             scraper_portales.scrapear_portales(portales, log=print)

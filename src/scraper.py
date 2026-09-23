@@ -82,6 +82,30 @@ def _grupos_por_corte(cuentas: list[str]) -> list[tuple[str, list[str], bool]]:
 CUARENTENA_DIAS = 3
 
 
+def _clasificar_error(item: dict[str, Any], primera_lectura: bool) -> str:
+    """Qué significa un item de error del actor: "falla" o "sin_novedad".
+
+    El actor devuelve EXACTAMENTE el mismo error —"no_items", "Empty or private
+    data for provided input"— para una cuenta privada y para una cuenta pública
+    que simplemente no publicó nada después del corte pedido. Verificado el
+    2026-09-23 pidiéndole a @mauricioduranrealtor (pública, 9 posts leídos en
+    el mes) solo lo posterior a ese día: "no_items".
+
+    Hasta entonces las dos cosas iban a cuarentena. En una corrida real 13 de 56
+    cuentas "no se dejaron leer": eran cuentas comerciales públicas con una
+    semana sin publicar, y quedaban apagadas 3 días —justo los días en que
+    podían volver a publicar—.
+
+    La diferencia está en el CORTE: a una cuenta que ya se leyó bien antes se le
+    pide solo lo nuevo, y "nada nuevo" es una respuesta normal. A una cuenta
+    que nunca se pudo leer se le pide el mes entero, y ahí "nada" sí huele a
+    privada o restringida.
+    """
+    if item.get("error") == "no_items" and not primera_lectura:
+        return "sin_novedad"
+    return "falla"
+
+
 def _privadas_en_cuarentena() -> tuple[dict, set]:
     """({usuario: fecha_marca}, {usuarios en cuarentena vigente}).
 
@@ -156,11 +180,13 @@ def scrapear_cuentas(cuentas: list[str], log=print) -> int:
             raise RuntimeError("Apify no devolvió resultados. Revisa tu plan o las cuentas.")
         nuevos = 0
         fallidas_grupo: set[str] = set()
+        quietas_grupo: set[str] = set()
         for item in cliente.dataset(run.default_dataset_id).iterate_items():
-            if item.get("error"):  # perfil restringido/privado: Instagram lo bloquea
+            if item.get("error"):
                 u = config._solo_usuario(item.get("inputUrl") or item.get("url") or "")
                 if u:
-                    fallidas_grupo.add(u)
+                    (quietas_grupo if _clasificar_error(item, primera) == "sin_novedad"
+                     else fallidas_grupo).add(u)
                 continue
             post = _normalizar(item)
             if post is None:
@@ -169,8 +195,11 @@ def scrapear_cuentas(cuentas: list[str], log=print) -> int:
                 nuevos += 1
         nuevos_total += nuevos
         fallidas_hoy |= fallidas_grupo
-        leidas_ok |= {c for c in grupo if c not in fallidas_grupo}
-        log(f"   «{etiqueta}»: {nuevos} publicaciones nuevas.")
+        # Las quietas no son ni leídas (su corte no avanza) ni fallidas.
+        leidas_ok |= {c for c in grupo if c not in fallidas_grupo and c not in quietas_grupo}
+        log(f"   «{etiqueta}»: {nuevos} publicaciones nuevas"
+            + (f" · {len(quietas_grupo)} cuenta(s) sin nada nuevo" if quietas_grupo else "")
+            + ".")
 
     # Cuarentena: las fallas de hoy se marcan con fecha; las que leyeron bien SANAN.
     for u in fallidas_hoy:
