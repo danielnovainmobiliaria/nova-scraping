@@ -174,6 +174,7 @@ def enriquecer(posts: list[dict], log=print, max_n: int = MAX_POR_CORRIDA) -> in
 
     se_fueron = 0
     completados = 0
+    sin_credito = False
     with ThreadPoolExecutor(max_workers=HILOS) as pool:
         fichas = list(pool.map(_una, pendientes))
     for p, disponible, datos, texto in fichas:
@@ -188,11 +189,20 @@ def enriquecer(posts: list[dict], log=print, max_n: int = MAX_POR_CORRIDA) -> in
             _guardar(pid, None, {})       # no se pudo abrir: se reintenta en 5 días
             continue
         leido: dict | None = None
-        if texto.strip():
+        if texto.strip() and not sin_credito:
             try:
                 leido = extractor.interpretar_inmueble(texto[:4000])
             except Exception as e:  # noqa: BLE001 - sin IA igual sirve lo estructurado
-                log(f"   ⚠️ IA no leyó la ficha de {pid}: {e}")
+                if extractor.es_error_de_cuenta(e):
+                    # Sin saldo, ninguna ficha se va a leer: se deja de intentar
+                    # y estas NO se marcan como vistas, para reintentarlas cuando
+                    # vuelva el crédito.
+                    sin_credito = True
+                    log("   ⚠️ La IA no tiene crédito: las fichas quedan pendientes.")
+                else:
+                    log(f"   ⚠️ IA no leyó la ficha de {pid}: {e}")
+        if sin_credito and texto.strip() and not datos:
+            continue
         nuevo = fusionar(p, datos, leido, texto)
         p.clear()
         p.update(nuevo)

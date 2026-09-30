@@ -339,6 +339,31 @@ def interpretar_inmueble(texto: str) -> dict[str, Any]:
     return _extraer_uno(client, texto)
 
 
+class SinCreditoIA(RuntimeError):
+    """La cuenta de Anthropic no tiene saldo (o la llave no sirve): ninguna
+    llamada va a funcionar, así que no vale la pena intentar 231 veces."""
+
+
+def es_error_de_cuenta(e: Exception) -> bool:
+    t = str(e).lower()
+    return ("credit balance" in t or "billing" in t or "authentication" in t
+            or "invalid x-api-key" in t or "error code: 401" in t)
+
+
+def _avisar_sin_credito(mensaje: str) -> None:
+    """Deja el aviso en `meta` para que Brokerap lo muestre en el Radar.
+
+    Daniel (2026-09-30): "con las primeras búsquedas salen muchos resultados,
+    pero cuando corro el agente otro día ya muy pocas". La causa era que la
+    cuenta de Anthropic llevaba dos días sin crédito: 231 posts de Instagram
+    entraron y ninguno se leyó, y el robot seguía publicando el Radar como si
+    nada. Un aviso que nadie ve no es un aviso."""
+    from datetime import datetime, timezone
+    from . import db
+    db.guardar_meta("alerta_ia", json.dumps({
+        "cuando": datetime.now(timezone.utc).isoformat(), "mensaje": mensaje[:300]}))
+
+
 def extraer_pendientes(log=print, lote: bool = False) -> int:
     """Procesa todos los posts de la caché que aún no tienen extracción.
 
@@ -361,8 +386,14 @@ def extraer_pendientes(log=print, lote: bool = False) -> int:
 
     if lote and len(pendientes) >= TAM_GRUPO:
         try:
-            return _extraer_por_lote(client, grupos, len(pendientes), log)
+            n = _extraer_por_lote(client, grupos, len(pendientes), log)
+            db.guardar_meta("alerta_ia", "")
+            return n
         except Exception as e:  # noqa: BLE001 - el lote nunca puede costar el día
+            if es_error_de_cuenta(e):
+                _avisar_sin_credito(str(e))
+                raise SinCreditoIA("la cuenta de Anthropic no tiene crédito: "
+                                   f"{len(pendientes)} avisos quedan sin leer") from e
             log(f"⚠️ El modo lote falló ({e}); sigo en modo normal.")
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -385,12 +416,21 @@ def extraer_pendientes(log=print, lote: bool = False) -> int:
                     try:
                         datos = _extraer_uno(client, fila["caption"])
                     except Exception as e:  # noqa: BLE001
+                        if es_error_de_cuenta(e):
+                            # Sin saldo no hay rescate posible: se para aquí y
+                            # se deja el aviso. Lo pendiente se lee al volver.
+                            _avisar_sin_credito(str(e))
+                            pool.shutdown(cancel_futures=True)
+                            raise SinCreditoIA("la cuenta de Anthropic no tiene crédito: "
+                                               f"{len(pendientes) - procesados} avisos quedan sin leer") from e
                         log(f"  ⚠️ No se pudo leer un post de @{fila['cuenta']}: {e}")
                         continue
                 db.guardar_extraccion(fila["id"], datos)
                 procesados += 1
             log(f"Leídos {procesados}/{len(pendientes)} captions…")
     log(f"Listo. Se leyeron {procesados} captions.")
+    if procesados:
+        db.guardar_meta("alerta_ia", "")   # volvió a leer: se apaga el aviso
     return procesados
 
 
