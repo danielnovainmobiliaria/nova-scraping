@@ -350,6 +350,15 @@ def es_error_de_cuenta(e: Exception) -> bool:
             or "invalid x-api-key" in t or "error code: 401" in t)
 
 
+def motivo_de_cuenta(e: Exception) -> str:
+    """En palabras de Daniel: ¿falta saldo o la llave no sirve? Son arreglos
+    distintos (recargar vs. pegar la llave nueva) y el aviso debe decir cuál."""
+    t = str(e).lower()
+    if "credit balance" in t or "billing" in t:
+        return "la cuenta de Anthropic no tiene crédito"
+    return "la llave de Anthropic no es válida (revocada o de otra organización)"
+
+
 def _avisar_sin_credito(mensaje: str) -> None:
     """Deja el aviso en `meta` para que Brokerap lo muestre en el Radar.
 
@@ -392,7 +401,7 @@ def extraer_pendientes(log=print, lote: bool = False) -> int:
         except Exception as e:  # noqa: BLE001 - el lote nunca puede costar el día
             if es_error_de_cuenta(e):
                 _avisar_sin_credito(str(e))
-                raise SinCreditoIA("la cuenta de Anthropic no tiene crédito: "
+                raise SinCreditoIA(motivo_de_cuenta(e) + ": "
                                    f"{len(pendientes)} avisos quedan sin leer") from e
             log(f"⚠️ El modo lote falló ({e}); sigo en modo normal.")
 
@@ -421,7 +430,7 @@ def extraer_pendientes(log=print, lote: bool = False) -> int:
                             # se deja el aviso. Lo pendiente se lee al volver.
                             _avisar_sin_credito(str(e))
                             pool.shutdown(cancel_futures=True)
-                            raise SinCreditoIA("la cuenta de Anthropic no tiene crédito: "
+                            raise SinCreditoIA(motivo_de_cuenta(e) + ": "
                                                f"{len(pendientes) - procesados} avisos quedan sin leer") from e
                         log(f"  ⚠️ No se pudo leer un post de @{fila['cuenta']}: {e}")
                         continue
